@@ -1,0 +1,1096 @@
+// Night Ops: game over. The winners (faces, a trophy, why it ended, the MVP), a replay of everyone's routes on the
+// map (play/pause, a scrubber with the catches and close calls marked, 10x/30x/60x, full screen), the close calls
+// (each with Watch, which jumps the replay to that moment), the scoreboard and the play-by-play. At the bottom:
+// Play again (the host), Chat and Leave. Share sends a plain-text result.
+//
+// Built from view.result and view.summary (CONTRACT.md "Game over"). Older or partial games can lack any part of
+// the summary: each part only shows when its facts are there, and odd data never throws. Names, chat and event
+// texts only ever go in as text.
+//
+// Pure helpers (no DOM, tested in Node): overFacts(view), playerLines(row, facts), shareText(facts), listNames,
+// ticksFor(facts, endS), captionAt(events, clockMs), phaseAt(facts, clockMs), defaultSpeed(endS), facesSig.
+import { h, fill, face, text, cls, listen } from '../dom.js';
+import { icon } from '../ui/icons.js';
+import { banner } from '../ui/banner.js';
+import { openSheet } from '../ui/sheet.js';
+import { createMap, cleanRoute, routeAt, toBounds } from '../map.js';
+import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js';
+import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js';
+
+export const SPEEDS = [10, 30, 60];
+export const CAPTION_MS = 90000;    // the replay's caption shows an event for this long (game time) after it
+export const WATCH_LEAD_S = 20;     // Watch starts the replay this long before the close call
+const MOST_WINNER_FACES = 8;
+const MOST_NAMES = 4;               // more winners than this: "The hiders win!"
+const MOST_CALLS = 10;
+const MOST_ROUTES = 40;
+const MOST_EVENTS = 400;
+const FRAME_CAP_MS = 250;           // after a pause in frames (a hidden tab), the replay never jumps further
+const REASONS = { time: "Time's up", caught: 'Everyone was caught', host: 'The host ended the game' };
+const POWER_ICON = { radar: 'radar', exposure: 'eye', jammer: 'jammer', decoy: 'decoy', sprint: 'sprint' };
+const CALL_ICON = { near: 'users', jammer: 'jammer', ring: 'circle', lastPing: 'radar' };
+const CALL_KIND = { near: 'Close call', jammer: 'Jammer', ring: 'Ring', lastPing: 'Last ping' };
+// When summary.events is missing, the play-by-play falls back to the events this phone saw, of these kinds.
+const PLAY_KINDS = new Set(['start', 'hunt', 'caught', 'power', 'closing', 'over', 'sos', 'resume', 'leave', 'denied']);
+
+// ---- pure helpers ---------------------------------------------------------------------------------------------
+
+const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+const arr = (x) => (Array.isArray(x) ? x : []);
+const isId = (x) => typeof x === 'string' && x.length > 0 && x.length <= 64;
+const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+const nonNeg = (x) => { const n = num(x); return n !== null && n >= 0 ? n : null; };
+const side = (t) => (t === 'hunter' || t === 'hider' ? t : null);
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+function clean(s, most = 200) {
+  if (typeof s !== 'string') return '';
+  const t = s.replace(/\s+/g, ' ').trim();
+  return t.length > most ? `${t.slice(0, most - 3).trimEnd()}...` : t;
+}
+
+// "Ava", "Ava and Noah", "Ava, Leo and Priya".
+export function listNames(names) {
+  const list = arr(names).map((n) => clean(String(n ?? ''), 40)).filter(Boolean);
+  if (list.length <= 1) return list[0] || '';
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+
+function powerName(key) {
+  if (POWERS[key]) return POWERS[key].name;
+  const s = clean(String(key ?? ''), 20);
+  return s ? s[0].toUpperCase() + s.slice(1) : '';
+}
+
+function fromSummary(p, nameOf) {
+  const catches = nonNeg(p.catches);
+  return {
+    id: p.id,
+    name: nameOf(p.id),
+    startTeam: side(p.startTeam),
+    team: side(p.team),
+    status: typeof p.status === 'string' ? p.status : null,
+    caughtBy: isId(p.caughtBy) ? p.caughtBy : null,
+    caughtAt: nonNeg(p.caughtAt),
+    survivedMs: nonNeg(p.survivedMs),
+    catches: catches === null ? null : Math.round(catches),
+    distanceM: nonNeg(p.distanceM),
+    powers: [...new Set(arr(p.powers).filter((x) => typeof x === 'string' && x))].slice(0, 8),
+    partial: false,
+  };
+}
+
+function fromView(p, nameOf) {
+  return {
+    id: p.id,
+    name: nameOf(p.id),
+    startTeam: null,
+    team: side(p.team),
+    status: typeof p.status === 'string' ? p.status : null,
+    caughtBy: isId(p.caughtBy) ? p.caughtBy : null,
+    caughtAt: null,
+    survivedMs: null,
+    catches: null,
+    distanceM: null,
+    powers: [],
+    partial: true,
+  };
+}
+
+// Everything the screen shows, from a view, checked and tidied. Never throws.
+export function overFacts(view) {
+  const v = isObj(view) ? view : {};
+  const sum = isObj(v.summary) ? v.summary : null;
+  const res = isObj(v.result) ? v.result : null;
+  const meId = isObj(v.me) && isId(v.me.id) ? v.me.id : null;
+
+  const names = new Map();
+  const viewPlayers = arr(v.players).filter((p) => isObj(p) && isId(p.id));
+  for (const p of viewPlayers) { const n = clean(p.name, 40); if (n) names.set(p.id, n); }
+  const sumPlayers = sum ? arr(sum.players).filter((p) => isObj(p) && isId(p.id)) : [];
+  for (const p of sumPlayers) { const n = clean(p.name, 40); if (n) names.set(p.id, n); }
+  const nameOf = (id) => names.get(id) || 'Someone';
+
+  const seen = new Set();
+  const once = (p) => (seen.has(p.id) ? false : (seen.add(p.id), true));
+  const rows = sumPlayers.length
+    ? sumPlayers.filter(once).map((p) => fromSummary(p, nameOf))
+    : viewPlayers.filter((p) => p.status !== 'kicked').filter(once).map((p) => fromView(p, nameOf));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  const reason = [sum && sum.reason, res && res.reason].find((r) => typeof r === 'string' && REASONS[r]) || null;
+  const winnerList = sum && Array.isArray(sum.winners) ? sum.winners : res && Array.isArray(res.winners) ? res.winners : [];
+  // (Ids nobody here knows are left out: "Someone wins!" says nothing.)
+  const winners = [...new Set(winnerList.filter(isId))].filter((id) => names.has(id) || byId.has(id));
+  const winnerSet = new Set(winners);
+  let winnerSide = null;
+  if (reason === 'caught') winnerSide = 'hunter';
+  else if (reason === 'time' || reason === 'host') winnerSide = 'hider';
+  else if (winners.length) {
+    let hunters = 0, hiders = 0;
+    for (const id of winners) {
+      const r = byId.get(id);
+      const t = r ? r.startTeam || r.team : null;
+      if (t === 'hunter') hunters += 1; else if (t === 'hider') hiders += 1;
+    }
+    winnerSide = hunters > hiders ? 'hunter' : hiders > hunters ? 'hider' : null;
+  }
+
+  // Settings and timing (only when the view carries settings).
+  let sch = null;
+  if (isObj(v.settings)) {
+    try { sch = schedule(cleanSettings(v.settings)); } catch { sch = null; }
+  }
+  const settings = sch ? cleanSettings(v.settings) : null;
+
+  // Routes: clean points only ([lng, lat, clockSeconds], in time order); players with none are left out.
+  const routes = {};
+  let routeCount = 0;
+  if (sum && isObj(sum.routes)) {
+    for (const [id, pts] of Object.entries(sum.routes)) {
+      if (!isId(id) || routeCount >= MOST_ROUTES) continue;
+      const c = cleanRoute(pts);
+      if (c.length) { routes[id] = c; routeCount += 1; }
+    }
+  }
+
+  // The play-by-play: the summary's, else what this phone saw.
+  let events = [];
+  let eventsFrom = 'none';
+  if (sum && Array.isArray(sum.events)) {
+    events = sum.events
+      .filter((e) => isObj(e) && nonNeg(e.clock) !== null && clean(e.text))
+      .map((e) => ({ clock: e.clock, text: clean(e.text, 300) }));
+    eventsFrom = 'summary';
+  }
+  if (!events.length) {
+    const own = arr(v.events)
+      .filter((e) => isObj(e) && PLAY_KINDS.has(e.kind) && nonNeg(e.clock) !== null && clean(e.text))
+      .map((e) => ({ clock: e.clock, text: clean(e.text, 300) }));
+    if (own.length) { events = own; eventsFrom = 'view'; }
+  }
+  events = events.map((e, i) => ({ ...e, i })).sort((a, b) => a.clock - b.clock || a.i - b.i)
+    .map(({ clock, text: t }) => ({ clock, text: t }));
+  if (events.length > MOST_EVENTS) events = events.slice(events.length - MOST_EVENTS);
+
+  const closeCalls = (sum ? arr(sum.closeCalls) : [])
+    .filter((c) => isObj(c) && clean(c.text))
+    .slice(0, MOST_CALLS)
+    .map((c) => ({
+      kind: typeof c.kind === 'string' && CALL_KIND[c.kind] ? c.kind : 'near',
+      text: clean(c.text, 240),
+      clock: nonNeg(c.clock),
+      ids: arr(c.ids).filter(isId).slice(0, 6),
+    }));
+
+  // The replay's end: the view's clock (the end clock once over), or the latest thing we know of, if later.
+  let endMs = nonNeg(v.clock) || 0;
+  for (const e of events) endMs = Math.max(endMs, e.clock);
+  for (const pts of Object.values(routes)) endMs = Math.max(endMs, pts[pts.length - 1][2] * 1000);
+  for (const r of rows) if (r.caughtAt !== null) endMs = Math.max(endMs, r.caughtAt);
+  for (const c of closeCalls) if (c.clock !== null) endMs = Math.max(endMs, c.clock);
+  const headStartMs = sch ? sch.headStartMs : null;
+  // How long the game was: the view's clock is exact once it's over; the rest is a guess for older games.
+  const gameMs = nonNeg(v.clock) || endMs;
+  const huntMs = headStartMs !== null && gameMs > headStartMs ? gameMs - headStartMs : gameMs;
+
+  // The title.
+  const winnerNames = winners.map(nameOf);
+  let title;
+  if (!winners.length) title = 'Game over';
+  else if (winners.length <= MOST_NAMES) title = `${listNames(winnerNames)} ${winners.length === 1 ? 'wins' : 'win'}!`;
+  else if (winnerSide === 'hunter') title = 'The hunters win!';
+  else if (winnerSide === 'hider') title = 'The hiders win!';
+  else title = `${listNames([...winnerNames.slice(0, 3), `${winners.length - 3} more`])} win!`;
+
+  // The MVP: most catches when the hunters' catches decided it, else the one who covered the most ground.
+  const mvpId = isId(sum && sum.mvp) ? sum.mvp : isId(res && res.mvp) ? res.mvp : null;
+  let mvp = null;
+  if (mvpId) {
+    const r = byId.get(mvpId);
+    const name = nameOf(mvpId);
+    const hunted = r && (r.startTeam === 'hunter' || r.team === 'hunter');
+    if (r && r.catches > 0 && (reason === 'caught' || hunted)) {
+      mvp = { id: mvpId, line: `Most catches: ${name} (${r.catches})`, short: `Most catches: ${name}` };
+    } else if (r && r.distanceM > 0) {
+      mvp = { id: mvpId, line: `Most ground covered: ${name} (${fmtDistance(r.distanceM)})`, short: `Most ground covered: ${name}` };
+    } else if (names.has(mvpId)) {
+      mvp = { id: mvpId, line: `MVP: ${name}`, short: `MVP: ${name}` };
+    }
+  }
+
+  const caught = rows.filter((r) => r.caughtAt !== null || (r.partial && (r.status === 'caught' || r.caughtBy))).length;
+  const hidersStarted = rows.filter((r) => r.startTeam === 'hider').length;
+  const walked = rows.filter((r) => r.distanceM !== null);
+  const totalM = walked.length ? walked.reduce((t, r) => t + r.distanceM, 0) : null;
+
+  return {
+    code: clean(v.code, 12),
+    meId,
+    meHost: !!(isObj(v.me) && v.me.host),
+    nameOf,
+    names,
+    rows,
+    byId,
+    reason,
+    reasonLine: REASONS[reason] || '',
+    winners,
+    winnerSet,
+    winnerSide,
+    meWon: !!meId && winnerSet.has(meId),
+    title,
+    mvp,
+    settings,
+    sch,
+    headStartMs,
+    endMs,
+    huntMs,
+    caught,
+    hidersStarted,
+    totalM,
+    routes,
+    hasRoutes: routeCount > 0,
+    closeCalls,
+    events,
+    eventsFrom,
+    ring: v.ring || null,
+    ringNow: v.ringNow || null,
+    marks: arr(v.marks).filter((m) => isObj(m) && isPoint(m.p)),
+    partial: !sum,
+  };
+}
+
+// The words on one scoreboard row.
+export function playerLines(row, facts) {
+  const nameOf = facts && typeof facts.nameOf === 'function' ? facts.nameOf : () => 'Someone';
+  const started = row.startTeam || (row.partial ? row.team : null);
+  const sideWord = started === 'hunter' ? 'Hunter' : started === 'hider' ? 'Hider' : '';
+  let status = '';
+  if (row.caughtAt !== null) {
+    // (No hunter: the ring caught them, the only catch without one.)
+    const by = row.caughtBy ? `Caught by ${nameOf(row.caughtBy)}` : 'Caught outside the ring';
+    status = `${by}, ${fmtClock(row.caughtAt)}\u00a0in`;
+  } else if (row.partial && (row.status === 'caught' || row.caughtBy)) {
+    status = row.caughtBy ? `Caught by ${nameOf(row.caughtBy)}` : 'Caught';
+  } else if (row.status === 'left') {
+    status = 'Left the game';
+  } else if (started === 'hider' && (!row.partial || row.status === 'in')) {
+    status = 'Never caught';
+  }
+  const stats = [];
+  if (row.catches !== null && (row.catches > 0 || started === 'hunter')) {
+    stats.push(plural(row.catches, 'catch', 'catches'));
+  }
+  if (row.distanceM !== null) stats.push(`${fmtDistance(row.distanceM)} covered`);
+  const powers = row.powers.map((key) => ({ key, name: powerName(key), icon: POWER_ICON[key] || 'sprint' })).filter((p) => p.name);
+  return {
+    sideWord,
+    side: started,
+    status,
+    stats,
+    powers,
+    won: !!(facts && facts.winnerSet && facts.winnerSet.has(row.id)),
+    me: !!(facts && facts.meId === row.id),
+  };
+}
+
+// Winners first; then most catches; then the hider who lasted longest; then as the server listed them.
+export function boardOrder(facts) {
+  const rows = facts.rows.map((r, i) => ({ r, i }));
+  rows.sort((a, b) => {
+    const wa = facts.winnerSet.has(a.r.id) ? 0 : 1;
+    const wb = facts.winnerSet.has(b.r.id) ? 0 : 1;
+    if (wa !== wb) return wa - wb;
+    const ca = a.r.catches || 0, cb = b.r.catches || 0;
+    if (ca !== cb) return cb - ca;
+    const sa = a.r.survivedMs || 0, sb = b.r.survivedMs || 0;
+    if (sa !== sb) return sb - sa;
+    return a.i - b.i;
+  });
+  return rows.map((x) => x.r);
+}
+
+// "Night Ops: Ava and Noah won after 45:00. Most catches: Sam."
+export function shareText(facts) {
+  const f = facts || {};
+  const after = f.huntMs > 0 ? ` after ${fmtClock(f.huntMs)}` : '';
+  let line;
+  const ids = arr(f.winners);
+  if (!ids.length) line = `Night Ops: game over${after}.`;
+  else if (ids.length <= MOST_NAMES) line = `Night Ops: ${listNames(ids.map((id) => (f.nameOf ? f.nameOf(id) : 'Someone')))} won${after}.`;
+  else line = `Night Ops: the ${f.winnerSide === 'hunter' ? 'hunters' : 'hiders'} won${after}.`;
+  if (f.mvp && f.mvp.short) line += ` ${f.mvp.short}.`;
+  return line;
+}
+
+// Marks on the replay's timeline: the end of the head start, each catch, each close call.
+export function ticksFor(facts, endS) {
+  const out = [];
+  if (!(endS > 0)) return out;
+  const add = (s, kind, label) => {
+    if (Number.isFinite(s) && s >= 0 && s <= endS) out.push({ s, kind, label, pct: (s / endS) * 100 });
+  };
+  if (facts.headStartMs > 0) add(facts.headStartMs / 1000, 'start', 'Head start over');
+  for (const r of facts.rows) if (r.caughtAt !== null) add(r.caughtAt / 1000, 'catch', `${r.name} caught`);
+  for (const c of facts.closeCalls) if (c.clock !== null) add(c.clock / 1000, 'close', c.text);
+  return out;
+}
+
+// The newest play-by-play line at or before clockMs, if it happened within `within` ms.
+export function captionAt(events, clockMs, within = CAPTION_MS) {
+  let best = null;
+  for (const e of arr(events)) {
+    if (e.clock <= clockMs) best = e;
+    else break;
+  }
+  return best && clockMs - best.clock <= within ? best : null;
+}
+
+export function phaseAt(facts, clockMs) {
+  const sch = facts && facts.sch;
+  if (!sch) return '';
+  if (clockMs < sch.headStartMs) return 'Head start';
+  if (sch.closingMs > 0 && clockMs >= sch.closingStartMs && clockMs < sch.endMs) return 'Closing in';
+  if (clockMs >= sch.endMs) return 'End';
+  return 'Hunt';
+}
+
+// A replay that lasts about a minute and a half: 30x for up to 45 minutes of game, 60x for longer ones.
+export function defaultSpeed(endS) {
+  return endS > 2700 ? 60 : 30;
+}
+
+// The facts that change what the info parts show (not the faces or the replay clock).
+function factsSig(f) {
+  return JSON.stringify([
+    f.code, f.meId, f.reason, f.winners, f.mvp && f.mvp.line, f.endMs, f.headStartMs, f.hasRoutes,
+    f.rows.map((r) => [r.id, r.name, r.startTeam, r.team, r.status, r.caughtBy, r.caughtAt, r.catches, r.distanceM, r.powers]),
+    f.closeCalls.map((c) => [c.text, c.clock]),
+    f.events.length, f.events.length ? f.events[f.events.length - 1].text : '',
+  ]);
+}
+
+function routesSig(f) {
+  return JSON.stringify([
+    Object.entries(f.routes).map(([id, pts]) => [id, pts.length, pts[pts.length - 1][2]]),
+    f.ring ? JSON.stringify(f.ring).length : 0,
+    f.hasRoutes ? 0 : f.marks.map((m) => [m.id, m.kind, m.p]),
+  ]);
+}
+
+// Which players have a picture right now (faces arrive after the screen is up).
+export function facesSig(ids, faces) {
+  const get = (id) => (faces && typeof faces.get === 'function' ? faces.get(id) : null);
+  return ids.map((id) => (get(id) ? `${id}:${String(get(id)).length}` : '')).join(',');
+}
+
+function reducedMotion() {
+  try { return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+}
+
+// ---- the screen -----------------------------------------------------------------------------------------------
+
+export function mount(root, app) {
+  const S = {
+    dead: false,
+    facts: null,
+    sig: '',
+    facesSig: '',
+    routesSig: '',
+    busy: false,
+    keptCode: null,
+    keptSummary: null,
+    keptResult: null,
+    chat: null,
+    unread: 0,
+  };
+  // The replay: clock in game seconds.
+  const R = {
+    clock: 0,
+    end: 0,
+    speed: 30,
+    speedSet: false,
+    playing: false,
+    raf: 0,
+    last: 0,
+    full: false,
+    map: null,
+    ringQ: null,
+    shownS: -1,
+    watching: null,
+    inerted: [],
+  };
+  const offs = [];
+  const faces = () => (app && app.faces instanceof Map ? app.faces : new Map());
+  const faceOf = (id) => faces().get(id) || null;
+
+  // ---- the winners ----
+
+  const kickerText = h('span');
+  const kicker = h('p.over-kicker', icon('trophy', 18), kickerText);
+  const title = h('h1.over-title');
+  const reasonLine = h('p.over-reason');
+  const winnersList = h('ul.over-winners', { role: 'list', 'aria-label': 'Winners' });
+  const mvpText = h('span');
+  const mvpLine = h('p.over-mvp', icon('crown', 18), mvpText);
+  const youLine = h('p.over-you');
+  const stats = h('dl.over-stats');
+  const shareBtn = h('button.btn.small.over-share', { type: 'button' }, icon('share', 18), h('span', 'Share result'));
+  const hero = h('section.over-hero', { 'aria-labelledby': 'over-title' },
+    h('div.over-hero-bg', { 'aria-hidden': 'true' }),
+    kicker, title, reasonLine, winnersList, mvpLine, youLine, stats, shareBtn);
+  title.id = 'over-title';
+
+  // ---- the replay ----
+
+  const mapBox = h('div.over-map');
+  const fitBtn = h('button.over-tool.over-fit', { type: 'button', 'aria-label': 'Show the whole map' }, icon('target', 20));
+  const fullBtn = h('button.over-tool.over-full', { type: 'button', 'aria-label': 'Full screen replay' },
+    h('span.over-full-word', 'Full screen'));
+  const mapWrap = h('div.over-map-wrap', mapBox, h('div.over-map-tools', fitBtn, fullBtn));
+  const caption = h('p.over-caption');
+  const playBtn = h('button.btn.icon-only.over-play', { type: 'button', 'aria-label': 'Play the replay' }, icon('play', 22));
+  const clockNow = h('span.over-now', '0:00');
+  const clockEnd = h('span.over-sub');
+  const clockPhase = h('span.over-sub.over-phase');
+  const clockBox = h('div.over-clock', { 'aria-hidden': 'true' }, clockNow, clockEnd, clockPhase);
+  const speedBtns = SPEEDS.map((n) => h('button', {
+    type: 'button', role: 'radio', 'aria-checked': 'false', tabindex: '-1', 'data-speed': String(n),
+    'aria-label': `${n} times as fast`,
+  }, `${n}x`));
+  const speedSeg = h('div.seg.over-speed', { role: 'radiogroup', 'aria-label': 'Replay speed' }, speedBtns);
+  const controls = h('div.over-controls', playBtn, clockBox, speedSeg);
+  const ticks = h('div.over-ticks', { 'aria-hidden': 'true' });
+  const range = h('input.over-range', {
+    type: 'range', min: '0', max: '1', step: '1', value: '0', 'aria-label': 'Replay time',
+  });
+  const track = h('div.over-track', ticks, range);
+  const legend = h('p.over-legend', { 'aria-hidden': 'true' },
+    h('span.over-key.k-catch', 'Catch'), h('span.over-key.k-close', 'Close call'));
+  const replayHead = h('div.over-card-head', h('h2#over-replay-title.label', 'Replay'));
+  const replay = h('section.over-card.over-replay', { 'aria-labelledby': 'over-replay-title' },
+    replayHead, mapWrap, caption, controls, track, legend);
+
+  // ---- close calls, scoreboard, play-by-play ----
+
+  const callsList = h('ul.over-calls-list', { role: 'list' });
+  const calls = h('section.over-card.over-calls', { 'aria-labelledby': 'over-calls-title' },
+    h('div.over-card-head', h('h2#over-calls-title.label', 'Close calls')), callsList);
+
+  const boardList = h('ul.over-board-list', { role: 'list' });
+  const boardNote = h('p.over-hint', { hidden: true });
+  const board = h('section.over-card.over-board', { 'aria-labelledby': 'over-board-title' },
+    h('div.over-card-head', h('h2#over-board-title.label', 'Scoreboard')), boardList, boardNote);
+
+  const pbpCount = h('span.over-pbp-count');
+  const pbpList = h('ol.over-pbp-list', { role: 'list' });
+  const pbp = h('details.over-card.over-pbp',
+    // (The row inside the summary is the flex box: older Safari can't lay a summary out as one.)
+    h('summary.over-pbp-head', h('span.over-pbp-row', h('span.label', 'Play-by-play'), pbpCount,
+      h('span.over-pbp-chevron', { 'aria-hidden': 'true' }, icon('back', 18)))),
+    pbpList);
+
+  // ---- the bottom bar ----
+
+  const againBtn = h('button.btn.primary.over-again', { type: 'button', hidden: true }, icon('play', 20), h('span.over-again-word', 'Play again'));
+  const waitLine = h('p.over-wait', { role: 'status', hidden: true });
+  const chatDot = h('span.over-dot', { hidden: true, 'aria-hidden': 'true' });
+  const chatBtn = h('button.btn.icon-only.over-chat', { type: 'button', 'aria-label': 'Chat' }, icon('chat', 22), chatDot);
+  const leaveBtn = h('button.btn.ghost.over-leave', { type: 'button' }, icon('door', 20), h('span', 'Leave'));
+  const foot = h('div.over-foot', leaveBtn, chatBtn, waitLine, againBtn);
+
+  const body = h('div.over-body', hero, replay, calls, board, pbp);
+  const page = h('div.over', body, foot);
+  fill(root, page);
+
+  // ---- drawing the info parts ----
+
+  function drawHero(f) {
+    root.dataset.side = f.winnerSide || 'none';
+    text(kickerText, f.code ? `Game over · ${f.code}` : 'Game over');
+    text(title, f.title);
+    text(reasonLine, f.reasonLine);
+    reasonLine.hidden = !f.reasonLine;
+
+    const shown = f.winners.slice(0, MOST_WINNER_FACES);
+    fill(winnersList,
+      shown.map((id) => {
+        const r = f.byId.get(id);
+        const team = r ? r.team || r.startTeam : f.winnerSide;
+        return h('li.over-winner',
+          face({ name: f.nameOf(id), src: faceOf(id), team: team || null, size: 52 }),
+          h('span.over-winner-name', f.nameOf(id)));
+      }),
+      f.winners.length > shown.length
+        ? h('li.over-winner', h('span.over-more', { 'aria-hidden': 'true' }, `+${f.winners.length - shown.length}`),
+          h('span.over-winner-name', `${f.winners.length - shown.length} more`))
+        : null);
+    winnersList.hidden = !f.winners.length;
+
+    text(mvpText, f.mvp ? f.mvp.line : '');
+    mvpLine.hidden = !f.mvp;
+
+    if (f.meWon) text(youLine, 'You won');
+    else if (f.meId && f.winners.length && f.byId.has(f.meId)) text(youLine, 'Better luck next round');
+    else text(youLine, '');
+    cls(youLine, 'won', f.meWon);
+    youLine.hidden = !youLine.textContent;
+
+    const cells = [];
+    if (f.huntMs > 0) cells.push([f.headStartMs !== null ? 'Hunt' : 'Game', fmtClock(f.huntMs)]);
+    if (f.hidersStarted > 0) cells.push(['Caught', `${Math.min(f.caught, f.hidersStarted)} of ${f.hidersStarted}`]);
+    else if (f.caught > 0) cells.push(['Caught', String(f.caught)]);
+    if (f.totalM !== null && f.totalM > 0) cells.push(['Covered', fmtDistance(f.totalM)]);
+    fill(stats, cells.map(([k, val]) => h('div.over-stat', h('dt', k), h('dd', val))));
+    stats.hidden = !cells.length;
+  }
+
+  function drawCalls(f) {
+    const usable = f.closeCalls;
+    calls.hidden = !usable.length;
+    fill(callsList, usable.map((c, i) => {
+      const textId = `over-call-${i}`;
+      const watch = R.end > 0 && f.hasRoutes && c.clock !== null
+        ? h('button.btn.small.over-watch', { type: 'button', 'aria-describedby': textId, 'data-call': String(i) },
+          icon('play', 16), h('span', 'Watch'))
+        : null;
+      if (watch) watch.addEventListener('click', () => watchCall(c, i));
+      return h(`li.over-call.k-${c.kind}`,
+        h('span.over-call-icon', { 'aria-hidden': 'true' }, icon(CALL_ICON[c.kind] || 'users', 20)),
+        h('div.over-call-text',
+          h('span.over-call-kind', CALL_KIND[c.kind] || 'Close call', c.clock !== null ? ` · ${fmtClock(c.clock)}` : ''),
+          h(`p#${textId}.over-call-line`, c.text)),
+        watch);
+    }));
+  }
+
+  function drawBoard(f) {
+    const rows = boardOrder(f);
+    board.hidden = !rows.length;
+    fill(boardList, rows.map((r) => {
+      const L = playerLines(r, f);
+      const faceTeam = r.status === 'caught' ? 'out' : r.team || r.startTeam || null;
+      return h(`li.over-row${L.won ? '.won' : ''}${L.me ? '.me' : ''}`,
+        face({ name: r.name, src: faceOf(r.id), team: faceTeam, size: 44 }),
+        h('div.over-row-main',
+          h('div.over-row-top',
+            h('span.over-row-name', r.name),
+            L.me ? h('span.chip.over-you-chip', 'You') : null,
+            L.won ? h('span.chip.over-win-chip', icon('trophy', 13), h('span', 'Winner')) : null),
+          h('p.over-row-line',
+            L.sideWord ? h(`span.over-side.s-${L.side}`, h('span.sr-only', 'Started as '), L.sideWord) : null,
+            L.sideWord && L.status ? h('span.over-sep', { 'aria-hidden': 'true' }, ' · ') : null,
+            L.status ? h(`span.over-status${L.status === 'Never caught' ? '.free' : ''}`, L.status) : null),
+          L.stats.length || L.powers.length
+            ? h('div.over-row-stats',
+              L.stats.map((s) => h('span.over-stat-chip', s)),
+              L.powers.length ? h('span.sr-only', 'Powers used:') : null,
+              L.powers.map((p) => h('span.chip.over-power', icon(p.icon, 13), h('span', p.name))))
+            : null));
+    }));
+    boardNote.hidden = !f.partial || !rows.length;
+    text(boardNote, f.partial ? 'The full scores for this game are not available.' : '');
+  }
+
+  function drawPbp(f) {
+    pbp.hidden = !f.events.length;
+    text(pbpCount, plural(f.events.length, 'line', 'lines'));
+    const jump = f.hasRoutes && R.end > 0;
+    fill(pbpList, f.events.map((e) => {
+      const stamp = h('span.over-pbp-time', fmtClock(e.clock));
+      const words = h('span.over-pbp-text', e.text);
+      if (!jump) return h('li.over-pbp-item.plain', stamp, words);
+      const b = h('button.over-pbp-btn', { type: 'button' }, stamp, words,
+        h('span.sr-only', '. Show it in the replay'),
+        h('span.over-pbp-go', { 'aria-hidden': 'true' }, icon('play', 14)));
+      b.addEventListener('click', () => jumpTo(e.clock / 1000, { show: true }));
+      return h('li.over-pbp-item', b);
+    }));
+  }
+
+  // ---- the footer ----
+
+  function drawFoot(view) {
+    const host = !!(view && view.me && view.me.host);
+    againBtn.hidden = !host;
+    waitLine.hidden = host;
+    if (!host) {
+      const hostRow = view && Array.isArray(view.players) ? view.players.find((p) => p && p.host && p.status !== 'left' && p.status !== 'kicked') : null;
+      const who = hostRow ? clean(hostRow.name, 40) : '';
+      text(waitLine, who ? `Waiting for ${who} to start a new round.` : 'Waiting for the host to start a new round.');
+    }
+    againBtn.disabled = S.busy;
+    text(againBtn.querySelector('.over-again-word'), S.busy ? 'Starting...' : 'Play again');
+  }
+
+  function paintChat() {
+    chatDot.hidden = !S.unread;
+    chatBtn.setAttribute('aria-label', S.unread ? `Chat, ${S.unread} new` : 'Chat');
+  }
+
+  // ---- the replay ----
+
+  function hasReplay() {
+    const f = S.facts;
+    return !!f && f.hasRoutes && R.end > 0;
+  }
+
+  function whole() {
+    const f = S.facts;
+    if (!f) return null;
+    const ringBox = toBounds(f.ring) || toBounds(f.ringNow);
+    if (ringBox) return ringBox;
+    const pts = [];
+    for (const r of Object.values(f.routes)) for (const p of r) pts.push(p);
+    if (pts.length) return boundsOf(pts);
+    return toBounds(f.marks.map((m) => m.p));
+  }
+
+  function ensureMap() {
+    if (R.map || S.dead) return R.map;
+    try {
+      R.map = createMap(mapBox, { interactive: R.full });
+    } catch (e) {
+      console.error(e);
+      R.map = null;
+    }
+    return R.map;
+  }
+
+  function dropMap() {
+    if (!R.map) return;
+    try { R.map.destroy(); } catch (e) { console.error(e); }
+    R.map = null;
+    R.ringQ = null;
+  }
+
+  function placeMap(cam) {
+    const box = whole();
+    if (!box || !R.map) return;
+    if (cam && cam.center && Number.isFinite(cam.zoom)) {
+      R.map.center(cam.center, cam.zoom, { animate: false });
+    } else {
+      R.map.fit(box, { padding: R.full ? 40 : 22, animate: false });
+    }
+  }
+
+  // Everything the replay shows at R.clock.
+  function drawReplay() {
+    const f = S.facts;
+    if (!f || S.dead) return;
+    const map = R.map;
+    if (map) {
+      try {
+        if (f.ring) {
+          const scale = f.settings ? ringScaleAt(f.settings, R.clock * 1000) : 1;
+          const q = hasReplay() ? Math.round(scale * 100) / 100 : -1;
+          if (q !== R.ringQ) {
+            R.ringQ = q;
+            if (q === -1) map.setRing(f.ring, f.ringNow);
+            else map.setRing(f.ring, q < 1 ? scaleRing(f.ring, q) : null);
+          }
+        } else if (R.ringQ !== 'now') {
+          R.ringQ = 'now';
+          map.setRing(null, f.ringNow);
+        }
+        if (hasReplay()) {
+          map.setRoutes(f.routes, R.clock, { players: f.rows, faces: faces() });
+        } else {
+          map.setRoutes(null, null);
+          map.setMarks(f.marks, { faces: faces(), players: f.rows, meId: f.meId });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    if (!hasReplay()) return;
+    const s = Math.min(R.end, Math.max(0, R.clock));
+    const whole1 = Math.floor(s);
+    if (String(range.value) !== String(Math.round(s))) range.value = String(Math.round(s));
+    range.style.setProperty('--p', `${(s / R.end) * 100}%`);
+    if (whole1 !== R.shownS) {
+      R.shownS = whole1;
+      text(clockNow, fmtClock(whole1 * 1000));
+      range.setAttribute('aria-valuetext', `${fmtClock(whole1 * 1000)} of ${fmtClock(R.end * 1000)}`);
+      const ph = phaseAt(f, s * 1000);
+      text(clockEnd, `of ${fmtClock(R.end * 1000)}`);
+      text(clockPhase, ph);
+    }
+    drawCaption();
+  }
+
+  function drawCaption() {
+    const f = S.facts;
+    const ms = R.clock * 1000;
+    const w = R.watching;
+    if (w && ms >= (w.clock - WATCH_LEAD_S * 1000) - 1 && ms <= w.clock + 25000) {
+      fillCaption(fmtClock(w.clock), w.text, 'watch');
+      return;
+    }
+    if (w && (ms > w.clock + 25000 || ms < w.clock - WATCH_LEAD_S * 1000 - 1)) {
+      R.watching = null;
+      markWatching();
+    }
+    const e = captionAt(f.events, ms);
+    if (e) fillCaption(fmtClock(e.clock), e.text, '');
+    else fillCaption('', R.playing ? '' : 'Press play to watch everyone move.', 'hint');
+  }
+
+  let captionKey = '';
+  function fillCaption(stamp, words, kind) {
+    const key = `${stamp}|${words}|${kind}`;
+    if (key === captionKey) return;
+    captionKey = key;
+    caption.dataset.kind = kind || 'event';
+    fill(caption, stamp ? h('span.over-caption-time', stamp) : null, h('span.over-caption-text', words));
+  }
+
+  function setupReplay(f) {
+    const ends = [f.endMs / 1000];
+    for (const pts of Object.values(f.routes)) ends.push(pts[pts.length - 1][2]);
+    const end = f.hasRoutes ? Math.max(...ends.filter(Number.isFinite), 0) : 0;
+    const wasEnd = R.end;
+    R.end = end;
+    if (!R.speedSet) R.speed = defaultSpeed(end);
+    if (!wasEnd || R.clock > end) R.clock = end;   // first time: show the whole routes
+    const usable = end > 0;
+    for (const el of [controls, track, legend]) el.hidden = !usable;
+    range.max = String(Math.max(1, Math.ceil(end)));
+    R.shownS = -1;
+
+    // The timeline's marks.
+    const list = ticksFor(f, end);
+    fill(ticks, list.map((t) => h(`span.over-tick.k-${t.kind}`, { style: { left: `${t.pct}%` } })));
+    legend.querySelector('.k-catch').hidden = !list.some((t) => t.kind === 'catch');
+    legend.querySelector('.k-close').hidden = !list.some((t) => t.kind === 'close');
+    legend.hidden = !usable || !list.some((t) => t.kind !== 'start');
+
+    if (!usable) {
+      stop();
+      replay.hidden = !whole();
+      fillCaption('', f.marks.length
+        ? "No routes were saved for this game, so here's where everyone ended up."
+        : 'No routes were saved for this game.', 'hint');
+    } else {
+      replay.hidden = false;
+      captionKey = '';
+    }
+    paintSpeed();
+    paintPlay();
+    if (!replay.hidden) {
+      const first = !R.map;
+      ensureMap();
+      if (first) placeMap(null);
+    }
+    drawReplay();
+  }
+
+  function paintPlay() {
+    fill(playBtn, icon(R.playing ? 'pause' : 'play', 22));
+    playBtn.setAttribute('aria-label', R.playing ? 'Pause the replay' : 'Play the replay');
+    cls(replay, 'playing', R.playing);
+  }
+
+  function paintSpeed() {
+    for (const b of speedBtns) {
+      const on = Number(b.dataset.speed) === R.speed;
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    }
+  }
+
+  function setSpeed(n, { focus = false } = {}) {
+    if (!SPEEDS.includes(n)) return;
+    R.speed = n;
+    R.speedSet = true;
+    paintSpeed();
+    if (focus) speedBtns.find((b) => Number(b.dataset.speed) === n)?.focus();
+  }
+
+  function frame(now) {
+    R.raf = 0;
+    if (S.dead || !R.playing) return;
+    const dt = Math.min(FRAME_CAP_MS, Math.max(0, now - R.last));
+    R.last = now;
+    R.clock = Math.min(R.end, R.clock + (dt / 1000) * R.speed);
+    drawReplay();
+    if (R.clock >= R.end) {
+      stop();
+      return;
+    }
+    R.raf = requestAnimationFrame(frame);
+  }
+
+  function play() {
+    if (!hasReplay() || S.dead) return;
+    if (R.clock >= R.end - 0.5) R.clock = 0;
+    R.playing = true;
+    R.last = performance.now();
+    if (!R.raf) R.raf = requestAnimationFrame(frame);
+    paintPlay();
+    drawReplay();
+  }
+
+  function stop() {
+    R.playing = false;
+    if (R.raf) cancelAnimationFrame(R.raf);
+    R.raf = 0;
+    paintPlay();
+  }
+
+  function jumpTo(s, { show = false, keepWatch = false } = {}) {
+    if (!hasReplay()) return;
+    R.clock = Math.max(0, Math.min(R.end, s));
+    if (!keepWatch) { R.watching = null; markWatching(); }
+    R.last = performance.now();
+    drawReplay();
+    if (show && !R.full) showReplay();
+  }
+
+  function showReplay() {
+    try { replay.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' }); } catch { /* old browser */ }
+  }
+
+  // Watch: a few seconds before the moment, slowly, zoomed in on whoever it was about.
+  function watchCall(c, index) {
+    if (!hasReplay() || c.clock === null) return;
+    R.watching = { ...c, index };
+    markWatching();
+    setSpeed(10);
+    jumpTo(c.clock / 1000 - WATCH_LEAD_S, { keepWatch: true });
+    const pts = [];
+    for (const id of c.ids) {
+      const r = S.facts.routes[id];
+      if (!r) continue;
+      const at = routeAt(r, c.clock / 1000);
+      if (at.head) pts.push(at.head);
+    }
+    if (R.map && pts.length) {
+      try {
+        if (pts.length === 1) R.map.center(pts[0], 16.5);
+        else R.map.fit(pts, { padding: 80, maxZoom: 17 });
+      } catch (e) { console.error(e); }
+    }
+    play();
+    if (!R.full) showReplay();
+  }
+
+  function markWatching() {
+    const at = R.watching ? R.watching.index : -1;
+    for (const b of callsList.querySelectorAll('.over-watch')) {
+      const on = Number(b.dataset.call) === at;
+      cls(b.closest('.over-call'), 'watching', on);
+    }
+  }
+
+  // ---- full screen ----
+
+  function setFull(on) {
+    if (on === R.full || S.dead) return;
+    const keep = R.map ? { center: R.map.getCenter(), zoom: R.map.getZoom() } : null;
+    R.full = on;
+    cls(replay, 'full', on);
+    try { document.documentElement.classList.toggle('over-full-on', on); } catch { /* no document */ }
+    replay.setAttribute('role', on ? 'dialog' : 'region');
+    if (on) replay.setAttribute('aria-modal', 'true'); else replay.removeAttribute('aria-modal');
+    // Everything else on the screen sleeps while the replay fills it.
+    if (on) {
+      R.inerted = [];
+      for (const el of [hero, calls, board, pbp, foot]) {
+        if (el.inert) continue;
+        el.inert = true;
+        R.inerted.push(el);
+      }
+    } else {
+      for (const el of R.inerted) el.inert = false;
+      R.inerted = [];
+    }
+    fill(fullBtn, on ? icon('close', 20) : h('span.over-full-word', 'Full screen'));
+    fullBtn.setAttribute('aria-label', on ? 'Close full screen' : 'Full screen replay');
+    cls(fullBtn, 'closing', on);
+    // A new map: pinch and drag work full screen; inline, the page scrolls over it.
+    dropMap();
+    ensureMap();
+    placeMap(keep && keep.center ? keep : null);
+    drawReplay();
+    try { fullBtn.focus({ preventScroll: true }); } catch { fullBtn.focus(); }
+  }
+
+  // ---- sharing ----
+
+  async function share() {
+    const words = shareText(S.facts || overFacts(app.view));
+    const nav = globalThis.navigator || {};
+    if (typeof nav.share === 'function') {
+      try {
+        await nav.share({ text: words });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; // they closed the share sheet
+      }
+    }
+    try {
+      if (nav.clipboard && typeof nav.clipboard.writeText === 'function') {
+        await nav.clipboard.writeText(words);
+        if (!S.dead) banner('Result copied. Paste it anywhere.', 'good');
+        return;
+      }
+    } catch { /* show it instead */ }
+    if (S.dead) return;
+    const box = h('textarea.field.over-share-text', { readonly: true, rows: '3', 'aria-label': 'The result', autofocus: true });
+    box.value = words;
+    openSheet({
+      title: 'Share the result',
+      body: [h('p', 'Copy this and send it to anyone.'), box],
+      actions: [{ label: 'Done', kind: 'primary' }],
+    });
+    try { box.select(); } catch { /* fine */ }
+  }
+
+  // ---- chat ----
+
+  async function openChatSheet() {
+    if (S.chat || S.dead) return;
+    S.chat = 'opening';
+    try {
+      const mod = await import('./chat.js');
+      if (S.dead) { S.chat = null; return; }
+      S.unread = 0;
+      paintChat();
+      S.chat = mod.openChat(app, { onClose: () => { S.chat = null; } });
+    } catch (e) {
+      console.error(e);
+      S.chat = null;
+      if (!S.dead) banner("The chat didn't open. Check your signal and try again.", 'warn');
+    }
+  }
+
+  function onEvent(e) {
+    if (S.dead || !isObj(e)) return;
+    const words = clean(e.text, 220);
+    if (!words) return;
+    if (e.kind === 'chat') {
+      const meId = app.view && app.view.me ? app.view.me.id : null;
+      if (e.from === meId || S.chat) return;
+      S.unread += 1;
+      paintChat();
+      const who = (S.facts && e.from && S.facts.names.get(e.from)) || clean(app.player?.(e.from)?.name, 40) || 'Someone';
+      banner(`${who}: ${words}`, 'chat');
+    } else if (e.kind === 'leave' || e.kind === 'host' || e.kind === 'kick') {
+      banner(words, 'info');
+    }
+  }
+
+  // ---- wiring ----
+
+  shareBtn.addEventListener('click', () => { share().catch((e) => console.error(e)); });
+  playBtn.addEventListener('click', () => (R.playing ? stop() : play()));
+  fitBtn.addEventListener('click', () => {
+    const box = whole();
+    if (box && R.map) R.map.fit(box, { padding: R.full ? 40 : 22 });
+  });
+  fullBtn.addEventListener('click', () => setFull(!R.full));
+  range.addEventListener('input', () => jumpTo(Number(range.value) || 0));
+  // Arrow keys move 10 seconds and Page Up/Down a minute (a whole game is thousands of seconds).
+  range.addEventListener('keydown', (e) => {
+    const by = { ArrowRight: 10, ArrowUp: 10, ArrowLeft: -10, ArrowDown: -10, PageUp: 60, PageDown: -60 }[e.key];
+    if (!by || !hasReplay()) return;
+    e.preventDefault();
+    jumpTo(R.clock + by);
+  });
+  for (const b of speedBtns) b.addEventListener('click', () => setSpeed(Number(b.dataset.speed)));
+  speedSeg.addEventListener('keydown', (e) => {
+    const i = SPEEDS.indexOf(R.speed);
+    let next = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = Math.min(SPEEDS.length - 1, i + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = Math.max(0, i - 1);
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = SPEEDS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    setSpeed(SPEEDS[next], { focus: true });
+  });
+  againBtn.addEventListener('click', async () => {
+    if (S.busy || S.dead) return;
+    S.busy = true;
+    drawFoot(app.view);
+    let result = null;
+    try { result = await app.cmd({ type: 'again' }); } catch (e) { console.error(e); }
+    if (S.dead) return;
+    S.busy = false;
+    drawFoot(app.view);
+    if (result && result.error) againBtn.focus();
+  });
+  leaveBtn.addEventListener('click', () => {
+    stop();
+    try { app.leave(); } catch (e) { console.error(e); }
+  });
+  chatBtn.addEventListener('click', () => { openChatSheet(); });
+  offs.push(listen(document, 'keydown', (e) => {
+    if (e.key === 'Escape' && R.full && !document.documentElement.classList.contains('sheet-open')) {
+      e.preventDefault();
+      setFull(false);
+    }
+  }));
+  if (app && typeof app.on === 'function') offs.push(app.on('event', onEvent));
+
+  // ---- update / destroy ----
+
+  function update(view) {
+    if (S.dead || !view) return;
+    if (view.phase && view.phase !== 'over') { drawFoot(view); return; }
+    // A later view without the summary (or the result) keeps the last one this game sent: it never changes once
+    // the game is over, so a server that stops resending it doesn't empty the screen.
+    const code = String(view.code || '');
+    if (code !== S.keptCode) { S.keptCode = code; S.keptSummary = null; S.keptResult = null; }
+    if (isObj(view.summary)) S.keptSummary = view.summary;
+    if (isObj(view.result)) S.keptResult = view.result;
+    if ((!isObj(view.summary) && S.keptSummary) || (!isObj(view.result) && S.keptResult)) {
+      view = { ...view, summary: isObj(view.summary) ? view.summary : S.keptSummary, result: isObj(view.result) ? view.result : S.keptResult };
+    }
+    const f = overFacts(view);
+    const sig = factsSig(f);
+    const ids = f.rows.map((r) => r.id);
+    for (const id of f.winners) if (!ids.includes(id)) ids.push(id);
+    const fsig = facesSig(ids, faces());
+    const rsig = routesSig(f);
+    const changed = sig !== S.sig;
+    S.facts = f;
+    if (rsig !== S.routesSig) {
+      S.routesSig = rsig;
+      setupReplay(f);
+    }
+    if (changed || fsig !== S.facesSig) {
+      drawHero(f);
+      drawBoard(f);
+    }
+    if (changed) {
+      drawCalls(f);
+      drawPbp(f);
+      markWatching();
+    }
+    S.sig = sig;
+    S.facesSig = fsig;
+    drawFoot(view);
+    drawReplay(); // faces on the replay's heads
+  }
+
+  function destroy() {
+    if (S.dead) return;
+    stop();
+    S.dead = true;
+    for (const off of offs.splice(0)) {
+      try { off(); } catch { /* ignore */ }
+    }
+    for (const el of R.inerted) el.inert = false;
+    R.inerted = [];
+    try { document.documentElement.classList.remove('over-full-on'); } catch { /* ignore */ }
+    if (S.chat && typeof S.chat.close === 'function') { try { S.chat.close(); } catch { /* ignore */ } }
+    S.chat = null;
+    dropMap();
+  }
+
+  update(app && app.view ? app.view : { phase: 'over' });
+  paintChat();
+  return { update, destroy };
+}

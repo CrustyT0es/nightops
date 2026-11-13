@@ -1,0 +1,237 @@
+/* Night Ops: the chat (js/screens/chat.js). A full-height sheet: the messages and game events in one list that
+   scrolls, the quick buttons and the text box pinned underneath. Also the short chat lines the game panel shows. */
+
+/* ---- the panel's last lines (renderLines) ---- */
+
+.chat-line {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+.chat-line-name { font-weight: 700; color: var(--text); }
+.chat-line-name.t-hunter { color: var(--hunter); }
+.chat-line-name.t-hider { color: var(--hider); }
+.chat-line-name.t-out { color: var(--muted); }
+.chat-line-name.t-me { color: var(--text); }
+
+/* ---- the sheet ---- */
+
+.sheet.chat-sheet {
+  height: calc(100% - max(16px, var(--safe-top)) - 4px);
+  max-height: none;
+}
+.sheet-layer.chat-keyboard .sheet.chat-sheet {
+  /* While the keyboard is up the layer is the visible part of the page: use all of it. */
+  height: calc(100% - 6px);
+  padding-bottom: 8px;
+}
+.chat-sheet .sheet-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.chat-sheet .sheet-body > * + * { margin-top: 0; }
+.chat-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-who {
+  flex: none;
+  padding-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.chat-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 120px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.chat-list {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 10px 2px 14px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-list:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+/* Few messages: they sit at the bottom, near the text box, like any chat app. */
+.chat-list > :first-child { margin-top: auto; }
+
+.chat-empty {
+  align-self: center;
+  padding: 24px 12px;
+  color: var(--muted);
+  font-size: 15px;
+  text-align: center;
+}
+
+.chat-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 86%;
+  min-width: 0;
+}
+.chat-msg + .chat-msg:not(.cont) { margin-top: 4px; }
+.chat-msg.cont { margin-top: -2px; }
+.chat-msg.mine { align-self: flex-end; flex-direction: row-reverse; }
+.chat-face-gap { flex: none; width: 28px; }
+.chat-bubble {
+  min-width: 0;
+  padding: 7px 12px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 16px 16px 16px 6px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.chat-msg.cont .chat-bubble { border-radius: 6px 16px 16px 6px; }
+.chat-msg.mine .chat-bubble {
+  border-radius: 16px 16px 6px 16px;
+  border-color: var(--line-2);
+  background: var(--raised);
+}
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .chat-msg.mine .chat-bubble {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2));
+    background: color-mix(in srgb, var(--accent) 20%, var(--card));
+  }
+}
+.chat-msg.mine.cont .chat-bubble { border-radius: 16px 6px 6px 16px; }
+.chat-name {
+  display: block;
+  margin-bottom: 1px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.chat-name.t-hunter { color: var(--hunter); }
+.chat-name.t-hider { color: var(--hider); }
+.chat-name.t-out { color: var(--muted); }
+.chat-time {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+  float: right;
+  position: relative;
+  top: 5px;
+}
+
+.chat-event {
+  align-self: center;
+  max-width: 92%;
+  margin: 4px 0;
+  padding: 3px 10px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.chat-event-time {
+  margin-right: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.85;
+}
+.chat-event-text { color: var(--text-2); }
+.chat-event.k-caught .chat-event-text,
+.chat-event.k-tag .chat-event-text { color: var(--hunter); }
+.chat-event.k-ping .chat-event-text { color: var(--warn); }
+.chat-event.k-sos { border: 1px solid rgba(255, 90, 90, 0.5); background: rgba(255, 90, 90, 0.08); }
+.chat-event.k-sos .chat-event-text { color: var(--hunter); font-weight: 700; }
+.chat-event.k-over .chat-event-text { color: var(--driver); font-weight: 700; }
+
+.chat-new {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.chat-new::before { content: ''; position: absolute; inset: -4px 0; } /* a 44px+ tap area */
+.chat-new-arrow { transform: rotate(-90deg); }
+
+.chat-quick {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+}
+.chip.chat-qbtn {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 12px;
+  color: var(--text);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.15;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: center;
+  white-space: normal;
+}
+.chip.chat-qbtn.busy { opacity: 0.6; }
+
+.chat-compose {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+}
+.chat-input { flex: 1 1 auto; min-width: 0; min-height: 48px; }
+.chat-send { flex: none; }
+.chat-send.busy { opacity: 0.6; }
+.chat-count {
+  flex: none;
+  padding-top: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+@media (max-height: 560px) {
+  .chat-who { display: none; }
+  .chat-quick { padding-top: 6px; }
+  .chat-compose { padding-top: 6px; }
+}

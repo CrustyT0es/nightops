@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#07090d">
+<meta name="color-scheme" content="dark">
+<meta name="format-detection" content="telephone=no">
+<meta name="robots" content="noindex">
+<title>Night Ops preview</title>
+<link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../vendor/maplibre-gl.css">
+<link rel="stylesheet" href="../css/base.css">
+<link rel="stylesheet" href="../css/home.css">
+<link rel="stylesheet" href="../css/lobby.css">
+<link rel="stylesheet" href="../css/ring.css">
+<link rel="stylesheet" href="../css/game.css">
+<link rel="stylesheet" href="../css/chat.css">
+<link rel="stylesheet" href="../css/over.css">
+<link rel="stylesheet" href="../css/map.css">
+<script src="../config.js"></script>
+<script src="../vendor/qrcode.js"></script>
+<script type="module" src="preview.js"></script>
+</head>
+<body data-team="none">
+<!-- Opens any screen with sample data and no server:
+     preview.html?screen=game&as=hunter|hider|out&state=hunt|headstart|closing|paused|tagged|outside
+     ?screen=lobby&host=1  ?screen=ring&host=1&ring=0  ?screen=reveal&as=hider  ?screen=over&as=hunter&state=hunters
+     ?screen=home&code=WYKUSX   Add &tick=1 to make the clock run. -->
+<div id="app"><p class="boot-line">Loading the preview...</p></div>
+</body>
+</html>
