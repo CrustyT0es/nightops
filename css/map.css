@@ -70,7 +70,8 @@
 .nmap-inside { fill: rgba(78, 168, 255, 0.045); stroke: none; }
 .nmap-dim { fill: rgba(0, 0, 0, 0.55); fill-rule: evenodd; stroke: none; }
 .nmap-ring-glow { fill: none; stroke: var(--hider); stroke-opacity: 0.16; stroke-width: 9; stroke-linejoin: round; }
-.nmap-ring { fill: none; stroke: var(--hider); stroke-width: 3; stroke-linejoin: round; }
+.nmap-ring-edge { fill: none; stroke: #000; stroke-opacity: 0.55; stroke-width: 8; stroke-linejoin: round; }
+.nmap-ring { fill: none; stroke: var(--hider); stroke-width: 4; stroke-linejoin: round; }
 .nmap-ring-full { fill: none; stroke: var(--hider); stroke-opacity: 0.55; stroke-width: 1.5; stroke-dasharray: 5 5; stroke-linejoin: round; }
 .nmap-route { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; stroke-opacity: 0.9; }
 .nmap-route.hunter { stroke: var(--hunter); }
@@ -122,8 +123,8 @@
   pointer-events: none;
 }
 .narea { transition: opacity 200ms ease; }
-.narea.ping { fill: rgba(78, 168, 255, 0.16); stroke: rgba(78, 168, 255, 0.8); stroke-width: 1.5; }
-.narea.seen { fill: rgba(230, 235, 242, 0.06); stroke: rgba(230, 235, 242, 0.85); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.narea.ping { fill: rgba(78, 168, 255, 0.16); stroke: rgba(78, 168, 255, 0.85); stroke-width: 3; }
+.narea.seen { fill: rgba(230, 235, 242, 0.06); stroke: rgba(230, 235, 242, 0.85); stroke-width: 3; stroke-dasharray: 8 6; }
 .narea.leaving { opacity: 0; }
 
 /* ---- faces, labels, corner dots ---- */
@@ -145,21 +146,21 @@
   will-change: transform;
   --mc: var(--muted);
   --mc-soft: rgba(154, 166, 184, 0.3);
-  --half: 17px;     /* half the face */
+  --half: 21px;     /* half the face (v1.2: 42px faces) */
   --lift: 0px;      /* how far the face sits above its spot (pins) */
   z-index: 3;
 }
 .nmark.unplaced, .ncorner.unplaced { visibility: hidden; }
 .nmark.t-hider { --mc: var(--hider); --mc-soft: rgba(78, 168, 255, 0.32); }
 .nmark.t-hunter { --mc: var(--hunter); --mc-soft: rgba(255, 90, 90, 0.32); }
-.nmark.me { --half: 22px; z-index: 8; }
+.nmark.me { --half: 24px; z-index: 8; }
 .nmark.k-seen { z-index: 1; }
 .nmark.k-ping { z-index: 2; }
 .nmark.k-offline { z-index: 4; }
 .nmark.k-radar { z-index: 5; }
 .nmark.k-exposure, .nmark.k-outside { z-index: 6; }
-.nmark.k-sos { --half: 24px; z-index: 10; }
-.nmark.k-route { --half: 15px; }
+.nmark.k-sos { --half: 26px; z-index: 10; }
+.nmark.k-route { --half: 20px; }
 .nmark.exact { --lift: 32px; }
 
 .nmark-body {
@@ -254,8 +255,8 @@ button.nmark-hit:active .face { transform: scale(0.94); }
 .nmark-sos {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: var(--hunter);
   color: var(--on-hunter);
@@ -284,6 +285,12 @@ button.nmark-hit:active .face { transform: scale(0.94); }
   pointer-events: none;
 }
 .nmark.exact .nmark-labels { top: 10px; }
+/* v1.2: labels that would run into another face's or labels go above, beside, or (no room anywhere) out of sight
+   (map.js placeLabels). */
+.nmark-labels[data-at='above'] { top: auto; bottom: calc(var(--half) + var(--lift) + 4px); flex-direction: column-reverse; }
+.nmark-labels[data-at='right'] { left: calc(var(--half) + 4px); top: calc(-1 * var(--lift)); transform: translateY(-50%); align-items: flex-start; }
+.nmark-labels[data-at='left'] { left: auto; right: calc(var(--half) + 4px); top: calc(-1 * var(--lift)); transform: translateY(-50%); align-items: flex-end; }
+.nmark-labels[data-at='hidden'] { visibility: hidden; }
 .nmark.k-seen .nmark-labels { top: auto; bottom: 4px; }
 .nmark-tag,
 .nmark-chip,
@@ -298,12 +305,18 @@ button.nmark-hit:active .face { transform: scale(0.94); }
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 .nmark-tag {
-  padding: 1px 6px 2px;
-  font: 700 13px/1.2 var(--font);
-  color: var(--text);
+  /* v1.2: names read at a glance: 14px bold with a dark outline (no box), never cut under 12 letters */
+  max-width: 156px;
+  padding: 0 3px 1px;
+  background: none;
+  font: 700 14px/1.2 var(--font);
+  color: #fff;
+  text-shadow:
+    1.5px 0 0 rgba(0, 0, 0, 0.9), -1.5px 0 0 rgba(0, 0, 0, 0.9), 0 1.5px 0 rgba(0, 0, 0, 0.9), 0 -1.5px 0 rgba(0, 0, 0, 0.9),
+    1.1px 1.1px 0 rgba(0, 0, 0, 0.9), -1.1px 1.1px 0 rgba(0, 0, 0, 0.9), 1.1px -1.1px 0 rgba(0, 0, 0, 0.9), -1.1px -1.1px 0 rgba(0, 0, 0, 0.9);
 }
 .nmark.k-seen .nmark-tag { color: var(--text-2); font-weight: 500; }
-.nmark.k-sos .nmark-tag { background: var(--hunter); color: var(--on-hunter); text-shadow: none; }
+.nmark.k-sos .nmark-tag { padding: 1px 6px 2px; background: var(--hunter); color: var(--on-hunter); text-shadow: none; }
 .nmark-chip,
 .nmark-age {
   padding: 2px 5px;
@@ -377,3 +390,204 @@ button.nmark-hit:active .face { transform: scale(0.94); }
 .nmark-car .icon { width: 13px; height: 13px; stroke-width: 2.4; }
 .nmark.me .nmark-car { right: 2px; bottom: 2px; }
 /* v1.1 end PAGE-DRIVER */
+
+/* ---- v1.2 PAGE-MAP: faces that would overlap (map.js clusterMarks) ---- */
+
+/* A merged group shows one face; the others step out of sight (their ping circles stay where they are). */
+.nmark.grouped { visibility: hidden; }
+.nmark.grouped .nmark-hit { pointer-events: none; }
+/* A spread face: a thin stem from the face back to its real spot, and a small dot there. */
+.nmap-tether line { stroke: rgba(230, 235, 242, 0.75); stroke-width: 1.5; }
+.nmap-tether circle { fill: var(--text); stroke: #000; stroke-width: 1.5; }
+.nmap-groups { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.nmap-group {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  pointer-events: auto;
+  cursor: zoom-in;
+  touch-action: manipulation;
+  will-change: transform;
+}
+.nmap-group.me { left: -28px; top: -28px; width: 56px; height: 56px; }
+.nmap-group[hidden] { display: none; }
+.nmap-group:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.nmap-group-n {
+  position: absolute;
+  right: -10px;
+  top: -8px;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border: 2px solid var(--bg);
+  border-radius: 11px;
+  background: var(--text);
+  color: var(--bg);
+  font: 700 12px/18px var(--mono);
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- v1.2 PAGE-MAP: the bottom tray (js/ui/tray.js) over the big map: the game, the spectator, the replay ---- */
+
+.tray {
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0 max(10px, calc(var(--safe-right) + 6px)) max(8px, var(--safe-bottom)) max(10px, calc(var(--safe-left) + 6px));
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: rgba(11, 15, 21, 0.92);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .tray { background: rgba(11, 15, 21, 0.84); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+}
+.tray.no-more { padding-top: 8px; }
+
+/* The handle: a 28px row with a 36x4 bar; the button's hit area is 44px, 16px of it over the map. */
+.tray-handle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 28px;
+  margin: 0 auto;
+  width: 120px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  touch-action: none;
+  cursor: pointer;
+}
+.tray-handle::before { content: ''; position: absolute; left: 0; right: 0; top: -16px; bottom: 0; }
+.tray-bar { width: 36px; height: 4px; border-radius: 2px; background: var(--line-2); transition: background-color 120ms ease, width 120ms ease; }
+.tray-handle:hover .tray-bar, .tray-handle:focus-visible .tray-bar { background: var(--text-2); width: 44px; }
+.tray-handle:focus-visible { outline: none; }
+.tray-handle:focus-visible::after { content: ''; position: absolute; inset: 4px 10px; border-radius: 10px; box-shadow: 0 0 0 2px var(--focus); }
+
+/* The main row: up to 4 parts, 56px tall; the main action stretches, the rest are squares. */
+.tray-main {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 56px;
+  min-width: 0;
+}
+.tray-main > .tray-part { flex: none; width: 56px; min-width: 0; height: 56px; min-height: 56px; }
+.tray-main > .tray-part.tray-grow { flex: 1 1 auto; width: auto; }
+
+/* The more rows: only while open; at most about half the screen, scrolling inside. */
+.tray-more {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+  max-height: 52vh;
+  max-height: 52dvh;
+  /* v1.2 final check: a hider with both walkie-talkie lines and the camera filled 61% of a 390x844 screen and the
+     map's buttons sat on their own mark: the open tray now leaves at least about 300px of map (HUD + ~140px of
+     handle, main row and home bar + 300px), scrolling inside, never under 120px. */
+  max-height: max(120px, min(52dvh, calc(100dvh - var(--g-hud-bottom, 0px) - 440px)));
+  margin-top: 8px;
+  padding-bottom: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* A square tray button (chat, Record this...): a 56px tile with an icon and an optional badge. */
+.tray-sq {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+}
+.tray-sq:active { background: var(--raised); }
+.tray-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 700 12px/20px var(--mono);
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+/* A chip that stands for the role (a hider's status, "You're out", "2 pickups", the newest play-by-play line):
+   it stretches and a tap opens the tray. */
+.tray-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 56px;
+  padding: 0 14px 0 9px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+}
+.tray-chip:active { background: var(--raised); }
+.tray-chip-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--raised);
+  color: var(--text-2);
+}
+.tray-chip-words { display: grid; gap: 2px; min-width: 0; }
+.tray-chip-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: 17px; line-height: 1.15; }
+.tray-chip-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tray-chip-sub:empty { display: none; }
+
+/* The big map's round buttons (Centre on me, Fit everyone, Pocket mode, + and -). */
+.map-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  background: rgba(11, 15, 21, 0.9);
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+}
+.map-btn:active { background: var(--raised); }
+/* v1.2 end PAGE-MAP */

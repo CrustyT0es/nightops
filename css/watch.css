@@ -102,42 +102,43 @@
   position: fixed;
   inset: 0;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-columns: minmax(0, 1fr);
+  display: block;
   overflow: hidden;
 }
 /* The App's "Reconnecting..." pill sits under the HUD here. */
-body[data-screen='watch'] .net-line { top: auto; bottom: max(12px, calc(var(--safe-bottom) + 8px)); }
+body[data-screen='watch'] .net-line { top: calc(var(--w-hud-bottom, 0px) + 8px); bottom: auto; }
 
+/* v1.2 PAGE-MAP: the map edge to edge, a slim HUD over its top, the tray (map.css) over its bottom. */
 .w-hud {
-  position: relative;
-  z-index: 3;
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  left: 0;
+  right: 0;
   display: grid;
-  gap: 8px;
-  padding: max(10px, calc(var(--safe-top) + 4px)) max(12px, calc(var(--safe-right) + 8px)) 10px max(12px, calc(var(--safe-left) + 8px));
-  background: var(--panel);
+  gap: 0;
+  padding: max(8px, var(--safe-top)) max(10px, calc(var(--safe-right) + 6px)) 2px max(10px, calc(var(--safe-left) + 6px));
+  background: rgba(7, 9, 13, 0.84);
   border-bottom: 1px solid var(--line);
 }
-.w-hud-top { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.w-hud-who { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.w-hud-code { font-weight: 700; font-size: 17px; letter-spacing: 0.12em; color: var(--text); }
-.w-left { flex: none; display: grid; justify-items: end; gap: 2px; }
-.w-left-num { font-weight: 700; font-size: 20px; line-height: 1; color: var(--text); }
-.w-stop-live { padding: 0 10px; }
-@media (max-width: 359px) {
-  .w-stop-live span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .w-stop-live { width: 44px; padding: 0; justify-content: center; }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .w-hud { background: rgba(7, 9, 13, 0.72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 }
+.w-hud-top { display: flex; align-items: center; gap: 10px; height: 44px; min-width: 0; }
+.w-hud-who { flex: none; display: inline-flex; align-items: center; }
+.w-hud-code { font-weight: 700; font-size: 12px; letter-spacing: 0.12em; color: var(--muted); }
+.w-left { flex: none; margin-left: auto; display: grid; justify-items: end; gap: 1px; }
+.w-left-label { font-size: 10px; line-height: 1.1; }
+.w-left-num { font-weight: 700; font-size: 22px; line-height: 1; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-.w-hud-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.w-hud-line { display: flex; align-items: center; gap: 8px; height: 22px; min-width: 0; }
 .w-tag {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 9px;
+  height: 30px;
+  padding: 0 10px;
   border: 1px solid var(--watch-line);
   border-radius: 999px;
   background: var(--watch-soft);
@@ -148,7 +149,7 @@ body[data-screen='watch'] .net-line { top: auto; bottom: max(12px, calc(var(--sa
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
-.w-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 14px; }
+.w-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 13px; }
 .w-status.paused { color: var(--warn); font-weight: 700; }
 .w-watching {
   flex: none;
@@ -159,42 +160,25 @@ body[data-screen='watch'] .net-line { top: auto; bottom: max(12px, calc(var(--sa
   font-family: var(--mono);
   font-size: 13px;
 }
+@media (max-width: 359px) { .w-tag { padding: 0 8px; letter-spacing: 0.04em; } }
 
-.w-mapwrap { position: relative; min-height: 0; overflow: hidden; background: var(--bg); --map-inset-bottom: 4px; }
+.w-mapwrap { position: absolute; inset: 0; z-index: 1; overflow: hidden; background: var(--bg); }
 .w-map { position: absolute; inset: 0; }
 .w-mapbtns {
   position: absolute;
   z-index: 6;
-  right: max(10px, calc(var(--safe-right) + 6px));
-  bottom: 30px;
-  display: grid;
+  right: max(12px, calc(var(--safe-right) + 6px));
+  top: calc(var(--w-hud-bottom, 0px) + 12px);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
-.w-mapbtn {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  background: rgba(11, 15, 21, 0.92);
-  color: var(--text-2);
-  box-shadow: var(--shadow);
-}
-.w-mapbtn:active { background: var(--raised); color: var(--text); }
+.w-mapbtns[data-mode='row'] { top: auto; flex-direction: row-reverse; }
 
-.w-panel {
-  position: relative;
-  z-index: 3;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  gap: 8px;
-  max-height: 38vh;
-  max-height: 38dvh;
-  padding: 12px max(12px, calc(var(--safe-right) + 8px)) max(12px, calc(var(--safe-bottom) + 6px)) max(12px, calc(var(--safe-left) + 8px));
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-}
+.w-panel.tray { z-index: 8; }
+.w-newest .tray-chip-icon { color: var(--watch); }
+.w-newest .tray-chip-title { font-size: 15px; font-weight: 700; }
+.w-stop-sq { color: var(--text-2); }
 .w-sides { display: flex; flex-wrap: wrap; gap: 6px 14px; font-weight: 700; font-size: 15px; }
 .w-side { display: inline-flex; align-items: center; gap: 6px; }
 .w-side::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
@@ -206,8 +190,6 @@ body[data-screen='watch'] .net-line { top: auto; bottom: max(12px, calc(var(--sa
 .w-pbp-title { margin-top: 2px; }
 .w-pbp {
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   display: grid;
   align-content: start;
   gap: 2px;
@@ -278,3 +260,9 @@ body[data-screen='watch'] .net-line { top: auto; bottom: max(12px, calc(var(--sa
 /* ---- the end screen for a spectator ---- */
 
 .over-watching .over-leave { color: var(--text-2); }
+/* v1.2 PAGE-MAP: the spectator's tray keeps most of the map in sight even open */
+.w-panel .tray-more { max-height: 38vh; max-height: 38dvh; }
+
+/* v1.2 review fix: banners sit under the spectator's HUD (time left, menu), as on the game screen. */
+body[data-screen='watch'] .banners { top: max(calc(max(8px, var(--safe-top)) + 6px), calc(var(--w-hud-bottom-page, 0px) + 8px)); }
+html.sheet-open body[data-screen='watch'] .banners { top: calc(max(8px, var(--safe-top)) + 6px); }

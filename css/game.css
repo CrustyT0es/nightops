@@ -1,6 +1,7 @@
-/* Night Ops: the game screen (js/screens/game.js). A dark tactical HUD on top, the map filling the middle, your
-   moves in a panel at the bottom. The holder's team colour (body[data-team]) is --team; the 3px edge round the
-   screen comes from base.css. Every tap target is at least 44px. */
+/* Night Ops: the game screen (js/screens/game.js). v1.2 (PAGE-MAP): the map fills the whole phone, edge to edge;
+   a slim HUD bar sits over its top and the tray (js/ui/tray.js, styled in map.css) over its bottom. The holder's team
+   colour (body[data-team]) is --team; the 3px edge round the screen comes from base.css. Taps are at least 44px.
+   game.js sets --g-hud-bottom (the HUD's bottom edge), --g-tray-top and --g-tray-h on :root. */
 
 /* The App's floating "Reconnecting..." pill would sit on top of the HUD: on this screen the lines over the map
    say it instead. */
@@ -14,37 +15,44 @@ html.sheet-open body[data-screen='game'] .banners { top: calc(max(8px, var(--saf
   position: fixed;
   inset: 0;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-columns: minmax(0, 1fr);
+  display: block;
   overflow: hidden;
   background: var(--bg);
 }
 
-/* ---- the HUD ---- */
+/* ---- the HUD: a slim bar over the map ---- */
 
 .g-hud {
-  position: relative;
-  z-index: 3;
-  padding: max(10px, calc(var(--safe-top) + 4px)) max(12px, calc(var(--safe-right) + 8px)) 10px max(12px, calc(var(--safe-left) + 8px));
-  background: var(--panel);
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: max(8px, var(--safe-top)) max(10px, calc(var(--safe-right) + 6px)) 0 max(10px, calc(var(--safe-left) + 6px));
+  background: rgba(7, 9, 13, 0.84);
   border-bottom: 1px solid var(--line);
 }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .g-hud { background: rgba(7, 9, 13, 0.72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+}
 
+/* Row 1 (44px): team | time left | next ping | slot | SOS | menu */
 .g-topbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
+  gap: 6px;
+  height: 44px;
+  min-width: 0;
 }
 
 .g-team {
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
-  height: 36px;
-  padding: 0 12px 0 10px;
+  height: 30px;
+  padding: 0 10px 0 9px;
   border: 1px solid var(--team);
   border-radius: 999px;
   background: var(--card);
@@ -55,16 +63,18 @@ html.sheet-open body[data-screen='game'] .banners { top: calc(max(8px, var(--saf
 }
 .g-team-dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--team);
   box-shadow: 0 0 8px var(--team);
 }
 .g-team-side {
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--team);
@@ -73,25 +83,55 @@ body[data-team='none'] .g-team { border-color: var(--line-2); }
 body[data-team='out'] .g-team-side,
 body[data-team='none'] .g-team-side { color: var(--text-2); }
 body[data-team='none'] .g-team-dot { background: var(--muted); box-shadow: none; }
-.g-team-sep { flex: none; color: var(--muted); }
-.g-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.g-team-icon { display: none; color: var(--team); align-items: center; justify-content: center; }
+.g-team-icon .icon { width: 16px; height: 16px; }
+body[data-team='out'] .g-team-icon,
+body[data-team='none'] .g-team-icon { color: var(--text-2); }
 
-.g-left {
+/* Time left and the next ping: a tiny label over a 22px number that never wraps. */
+.g-left,
+.g-ping {
   flex: none;
-  margin-left: auto;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
 }
-.g-left-num {
+.g-left { margin-left: auto; align-items: flex-end; }
+.g-ping-text { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
+.g-left-label,
+.g-ping-label {
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+}
+.g-left-num,
+.g-ping-num {
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 17px;
+  font-size: 22px;
   line-height: 1;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--text);
 }
+.g-left-num { color: var(--text-2); }
+.g-ping { padding-left: 8px; border-left: 1px solid var(--line-2); }
+.g-ping:has(.g-ping-text[hidden]) { display: none; }
+.g-ping.is-head .g-ping-label { color: var(--team); }
+body[data-team='out'] .g-ping.is-head .g-ping-label { color: var(--text-2); }
+.g-ping.is-warn .g-ping-label,
+.g-ping.is-warn .g-ping-num { color: var(--warn); }
+.g-ping.is-warn .g-ping-num { text-shadow: 0 0 18px rgba(255, 176, 32, 0.35); animation: g-throb 1s ease-in-out infinite alternate; }
+
+.g-hud-slot { flex: none; display: inline-flex; align-items: center; }
+.g-hud-slot:empty { display: none; }
 
 .g-sos {
   flex: none;
@@ -99,8 +139,9 @@ body[data-team='none'] .g-team-dot { background: var(--muted); box-shadow: none;
   align-items: center;
   justify-content: center;
   gap: 5px;
+  min-width: 44px;
   height: 44px;
-  padding: 0 11px;
+  padding: 0 10px;
   border: 1px solid rgba(255, 90, 90, 0.55);
   border-radius: 12px;
   background: rgba(255, 90, 90, 0.12);
@@ -126,41 +167,62 @@ body[data-team='none'] .g-team-dot { background: var(--muted); box-shadow: none;
 }
 .g-more:active { background: var(--raised); color: var(--text); }
 
-/* The big countdown and the hiders still in. */
-.g-ping {
+/* Row 2 (22px): the hiders still in, a few words, who's watching. */
+.g-hudline {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  margin-top: 8px;
-  min-height: 50px;
-}
-.g-ping-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
+  height: 22px;
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--text-2);
 }
-.g-ping-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.g-ping-num {
+.g-hiders { flex: none; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.g-hiders-label { font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--text-2); }
+.g-hfaces { display: flex; align-items: center; }
+.g-hface {
+  position: relative;
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+.g-hface + .g-hface { margin-left: -5px; }
+.g-hface .face { border-width: 1.5px; }
+.g-hface.caught .face { opacity: 0.45; }
+.g-hface.caught::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118%;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--hunter);
+  transform: translate(-50%, -50%) rotate(-40deg);
+}
+.g-hmore { margin-left: 4px; font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--muted); }
+.g-hudnote {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 42px;
-  line-height: 0.95;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
 }
-.g-ping.is-head .g-ping-label { color: var(--team); }
-body[data-team='out'] .g-ping.is-head .g-ping-label { color: var(--text-2); }
-.g-ping.is-warn .g-ping-label,
-.g-ping.is-warn .g-ping-num { color: var(--warn); }
-.g-ping.is-warn .g-ping-num { text-shadow: 0 0 18px rgba(255, 176, 32, 0.35); animation: g-throb 1s ease-in-out infinite alternate; }
+.g-hudnote:empty { display: none; }
+.g-watching { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 
+/* The ping's 3px bar along the HUD's bottom. */
 .g-bar {
   position: relative;
-  height: 4px;
-  margin-top: 10px;
-  border-radius: 2px;
+  height: 3px;
+  margin: 0 calc(-1 * max(10px, calc(var(--safe-right) + 6px))) 0 calc(-1 * max(10px, calc(var(--safe-left) + 6px)));
   background: var(--line);
   overflow: hidden;
 }
@@ -177,50 +239,12 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
 .g-bar-fill.snap { transition: none; }
 .g-bar.is-warn .g-bar-fill { background: var(--warn); }
 
-.g-hiders {
-  flex: none;
-  margin-left: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-  max-width: 62%;
-}
-.g-hiders-label { white-space: nowrap; }
-.g-hfaces { display: flex; align-items: center; }
-.g-hface {
-  position: relative;
-  display: inline-flex;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--panel);
-}
-.g-hface + .g-hface { margin-left: -7px; }
-.g-hface.caught .face { opacity: 0.45; }
-.g-hface.caught::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 118%;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--hunter);
-  box-shadow: 0 0 0 1px var(--panel);
-  transform: translate(-50%, -50%) rotate(-40deg);
-}
-.g-hmore {
-  margin-left: 5px;
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--muted);
-}
-
 /* ---- the map and what floats over it ---- */
 
 .g-mapwrap {
-  position: relative;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   overflow: hidden;
   background: var(--bg);
 }
@@ -229,7 +253,7 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
 .g-lines {
   position: absolute;
   z-index: 6;
-  top: 10px;
+  top: calc(var(--g-hud-bottom, 0px) + 8px);
   left: max(10px, calc(var(--safe-left) + 6px));
   right: max(10px, calc(var(--safe-right) + 6px));
   display: flex;
@@ -288,32 +312,22 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
 .g-mapbtns {
   position: absolute;
   z-index: 6;
-  right: max(10px, calc(var(--safe-right) + 6px));
-  bottom: 30px;
+  right: max(12px, calc(var(--safe-right) + 6px));
+  top: calc(var(--g-hud-bottom, 0px) + 12px);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.g-mapbtn {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  background: rgba(11, 15, 21, 0.92);
-  color: var(--text-2);
-  box-shadow: var(--shadow);
-}
-.g-mapbtn:active { background: var(--raised); color: var(--text); }
+/* game.js places the column between the HUD and the tray; with too little room, a row along the tray's top. */
+.g-mapbtns[data-mode='row'] { top: auto; flex-direction: row-reverse; }
 
 /* A hider's first game, once per phone: pocket mode instead of locking the phone. Points at the moon button
    (the last one in the column above). */
 .g-tip {
   position: absolute;
   z-index: 5; /* under the lines over the map (outside the ring...) */
-  right: calc(max(10px, calc(var(--safe-right) + 6px)) + 56px);
-  bottom: 30px;
+  right: calc(max(12px, calc(var(--safe-right) + 6px)) + 56px);
+  bottom: calc(var(--g-tray-h, 0px) + 12px);
   width: min(260px, calc(100% - 96px));
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -340,6 +354,8 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
   border-right: 1px solid var(--hider);
   transform: rotate(45deg);
 }
+.g-tip[data-mode='row'] { right: max(12px, calc(var(--safe-right) + 6px)); }
+.g-tip[data-mode='row']::after { display: none; }
 .g-tip-icon { display: grid; padding-top: 1px; color: var(--hider); }
 .g-tip-text { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .g-tip-text strong { color: var(--text); }
@@ -359,7 +375,10 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
 /* Hunters during the head start: a big countdown over the map. */
 .g-head {
   position: absolute;
-  inset: 0;
+  top: var(--g-hud-bottom, 0px);
+  bottom: var(--g-tray-h, 0px);
+  left: 0;
+  right: 0;
   z-index: 5;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -396,24 +415,11 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
 .g-head-bar { width: 100%; margin-top: 4px; }
 .g-head-line { max-width: 30ch; margin-top: 6px; color: var(--text-2); font-size: 15px; }
 
-/* ---- the panel ---- */
+/* ---- the tray's parts (the tray itself: map.css) ---- */
 
-.g-panel {
-  position: relative;
-  z-index: 3;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-  max-height: 60vh;
-  max-height: 60dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 12px max(12px, calc(var(--safe-right) + 8px)) max(12px, calc(var(--safe-bottom) + 6px)) max(12px, calc(var(--safe-left) + 8px));
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-}
-
-.g-tag { min-height: 56px; gap: 10px; font-size: 18px; }
+.g-panel.tray { z-index: 8; }
+.g-tag { min-height: 56px; gap: 10px; font-size: 18px; padding-top: 0; padding-bottom: 0; }
+.tray-main .g-tag { justify-content: center; }
 .g-tag-words { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; line-height: 1.15; }
 .g-tag-note {
   font-family: var(--mono);
@@ -604,7 +610,7 @@ body[data-team='none'] .g-bar-fill { background: var(--text-2); }
   box-shadow: 0 0 0 2px var(--card);
 }
 
-.g-talk { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.g-talk { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .g-quick { display: flex; gap: 8px; }
 .chip.g-qbtn {
   flex: 1 1 0;
@@ -876,51 +882,49 @@ body[data-team='none'] .g-ask-power-icon { color: var(--text-2); }
   .g-powers[data-n='3'] .g-power-name { font-size: 14px; }
 }
 
-@media (max-width: 374px) {
-  .g-hud { padding-left: max(10px, calc(var(--safe-left) + 6px)); padding-right: max(10px, calc(var(--safe-right) + 6px)); }
-  .g-topbar { gap: 6px; }
-  .g-team { padding: 0 10px 0 9px; gap: 5px; }
-  .g-team-dot { display: none; }
-  .g-team-side { font-size: 12px; letter-spacing: 0.04em; }
+/* v1.2 PAGE-MAP: under 420px the SOS button drops its icon (the word stays); under 390px the team pill is
+   just its dot (the side word stays for screen readers), so the numbers never wrap. */
+@media (max-width: 419px) {
   .g-sos { padding: 0 9px; }
   .g-sos .icon { display: none; }
+}
+@media (max-width: 389px) {
+  .g-team { width: 30px; padding: 0; justify-content: center; border-radius: 50%; flex: none; }
+  .g-team-side { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* The role still shows: its icon in the team colour instead of a bare dot. */
+  .g-team-dot { display: none; }
+  .g-team-icon { display: inline-flex; }
+}
+@media (max-width: 300px) {
+  .g-topbar { gap: 4px; }
+  .g-left-num, .g-ping-num { font-size: 19px; }
+  .g-ping { padding-left: 5px; }
+}
+
+@media (max-width: 374px) {
   /* Two tiles side by side: a long state ("Ready in 4:21") may take a second line. */
   .g-powers[data-n='2'] .g-power { gap: 8px; padding-right: 8px; }
   .g-powers[data-n='2'] .g-power-icon { width: 32px; height: 32px; }
   .g-powers[data-n='2'] .g-power-state { white-space: normal; letter-spacing: 0.02em; }
-  .g-left-num { font-size: 16px; }
-  .g-panel { padding-left: max(10px, calc(var(--safe-left) + 6px)); padding-right: max(10px, calc(var(--safe-right) + 6px)); }
 }
 
+/* The lines over the map keep clear of the map's buttons. */
+.g-lines { right: calc(max(12px, calc(var(--safe-right) + 6px)) + 52px); }
+
 @media (max-height: 720px) {
-  .g-ping { margin-top: 6px; min-height: 0; }
-  .g-ping-num { font-size: 34px; }
-  .g-bar { margin-top: 8px; }
-  .g-panel { gap: 8px; padding-top: 10px; }
-  .g-tag { min-height: 52px; }
   .g-power { min-height: 52px; }
   .g-status { min-height: 56px; padding-top: 8px; padding-bottom: 8px; }
   .g-chat { min-height: 48px; padding-top: 5px; padding-bottom: 5px; }
-  .g-mapbtns { gap: 6px; bottom: 26px; }
-  .g-tip { bottom: 26px; }
-  /* A short map: two buttons (pinch to see the whole ring), and the lines keep clear of them. */
-  .g-mapbtn.g-ringbtn { display: none; }
-  .g-lines { right: calc(max(10px, calc(var(--safe-right) + 6px)) + 52px); }
 }
 
 @media (max-height: 600px) {
   /* Very short screens (an iPhone SE with Safari's bars): the map needs the room. */
-  .g-ping-num { font-size: 30px; }
-  .g-hiders .face { width: 24px !important; height: 24px !important; font-size: 11px !important; }
   /* The quick buttons and a chat button (with its badge) share one row; the chat lines go. */
   .g-talk.has-quick { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .g-talk.has-quick .g-chat { order: 2; width: auto; min-height: 44px; padding: 1px; border: 0; background: transparent; }
   .g-talk.has-quick .g-chat-lines { display: none; }
   .g-talk.has-quick .g-chat-icon { width: 44px; height: 44px; border: 1px solid var(--line-2); }
-  .g-status-line { display: none; }
-  .g-status { min-height: 48px; grid-template-areas: 'icon title btn'; }
   .g-chat-lines .chat-line:not(:last-child) { display: none; }
-  .g-tag { min-height: 48px; }
 }
 
 /* A sheet waiting for its command to go through. */
@@ -935,6 +939,62 @@ body[data-team='none'] .g-ask-power-icon { color: var(--text-2); }
   .g-status-title { overflow-wrap: break-word; }
   .g-gottag { justify-self: start; margin-top: 6px; }
 }
-@media (max-width: 279px) and (max-height: 600px) {
-  .g-status { grid-template-areas: 'icon title' 'btn btn'; }
+
+/* ---- v1.2 PAGE-MAP: the tray's parts ---- */
+
+/* The walkie-talkie as a 56px square in the main row: the mic alone (its words for screen readers); "Sam is
+   talking" floats over the map just above the tray. */
+.tray-main > .radio.tray-part { display: block; }
+.tray-main > .radio .radio-btn { width: 56px; height: 56px; min-height: 56px; padding: 0; justify-content: center; }
+.tray-main > .radio .radio-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tray-main > .radio .radio-icon { width: 44px; height: 44px; }
+.tray-main > .radio .radio-line {
+  position: absolute;
+  left: max(12px, var(--safe-left));
+  right: calc(max(12px, var(--safe-right)) + 56px);
+  bottom: calc(100% + 10px + var(--g-btnrow-lift, 0px)); /* v1.2 integration: above a row of map buttons */
+  width: max-content;
+  max-width: calc(100% - 92px);
+  padding: 7px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: rgba(11, 15, 21, 0.95);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  pointer-events: none;
 }
+.tray-main > .radio.hearing .radio-line { border-color: var(--ok); }
+/* In the more rows the hider's status card is its line and "I got tagged" (the chip above carries the title and
+   the icon); tucked, the chip shows a short line itself. */
+.tray-more .g-status {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'line btn';
+  min-height: 0;
+  padding: 8px 8px 8px 12px;
+}
+.tray-more .g-status-icon { display: none; }
+.tray-more .g-status-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tray-more .g-status-line { align-self: center; padding-right: 0; }
+.tray-more .g-gottag { align-self: center; }
+.tray[data-state='open'] .g-hstat .tray-chip-sub { display: none; }
+@media (max-width: 279px) {
+  .tray-more .g-status { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'line' 'btn'; }
+  .tray-more .g-gottag { justify-self: start; margin-top: 4px; }
+}
+/* The hider's status chip takes the tone of the status. */
+.g-hstat[data-tone='ok'] .tray-chip-icon { background: rgba(126, 224, 176, 0.13); color: var(--ok); }
+.g-hstat[data-tone='ok'] .tray-chip-title { color: var(--ok); }
+.g-hstat[data-tone='warn'] { border-color: rgba(255, 176, 32, 0.5); }
+.g-hstat[data-tone='warn'] .tray-chip-icon { background: rgba(255, 176, 32, 0.14); color: var(--warn); }
+.g-hstat[data-tone='warn'] .tray-chip-title { color: var(--warn); }
+.g-hstat[data-tone='danger'] { border-color: var(--hunter); background: #200b0e; }
+.g-hstat[data-tone='danger'] .tray-chip-icon { background: var(--hunter); color: var(--on-hunter); animation: g-throb 0.9s ease-in-out infinite alternate; }
+.g-hstat[data-tone='danger'] .tray-chip-title { color: var(--hunter); }
+.g-hstat[data-tone='info'] .tray-chip-icon { color: var(--hider); }
+.g-pickups[data-tone='warn'] .tray-chip-icon { background: var(--driver); color: var(--on-driver); }
+.g-pickups .tray-chip-icon { color: var(--driver); }
+.g-outchip .tray-chip-icon { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .g-hstat[data-tone='danger'] .tray-chip-icon { animation: none; } }
+/* v1.2 end PAGE-MAP */
+.g-tip.no-room { display: none; } /* v1.2 PAGE-MAP: the map's buttons are a row: the tip waits for room */

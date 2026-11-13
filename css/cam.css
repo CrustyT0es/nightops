@@ -1,0 +1,322 @@
+/* Night Ops v1.2 (PAGE-CAM): the highlight cam. The lobby's Camera row, the game screen's REC dot / camera chip /
+   Record this, the end screen's clips card, the replay's video window and the movie sheets. */
+
+/* ---- the camera's own sampler (kept in the page and playing: iPhones stop hidden videos) ---- */
+
+.cam-sampler {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  pointer-events: none;
+  z-index: -1;
+}
+.cam-hidden-media {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0.01;
+  pointer-events: none;
+  z-index: -1;
+}
+.cam-hidden-media > video, .cam-hidden-media > audio { width: 2px; height: 2px; }
+
+/* ---- the lobby ---- */
+
+.x-cam-label { display: inline-flex; align-items: center; gap: 8px; }
+.x-cam-label .icon { color: var(--text-2); flex: none; }
+.x-cam-body { display: grid; gap: 10px; padding-top: 4px; }
+.x-cam-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.x-cam-mode {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text-2);
+  text-align: left;
+}
+.x-cam-mode[aria-checked='true'] { border-color: var(--text-2); background: var(--raised); color: var(--text); }
+.x-cam-mode-name { font-weight: 700; font-size: 15px; }
+.x-cam-mode-line { font-size: 13px; line-height: 1.3; color: var(--muted); }
+.x-cam-mode[aria-checked='true'] .x-cam-mode-line { color: var(--text-2); }
+.x-cam-mode-words { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.35; }
+.x-cam-rule {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.x-cam-rule .icon { flex: none; margin-top: 1px; }
+.x-cam-again {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 176, 32, 0.45);
+  border-radius: var(--radius-sm);
+  color: var(--warn);
+  font-size: 14px;
+}
+.x-cam-ok {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.x-cam-ok.on { border-color: var(--ok); }
+.x-cam-ok-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.x-cam-ok-title { font-weight: 700; }
+.x-cam-ok-line { color: var(--muted); font-size: 13px; line-height: 1.3; }
+.x-cam-ok > .switch { flex: none; }
+.x-cam-mirror {
+  width: 96px;
+  height: 128px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  background: #000;
+}
+.x-cam-mirror > video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.x-cam-blocked { margin: 0; color: var(--warn); font-size: 14px; line-height: 1.35; }
+.x-cam-count { margin: 0; font-family: var(--mono); font-weight: 700; font-size: 15px; }
+.x-cam-who { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.35; }
+
+/* ---- the game screen ---- */
+
+.cam-hud { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.cam-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  background: rgba(7, 9, 13, 0.6);
+  border: 1px solid rgba(255, 90, 90, 0.5);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+.cam-rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 0 2px rgba(255, 59, 59, 0.25);
+  animation: cam-blink 1.6s ease-in-out infinite;
+}
+@keyframes cam-blink { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .cam-rec-dot { animation: none; } }
+/* A dot alone on phones (the side word and the clocks need the room); the word too on wide screens. */
+.cam-rec-word { display: none; }
+.cam-rec { width: 24px; padding: 0; justify-content: center; }
+@media (min-width: 560px) { .cam-rec-word { display: inline; } .cam-rec { width: auto; padding: 0 8px 0 6px; } }
+.cam-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cam-start .cam-start-word { overflow: hidden; text-overflow: ellipsis; }
+.cam-start[data-state='denied'], .cam-start[data-state='full'] { color: var(--warn); border-color: rgba(255, 176, 32, 0.5); }
+/* Under 420 px the HUD row has no room for words: the camera icon alone (its words are its label). */
+@media (max-width: 419px) {
+  .cam-start { width: 44px; padding: 0; justify-content: center; }
+  .cam-start .cam-start-word { display: none; }
+}
+.cam-mark { gap: 8px; min-width: 56px; min-height: 56px; padding: 0 12px; }
+.cam-mark .icon { color: #ff5a5a; }
+.cam-mark.marked { border-color: var(--ok); background: var(--raised); }
+.cam-mark.marked .icon { color: var(--ok); }
+
+/* ---- the end screen's clips card ---- */
+
+.over-cam { gap: 12px; }
+.cam-mine { display: grid; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.cam-mine-title { margin: 0; font-weight: 700; font-size: 17px; }
+.cam-wifi { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+.cam-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.cam-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--ok);
+  transition: width 300ms var(--ease);
+}
+.cam-up-line { margin: 0; font-size: 14px; color: var(--text-2); }
+.cam-up-line:empty { display: none; }
+.cam-up-line.warn { color: var(--warn); }
+.cam-del { justify-self: start; }
+.cam-progress { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cam-prog-row { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.cam-prog-text { min-width: 0; overflow-wrap: anywhere; color: var(--text-2); font-size: 15px; }
+.cam-nothing { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.35; }
+.cam-kept { margin: 0; font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--ok); }
+.cam-keep-hint { margin: -4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+/* ---- sheets ---- */
+
+.cam-sheet-line { margin: 0 0 10px; line-height: 1.4; }
+.cam-movie-pick { margin-bottom: 10px; }
+.cam-clip-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.cam-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  border-bottom: 1px solid var(--line);
+}
+.cam-clip-row:last-child { border-bottom: 0; }
+.cam-clip-text { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.cam-clip-save { flex: none; }
+.cam-save { margin-top: 4px; }
+.cam-movie-preview:empty { display: none; }
+
+/* ---- the replay's video window ---- */
+
+.cam-window {
+  position: relative;
+  width: clamp(128px, 40vw, 220px);
+  display: grid;
+  gap: 6px;
+  pointer-events: auto;
+  transition: width 200ms var(--ease);
+}
+.cam-window.big { width: min(70vw, 440px); }
+@media (prefers-reduced-motion: reduce) { .cam-window { transition: none; } }
+.cam-v-screen {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 46vh;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: #000;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.cam-v {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+}
+.cam-v-name {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  text-shadow: -1.5px -1.5px 0 rgba(0,0,0,0.9), 1.5px -1.5px 0 rgba(0,0,0,0.9), -1.5px 1.5px 0 rgba(0,0,0,0.9),
+    1.5px 1.5px 0 rgba(0,0,0,0.9), 0 1.5px 0 rgba(0,0,0,0.9), 0 -1.5px 0 rgba(0,0,0,0.9), 1.5px 0 0 rgba(0,0,0,0.9),
+    -1.5px 0 0 rgba(0,0,0,0.9);
+}
+.cam-v-name[data-team='hunter'] { color: var(--hunter); }
+.cam-v-name[data-team='hider'] { color: var(--hider); }
+.cam-v-name[data-team='driver'] { color: var(--driver); }
+.cam-v-none {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(7, 9, 13, 0.72);
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
+}
+.cam-window.dim .cam-v { filter: brightness(0.4); }
+.cam-window.dim .cam-v-name { display: none; }
+.cam-v-faces {
+  /* One row (scrolls sideways with many players): a wrapping list ran down under the replay's tray. */
+  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+.cam-v-faces::-webkit-scrollbar { display: none; }
+.cam-face { flex: none; }
+.cam-face {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 4px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(11, 15, 21, 0.9);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 12px;
+}
+.cam-face[aria-pressed='true'] { border-color: var(--text); color: var(--text); background: var(--raised); }
+.cam-auto { padding: 0 10px; }
+
+/* Record this in the tray: a 56px square in the main row (its words for screen readers), a button in the more rows. */
+.tray-main > .cam-mark { width: 56px; min-width: 56px; padding: 0; border-radius: var(--radius); }
+.tray-main > .cam-mark .cam-mark-word {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.tray-more > .cam-mark { justify-self: start; min-height: 48px; }
+
+/* No footage at this moment: a small bar instead of a black box over the map. */
+.cam-window.dim .cam-v-screen { aspect-ratio: auto; height: 44px; }
+.cam-window.dim .cam-v-none { grid-auto-flow: column; gap: 6px; }
+
+/* Not filming yet: Record this starts the camera (on the narrowest phones the HUD has no room for the chip). */
+.cam-mark[data-state='off'], .cam-mark[data-state='denied'], .cam-mark[data-state='asking'] { border-color: rgba(255, 176, 32, 0.5); }
+.cam-mark[data-state='off'] .icon, .cam-mark[data-state='denied'] .icon { color: var(--warn); }
+/* On the narrowest phones the chip is just its camera icon (the HUD has room for a 36px square), so a hider whose
+   tray is tucked still has something on screen to start the camera with. */
+@media (max-width: 359px) {
+  .cam-start { position: relative; width: 36px; min-width: 36px; padding: 0; justify-content: center; overflow: visible; }
+  .cam-start .cam-start-word { display: none; }
+  .cam-start::before { content: ''; position: absolute; left: -4px; right: -4px; top: 0; bottom: 0; }
+}

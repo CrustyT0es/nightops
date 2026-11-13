@@ -17,6 +17,8 @@ import { createMap, cleanRoute, routeAt, toBounds } from '../map.js';
 import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js';
 import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js';
 import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js'; // v1.1 PAGE-RADIO
+import { createTray } from '../ui/tray.js'; // v1.2 PAGE-MAP
+import { attachCamParts, confirmAgain } from './camparts.js'; // v1.2 PAGE-CAM
 
 // v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
 // clip scheduler (js/radio.js)
@@ -469,13 +471,22 @@ export function mount(root, app) {
     kicker, title, reasonLine, winnersList, mvpLine, youLine, stats, shareBtn);
   title.id = 'over-title';
 
-  // ---- the replay ----
+  // ---- the replay: v1.2 PAGE-MAP ----
+  // On the page a poster: a still map of everyone's whole routes and "Watch the replay". It opens the replay layer
+  // (the only way to play it): the map edge to edge, a HUD (the caption, the clock, Close), a top-left slot for the
+  // video window (div.ov-video-slot, PAGE-CAM), and the tray: play/pause and the scrubber; open, the speeds, the
+  // Walkie-talkie switch and Fit everyone. R.hooks (PAGE-CAM) hear every frame, opening, closing and jump.
 
-  const mapBox = h('div.over-map');
-  const fitBtn = h('button.over-tool.over-fit', { type: 'button', 'aria-label': 'Show the whole map' }, icon('target', 20));
-  const fullBtn = h('button.over-tool.over-full', { type: 'button', 'aria-label': 'Full screen replay' },
-    h('span.over-full-word', 'Full screen'));
-  const mapWrap = h('div.over-map-wrap', mapBox, h('div.over-map-tools', fitBtn, fullBtn));
+  const posterBox = h('div.over-map.over-poster-map');
+  const posterWrap = h('div.over-map-wrap.over-poster-wrap', posterBox);
+  const posterLine = h('p.over-poster-line');
+  const watchReplayBtn = h('button.btn.primary.wide.over-watch-replay', { type: 'button' }, icon('play', 20), h('span', 'Watch the replay'));
+  const replayHead = h('div.over-card-head', h('h2#over-replay-title.label', 'Replay'));
+  const poster = h('section.over-card.over-poster', { 'aria-labelledby': 'over-replay-title' },
+    replayHead, posterWrap, posterLine, watchReplayBtn);
+  const camSlot = h('div.over-cam-slot'); // v1.2: PAGE-CAM's clips card
+
+  const mapBox = h('div.over-map.ov-map');
   const caption = h('p.over-caption');
   const playBtn = h('button.btn.icon-only.over-play', { type: 'button', 'aria-label': 'Play the replay' }, icon('play', 22));
   const clockNow = h('span.over-now', '0:00');
@@ -487,7 +498,8 @@ export function mount(root, app) {
     'aria-label': n === 1 ? 'Real time' : `${n} times as fast`, // v1.1 PAGE-RADIO: Real time
   }, n === 1 ? 'Real time' : `${n}x`)); // v1.1 PAGE-RADIO
   const speedSeg = h('div.seg.over-speed', { role: 'radiogroup', 'aria-label': 'Replay speed' }, speedBtns);
-  const controls = h('div.over-controls', playBtn, clockBox, speedSeg);
+  const fitBtn = h('button.btn.small.over-fit', { type: 'button' }, icon('fit', 18), h('span', 'Fit everyone'));
+  const controls = h('div.over-controls', speedSeg, fitBtn);
   const ticks = h('div.over-ticks', { 'aria-hidden': 'true' });
   const range = h('input.over-range', {
     type: 'range', min: '0', max: '1', step: '1', value: '0', 'aria-label': 'Replay time',
@@ -495,9 +507,23 @@ export function mount(root, app) {
   const track = h('div.over-track', ticks, range);
   const legend = h('p.over-legend', { 'aria-hidden': 'true' },
     h('span.over-key.k-catch', 'Catch'), h('span.over-key.k-close', 'Close call'));
-  const replayHead = h('div.over-card-head', h('h2#over-replay-title.label', 'Replay'));
-  const replay = h('section.over-card.over-replay', { 'aria-labelledby': 'over-replay-title' },
-    replayHead, mapWrap, caption, controls, track, legend);
+  const fullBtn = h('button.g-more.over-full', { type: 'button', 'aria-label': 'Close the replay' }, icon('close', 22));
+  const ovHud = h('header.ov-hud', h('div.ov-hud-row', caption, clockBox, fullBtn));
+  const videoSlot = h('div.ov-video-slot'); // v1.2: PAGE-CAM's video window
+  const zoomIn = h('button.map-btn.ov-zoom', { type: 'button', 'aria-label': 'Zoom in', hidden: true }, icon('plus', 22));
+  const zoomOut = h('button.map-btn.ov-zoom', { type: 'button', 'aria-label': 'Zoom out', hidden: true }, icon('minus', 22));
+  // Fit everyone on the map itself too (the tray's copy is hidden while the tray is tucked).
+  const ovFit = h('button.map-btn.ov-fit', { type: 'button', 'aria-label': 'Fit everyone' }, icon('fit', 22));
+  const ovBtns = h('div.ov-mapbtns', zoomIn, zoomOut, ovFit);
+  const rTray = createTray({ label: 'Replay controls', onState: () => placeLayer() });
+  rTray.el.classList.add('ov-tray');
+  rTray.setMain([playBtn, { el: track, grow: true }]);
+  const moreParts = [controls, legend];
+  rTray.setMore(moreParts);
+  const mapWrap = h('div.over-map-wrap.ov-map-wrap', mapBox);
+  const replay = h('section.over-replay.ov-layer', { hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'ov-title' },
+    h('h2#ov-title.sr-only', 'Replay'), mapWrap, ovHud, videoSlot, ovBtns, rTray.el);
+  R.hooks = { frame: [], open: [], close: [], jump: [] };
 
   // ---- close calls, scoreboard, play-by-play ----
 
@@ -527,9 +553,14 @@ export function mount(root, app) {
   const leaveBtn = h('button.btn.ghost.over-leave', { type: 'button' }, icon('door', 20), h('span', 'Leave'));
   const foot = h('div.over-foot', leaveBtn, chatBtn, waitLine, againBtn);
 
-  const body = h('div.over-body', hero, replay, calls, board, pbp);
+  const body = h('div.over-body', hero, poster, camSlot, calls, board, pbp);
   const page = h('div.over', body, foot);
-  fill(root, page);
+  fill(root, page, replay); // v1.2 PAGE-MAP: the replay layer sits over the page
+  S.camSlot = camSlot; // v1.2: for PAGE-CAM
+  S.videoSlot = videoSlot;
+  // v1.2 PAGE-CAM: the clips card (in camSlot) and the replay's video window (in videoSlot, fed by R.hooks)
+  const camUi = attachCamParts({ app, videoSlot, cardSlot: camSlot, hooks: R.hooks });
+  // v1.2 end PAGE-CAM
   // v1.1 PAGE-WATCH: a spectator gets Stop watching in place of Leave (app.leave() stops watching) and no chat;
   // their view has no `me`, so no "you" lines show.
   if (app && app.watching) {
@@ -550,13 +581,15 @@ export function mount(root, app) {
     onSwitch: (on) => { RR.enabled = on; },
     onPlay: (clip) => {
       RR.unlock();
+      if (hasReplay()) setFull(true); // v1.2 PAGE-MAP: the replay plays in its layer
       if (hasReplay()) jumpTo(clip.clock / 1000);
       RR.playNow(clip);
       if (hasReplay()) play();
     },
   });
-  replay.insertBefore(radioUi.switchRow, legend);
-  replay.after(radioUi.card);
+  moreParts.splice(1, 0, radioUi.switchRow); // v1.2 PAGE-MAP: the switch in the replay's tray
+  rTray.setMore(moreParts);
+  camSlot.after(radioUi.card);
   // v1.1 end PAGE-RADIO
 
   // ---- drawing the info parts ----
@@ -705,12 +738,66 @@ export function mount(root, app) {
   function ensureMap() {
     if (R.map || S.dead) return R.map;
     try {
-      R.map = createMap(mapBox, { interactive: R.full });
+      // v1.2 PAGE-MAP: the poster's still map on the page, or the layer's (pinch and drag) while it's open
+      R.map = createMap(R.full ? mapBox : posterBox, { interactive: R.full });
+      if (R.full) {
+        const map = R.map;
+        const zoomBtns = () => {
+          if (S.dead || R.map !== map) return;
+          const plainMap = map.mode() === 'plain';
+          zoomIn.hidden = !plainMap;
+          zoomOut.hidden = !plainMap;
+        };
+        map.ready.then(zoomBtns);
+        map.onMode(zoomBtns);
+        placeLayer();
+      }
     } catch (e) {
       console.error(e);
       R.map = null;
     }
     return R.map;
+  }
+
+  // v1.2 PAGE-MAP: the layer's map is told what its HUD and tray hide, and the video slot sits under the HUD.
+  function placeLayer() {
+    if (S.dead || !R.full) return;
+    const vh = globalThis.innerHeight || 0;
+    const top = Math.round(ovHud.getBoundingClientRect().bottom);
+    const trayTop = Math.round(rTray.el.getBoundingClientRect().top) || vh;
+    replay.style.setProperty('--ov-hud-bottom', `${top}px`);
+    replay.style.setProperty('--ov-tray-h', `${Math.max(0, vh - trayTop)}px`);
+    // (Banners sit under this HUD while the layer is open: over.css reads it from the page's root.)
+    try { document.documentElement.style.setProperty('--ov-hud-bottom-page', `${top}px`); } catch { /* no document */ }
+    const vw = globalThis.innerWidth || 0;
+    const btns = ovBtns.getBoundingClientRect();
+    const right = btns.width > 0 ? Math.max(0, Math.round(vw - btns.left) + 12) : 0;
+    const video = videoInset(top, trayTop, vw);
+    if (R.map) { try { R.map.setInsets({ top: video.top, left: video.left, right, bottom: Math.max(0, vh - trayTop) }); } catch { /* ignore */ } }
+    // The video window came (or changed size): the routes are fitted again into what's left.
+    const sig = `${video.top}|${video.left}`;
+    if (R.videoSig !== undefined && R.videoSig !== sig && R.map) placeMap(null);
+    R.videoSig = sig;
+  }
+
+  // The video window sits over the top-left of the map: the map keeps clear of it, either beside it or under it,
+  // whichever leaves more map to fit the routes in.
+  function videoInset(top, trayTop, vw) {
+    const shown = [...videoSlot.children].find((c) => !c.hidden);
+    const r = shown ? videoSlot.getBoundingClientRect() : null;
+    if (!r || r.width <= 0 || r.height <= 0) return { top, left: 0 };
+    const tall = Math.max(0, trayTop - top);
+    const beside = Math.max(0, vw - r.right - 8) * tall;
+    const under = vw * Math.max(0, trayTop - r.bottom - 8);
+    return beside >= under ? { top, left: Math.round(r.right + 8) } : { top: Math.round(r.bottom + 8), left: 0 };
+  }
+
+  // v1.2 PAGE-MAP: tell PAGE-CAM's parts (R.hooks) where the replay is.
+  function hook(kind) {
+    const list = R.hooks && R.hooks[kind];
+    if (!list || !list.length) return;
+    const at = { clockMs: Math.round(R.clock * 1000), playing: R.playing, speed: R.speed, realTime: !!RR.busy() };
+    for (const fn of list.slice()) { try { fn(at); } catch (e) { console.error(e); } }
   }
 
   function dropMap() {
@@ -726,7 +813,7 @@ export function mount(root, app) {
     if (cam && cam.center && Number.isFinite(cam.zoom)) {
       R.map.center(cam.center, cam.zoom, { animate: false });
     } else {
-      R.map.fit(box, { padding: R.full ? 40 : 22, animate: false });
+      R.map.fit(box, { padding: R.full ? 40 : 18, animate: false });
     }
   }
 
@@ -735,10 +822,11 @@ export function mount(root, app) {
     const f = S.facts;
     if (!f || S.dead) return;
     const map = R.map;
+    const atS = R.full ? R.clock : R.end; // v1.2 PAGE-MAP: the poster shows the whole routes
     if (map) {
       try {
         if (f.ring) {
-          const scale = f.settings ? ringScaleAt(f.settings, R.clock * 1000) : 1;
+          const scale = f.settings ? ringScaleAt(f.settings, atS * 1000) : 1;
           const q = hasReplay() ? Math.round(scale * 100) / 100 : -1;
           if (q !== R.ringQ) {
             R.ringQ = q;
@@ -750,7 +838,7 @@ export function mount(root, app) {
           map.setRing(null, f.ringNow);
         }
         if (hasReplay()) {
-          map.setRoutes(f.routes, R.clock, { players: f.rows, faces: faces() });
+          map.setRoutes(f.routes, atS, { players: f.rows, faces: faces() });
         } else {
           map.setRoutes(null, null);
           map.setMarks(f.marks, { faces: faces(), players: f.rows, meId: f.meId });
@@ -773,6 +861,7 @@ export function mount(root, app) {
       text(clockPhase, ph);
     }
     drawCaption();
+    hook('frame'); // v1.2 PAGE-MAP
   }
 
   function drawCaption() {
@@ -781,7 +870,7 @@ export function mount(root, app) {
     const ms = R.clock * 1000;
     // v1.1 PAGE-RADIO: "Sam is talking" while a clip plays
     const talk = RR.talking();
-    if (talk) { fillCaption(fmtClock(talk.clock), `${talk.name} is talking`, 'radio'); return; }
+    if (talk) { fillCaption(fmtClock(talk.clock), talk.words || `${talk.name} is talking`, 'radio'); return; } // v1.2 PAGE-RADIO: talk.words
     // v1.1 end PAGE-RADIO
     const w = R.watching;
     if (w && ms >= (w.clock - WATCH_LEAD_S * 1000) - 1 && ms <= w.clock + 25000) {
@@ -816,6 +905,8 @@ export function mount(root, app) {
     if (!wasEnd || R.clock > end) R.clock = end;   // first time: show the whole routes
     const usable = end > 0;
     for (const el of [controls, track, legend]) el.hidden = !usable;
+    watchReplayBtn.hidden = !usable; // v1.2 PAGE-MAP
+    text(posterLine, usable ? `${fmtClock(end * 1000)} of the game, ${plural(Object.keys(f.routes).length, 'route', 'routes')}. Pinch and drag in the replay.` : '');
     range.max = String(Math.max(1, Math.ceil(end)));
     R.shownS = -1;
 
@@ -828,17 +919,19 @@ export function mount(root, app) {
 
     if (!usable) {
       stop();
-      replay.hidden = !whole();
+      if (R.full) setFull(false);
+      poster.hidden = !whole();
       fillCaption('', f.marks.length
         ? "No routes were saved for this game, so here's where everyone ended up."
         : 'No routes were saved for this game.', 'hint');
+      text(posterLine, caption.textContent);
     } else {
-      replay.hidden = false;
+      poster.hidden = false;
       captionKey = '';
     }
     paintSpeed();
     paintPlay();
-    if (!replay.hidden) {
+    if (!poster.hidden) {
       const first = !R.map;
       ensureMap();
       if (first) placeMap(null);
@@ -915,11 +1008,13 @@ export function mount(root, app) {
     if (!keepWatch) { R.watching = null; markWatching(); }
     R.last = performance.now();
     drawReplay();
+    hook('jump'); // v1.2 PAGE-MAP
     if (show && !R.full) showReplay();
   }
 
+  // v1.2 PAGE-MAP: the replay plays in its layer
   function showReplay() {
-    try { replay.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' }); } catch { /* old browser */ }
+    if (hasReplay()) setFull(true);
   }
 
   // Watch: a few seconds before the moment, slowly, zoomed in on whoever it was about.
@@ -956,19 +1051,19 @@ export function mount(root, app) {
 
   // ---- full screen ----
 
+  // v1.2 PAGE-MAP: the replay layer (open) or the poster (closed).
   function setFull(on) {
     if (on === R.full || S.dead) return;
-    const keep = R.map ? { center: R.map.getCenter(), zoom: R.map.getZoom() } : null;
+    if (on && !hasReplay()) return;
     R.full = on;
+    replay.hidden = !on;
     cls(replay, 'full', on);
     try { document.documentElement.classList.toggle('over-full-on', on); } catch { /* no document */ }
-    replay.setAttribute('role', on ? 'dialog' : 'region');
-    if (on) replay.setAttribute('aria-modal', 'true'); else replay.removeAttribute('aria-modal');
     // Everything else on the screen sleeps while the replay fills it.
     if (on) {
       R.inerted = [];
-      for (const el of [hero, calls, board, pbp, foot, radioUi.card]) { // v1.1 PAGE-RADIO: radioUi.card
-        if (el.inert) continue;
+      for (const el of [page, radioUi.card]) { // v1.1 PAGE-RADIO: radioUi.card
+        if (!el || el.inert) continue;
         el.inert = true;
         R.inerted.push(el);
       }
@@ -976,15 +1071,21 @@ export function mount(root, app) {
       for (const el of R.inerted) el.inert = false;
       R.inerted = [];
     }
-    fill(fullBtn, on ? icon('close', 20) : h('span.over-full-word', 'Full screen'));
-    fullBtn.setAttribute('aria-label', on ? 'Close full screen' : 'Full screen replay');
-    cls(fullBtn, 'closing', on);
-    // A new map: pinch and drag work full screen; inline, the page scrolls over it.
+    // A new map: pinch and drag work in the layer; on the page, the poster is a still picture.
+    const keep = on ? null : R.map;
     dropMap();
+    if (keep) { /* (the layer's view isn't kept for the poster) */ }
     ensureMap();
-    placeMap(keep && keep.center ? keep : null);
+    placeMap(null);
+    if (on) {
+      placeLayer();
+      requestAnimationFrame(() => { if (R.full) { placeLayer(); placeMap(null); drawReplay(); } });
+    } else {
+      stop();
+    }
     drawReplay();
-    try { fullBtn.focus({ preventScroll: true }); } catch { fullBtn.focus(); }
+    hook(on ? 'open' : 'close');
+    try { (on ? fullBtn : watchReplayBtn).focus({ preventScroll: true }); } catch { /* fine */ }
   }
 
   // ---- sharing ----
@@ -1056,11 +1157,35 @@ export function mount(root, app) {
 
   shareBtn.addEventListener('click', () => { share().catch((e) => console.error(e)); });
   playBtn.addEventListener('click', () => (R.playing ? stop() : play()));
-  fitBtn.addEventListener('click', () => {
-    const box = whole();
-    if (box && R.map) R.map.fit(box, { padding: R.full ? 40 : 22 });
+  const fitEveryone = () => {
+    const f = S.facts;
+    if (!R.map || !f) return;
+    if (!R.map.fitAll({ ring: f.ring || f.ringNow })) {
+      const box = whole();
+      if (box) R.map.fit(box, { padding: 40 });
+    }
+  };
+  fitBtn.addEventListener('click', fitEveryone);
+  ovFit.addEventListener('click', fitEveryone);
+  fullBtn.addEventListener('click', () => setFull(false));
+  // v1.2 PAGE-MAP: Watch the replay (from the start when it's at the end), or a tap on the poster
+  watchReplayBtn.addEventListener('click', () => {
+    if (!hasReplay()) return;
+    setFull(true);
+    if (R.clock >= R.end - 0.5) R.clock = 0;
+    play();
   });
-  fullBtn.addEventListener('click', () => setFull(!R.full));
+  posterWrap.addEventListener('click', () => { if (hasReplay()) setFull(true); });
+  zoomIn.addEventListener('click', () => { if (R.map) R.map.zoomBy(1); });
+  zoomOut.addEventListener('click', () => { if (R.map) R.map.zoomBy(-1); });
+  try {
+    const ro = new ResizeObserver(() => placeLayer());
+    ro.observe(ovHud);
+    ro.observe(rTray.el);
+    ro.observe(videoSlot);
+    offs.push(() => ro.disconnect());
+  } catch { /* an old browser: placed when it opens */ }
+  offs.push(listen(window, 'resize', () => placeLayer()));
   range.addEventListener('input', () => jumpTo(Number(range.value) || 0));
   // Arrow keys move 10 seconds and Page Up/Down a minute (a whole game is thousands of seconds).
   range.addEventListener('keydown', (e) => {
@@ -1083,6 +1208,10 @@ export function mount(root, app) {
   });
   againBtn.addEventListener('click', async () => {
     if (S.busy || S.dead) return;
+    // v1.2 PAGE-CAM: "This round's clips and replay will be deleted." first, when there are clips
+    if (camUi.hasClips() && !(await confirmAgain(app, { summary: S.keptSummary }))) return;
+    if (S.busy || S.dead) return;
+    // v1.2 end PAGE-CAM
     S.busy = true;
     drawFoot(app.view);
     let result = null;
@@ -1127,6 +1256,7 @@ export function mount(root, app) {
     const rsig = routesSig(f);
     const changed = sig !== S.sig;
     S.facts = f;
+    try { camUi.update(view); } catch (e) { console.error(e); } // v1.2 PAGE-CAM
     // v1.1 PAGE-RADIO: the clips (summary.radio) and whether the walkie-talkie was saved
     try {
       const clips = replayClips(view.summary);
@@ -1164,9 +1294,11 @@ export function mount(root, app) {
     for (const el of R.inerted) el.inert = false;
     R.inerted = [];
     try { document.documentElement.classList.remove('over-full-on'); } catch { /* ignore */ }
+    if (R.full) { R.full = false; hook('close'); } // v1.2 PAGE-MAP
     if (S.chat && typeof S.chat.close === 'function') { try { S.chat.close(); } catch { /* ignore */ } }
     S.chat = null;
     try { RR.destroy(); } catch { /* ignore */ } // v1.1 PAGE-RADIO
+    try { camUi.destroy(); } catch { /* ignore */ } // v1.2 PAGE-CAM
     dropMap();
   }
 

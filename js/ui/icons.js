@@ -17,6 +17,7 @@ const PATHS = {
   close: [['path', { d: 'M6 6l12 12M18 6 6 18' }]],
   back: [['path', { d: 'M15 5l-7 7 7 7' }]],
   menu: [['circle', { cx: 5, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }], ['circle', { cx: 12, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }], ['circle', { cx: 19, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }]],
+  fit: [['path', { d: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5' }], ['circle', { cx: 12, cy: 12, r: 2.5 }]], // v1.2 PAGE-MAP: Fit everyone
   qr: [['path', { d: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z' }], ['path', { d: 'M14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2' }]],
   link: [['path', { d: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1' }], ['path', { d: 'M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1' }]],
   copy: [['rect', { x: 8, y: 8, width: 12, height: 12, rx: 2 }], ['path', { d: 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3' }]],

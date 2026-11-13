@@ -7,7 +7,7 @@ import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf,
 } from './geo.js';
 import {
-  LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS,
+  LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
 } from './rules.js';
 
@@ -88,6 +88,17 @@ const ERRORS = {
   radio_full: 'The walkie-talkie is full for this game.',
   bad_audio: "That recording didn't work. Try again.",
   no_clip: "That clip isn't kept.",
+  // v1.2
+  no_cam: 'The camera is off in this game.',
+  not_recorded: "You weren't filmed in this game.",
+  old_round: 'That clip is from an earlier round.',
+  bad_video: "That clip didn't record properly.",
+  cam_mine_full: "That's all the clips you can send for this game.",
+  cam_game_full: "This game's clips are full. The rest stay on your phone.",
+  cam_space: 'Night Ops is out of room for clips right now. Try again tomorrow.',
+  not_uploaded: "That clip didn't arrive. Try again.",
+  no_video: "That clip isn't kept.",
+  side_changed: "Your team changed, so that message wasn't sent.",
 };
 
 // A sentence for an error code (any unknown code gets a general one).
@@ -269,12 +280,16 @@ function freshRadio() {
   return { next: 1, bytes: 0, lastAt: {}, clips: [] };
 }
 
-// Settings with the v1.1 switches filled in (an older stored state has none).
+// Settings with the v1.1/v1.2 extras filled in (an older stored state has none).
 function extrasOf(settings) {
   const out = { ...(settings || {}) };
   for (const k of EXTRA_KEYS) if (typeof out[k] !== 'boolean') out[k] = DEFAULTS[k];
+  for (const [k, list] of Object.entries(EXTRA_CHOICES)) if (!list.includes(out[k])) out[k] = DEFAULTS[k];
   return out;
 }
+
+// Settings keys that are extras (never "changed by hand").
+const EXTRA_ALL = [...EXTRA_KEYS, ...Object.keys(EXTRA_CHOICES)];
 
 // The driver of this round who is still in, or null.
 function driverOf(s) {
@@ -305,6 +320,7 @@ function newPlayer({ id, name, secretHash, now }) {
     powers: {}, sprintFrom: null, sprintUntil: null, outsideSince: null,
     stats: freshStats(),
     driverAt: null,
+    camOk: false,        // v1.2: "I'm OK being recorded" (kept across rounds)
     // internal (never in a view)
     turnedEvent: null,   // first event id this player sees as a hunter (after being caught)
     leftAt: null,        // clock when they left or were removed
@@ -364,7 +380,19 @@ function fillIn(s) {
     if (!Number.isFinite(p.stats.drivenM)) p.stats.drivenM = 0;
     if (!Number.isFinite(p.stats.pickups)) p.stats.pickups = 0;
     if (p.driverAt === undefined) p.driverAt = null;
+    // v1.2
+    if (typeof p.camOk !== 'boolean') p.camOk = false;
   }
+  // v1.2
+  if (s.cam === undefined || (s.cam !== null && (typeof s.cam !== 'object' || !Array.isArray(s.cam.ids)))) s.cam = null;
+  if (s.cam) {
+    if (!Array.isArray(s.cam.moments)) s.cam.moments = [];
+    if (!Number.isFinite(s.cam.next)) s.cam.next = s.cam.moments.reduce((m, x) => Math.max(m, x.n || 0), 0) + 1;
+    if (!s.cam.near || typeof s.cam.near !== 'object' || Array.isArray(s.cam.near)) s.cam.near = {};
+    if (!s.cam.have || typeof s.cam.have !== 'object' || Array.isArray(s.cam.have)) s.cam.have = {};
+    if (s.cam.mode !== 'everything') s.cam.mode = 'highlights';
+  }
+  for (const c of s.radio.clips) if (c.side !== 'hiders') c.side = 'hunters';
   return s;
 }
 
@@ -390,6 +418,63 @@ function emit(s, t, kind, to, text, data, from) {
 function note(s, entry) {
   s.log.push(entry);
   if (s.log.length > LOG_KEPT) s.log.splice(0, s.log.length - LOG_KEPT);
+}
+
+// v1.2: a moment for the camera (a Highlights clip is kept around it). Only while the round is filmed (live, or
+// the 'over' moment as it ends), only for filmed players (`ids`, and `with` for a near call's hunter, who is never
+// told); a moment that names no filmed player isn't kept. `data` stays small ({ power }, { how }).
+function addMoment(s, t, kind, ids, { ms, data, with: also } = {}) {
+  const cam = s.cam;
+  if (!cam || !Array.isArray(cam.ids)) return null;
+  if (s.phase !== 'live' && !(s.phase === 'over' && kind === 'over')) return null;
+  const filmed = (list) => [...new Set((list || []).filter((id) => typeof id === 'string' && cam.ids.includes(id)))];
+  const told = filmed(ids);
+  const others = filmed(also).filter((id) => !told.includes(id));
+  if (!told.length && !others.length) return null;
+  const m = { n: cam.next++, clock: Math.max(0, Math.round(t.clock)), kind, ids: told };
+  if (others.length) m.with = others;
+  if (Number.isFinite(ms)) m.ms = ms;
+  if (data) m.data = data;
+  cam.moments.push(m);
+  if (cam.moments.length > LIMITS.camMoments) cam.moments.splice(0, cam.moments.length - LIMITS.camMoments);
+  return m;
+}
+
+// Hunters in (the driver too) within CAM_NEAR_M of a free hider, both fixes fresh, and no near moment for the pair
+// within CAM_NEAR_GAP_MS: [[hunterId, hiderId]...], only pairs with a filmed player.
+function nearPairs(s, ctx, clock) {
+  const cam = s.cam;
+  if (!cam || s.pausedAt !== null && s.pausedAt !== undefined) return [];
+  const fresh = (id) => {
+    const pos = posOf(ctx.positions, id);
+    return pos && pos.at !== null && ctx.now - pos.at >= -TIMING.CAM_NEAR_FRESH_MS && ctx.now - pos.at <= TIMING.CAM_NEAR_FRESH_MS ? pos : null;
+  };
+  const near = cam.near && typeof cam.near === 'object' ? cam.near : {};
+  const out = [];
+  const hiders = freeHiders(s).map((h) => [h, fresh(h.id)]).filter(([, pos]) => pos);
+  if (!hiders.length) return out;
+  for (const hunter of ordered(s)) {
+    if (!isHunter(hunter)) continue;
+    const hp = fresh(hunter.id);
+    if (!hp) continue;
+    for (const [hider, dp] of hiders) {
+      if (!cam.ids.includes(hunter.id) && !cam.ids.includes(hider.id)) continue;
+      const last = near[`${hunter.id}:${hider.id}`];
+      if (Number.isFinite(last) && clock - last < TIMING.CAM_NEAR_GAP_MS) continue;
+      if (distanceM(hp.p, dp.p) <= TIMING.CAM_NEAR_M) out.push([hunter.id, hider.id]);
+    }
+  }
+  return out;
+}
+
+function addNear(s, t, hunterId, hiderId) {
+  const cam = s.cam;
+  cam.near[`${hunterId}:${hiderId}`] = t.clock;
+  // (Old pairs go: one older than the gap can't hold anything back any more.)
+  for (const [k, at] of Object.entries(cam.near)) {
+    if (!Number.isFinite(at) || t.clock - at >= TIMING.CAM_NEAR_GAP_MS) delete cam.near[k];
+  }
+  addMoment(s, t, 'near', [hiderId], { with: [hunterId] });
 }
 
 function leftWords(n) {
@@ -441,6 +526,8 @@ export function newGame({ code, hostId, hostName, secretHash, now }) {
     watchJoins: 0,
     removedWatchers: [],
     radio: freshRadio(),
+    // v1.2
+    cam: null,                               // live/over with settings.cam: who is filmed and their moments
   };
 }
 
@@ -521,6 +608,7 @@ function catchHider(s, hider, hunterId, how, t, record) {
   else line = `${hider.name} is caught.`;
   const text = `${line} ${leftWords(left)}`;
   emit(s, t, 'caught', 'all', text, { hider: hider.id, hunter: hunter ? hunter.id : null, how, left });
+  addMoment(s, t, 'caught', [hider.id, hunter && how !== 'ring' && how !== 'host' ? hunter.id : null], { data: { how } });
   note(s, { kind: 'caught', clock: t.clock, hider: hider.id, hunter: hunter ? hunter.id : null, how, text: line });
   if (turned) emit(s, t, 'turned', hider.id, "You're a hunter now. Go get them!");
   else emit(s, t, 'out', hider.id, "You're out. You can still chat with everyone.");
@@ -606,6 +694,7 @@ function endGame(s, reason, t) {
     text = `The host ended the game.${win ? ` ${win}` : ''}`;
   }
   s.overEventId = emit(s, t, 'over', 'all', text, { reason, winners: winners.slice() }).id;
+  addMoment(s, t, 'over', ordered(s).filter((p) => p.status === 'in' || p.status === 'caught').map((p) => p.id));
   note(s, { kind: 'over', clock: t.clock, text });
   // A summary without routes right away, so the end screen always has one; the server builds the full one
   // with the stored routes and puts it in place of this one.
@@ -999,6 +1088,15 @@ export function advance(state, { now, positions = {}, rand } = {}) {
     own();
     runDue(s, item, ctx);
   }
+  // v1.2: close calls for the camera (after the pings).
+  if (s.phase === 'live' && s.cam) {
+    const found = nearPairs(s, ctx, clockOf(s, now));
+    if (found.length) {
+      own();
+      const t = { now, clock: clockOf(s, now), at: now };
+      for (const [hunterId, hiderId] of found) addNear(s, t, hunterId, hiderId);
+    }
+  }
   if (owned) s.updatedAt = now;
   return { state: s, changed: owned };
 }
@@ -1062,6 +1160,7 @@ export function onPosition(state, playerId, pos, { now } = {}) {
         emit(s, t, 'outside', p.id,
           `You're outside the ring. Get back in within ${fmtClock(TIMING.OUTSIDE_SHOW_MS)} or the hunters see you.`,
           { ms: TIMING.OUTSIDE_SHOW_MS });
+        addMoment(s, t, 'outside', [p.id]);
         changed = true;
       } else if (p.outsideSince !== null && by <= 0) {
         const outFor = clock - p.outsideSince;
@@ -1112,8 +1211,13 @@ function cmdSettings(s, actor, cmd) {
   const next = cleanSettings(patch, s.settings);
   if (!Array.isArray(patch.custom)) {
     const custom = new Set(next.custom);
-    for (const k of Object.keys(patch)) if (has(DEFAULTS, k) && k !== 'custom' && !EXTRA_KEYS.includes(k)) custom.add(k);
+    for (const k of Object.keys(patch)) if (has(DEFAULTS, k) && k !== 'custom' && !EXTRA_ALL.includes(k)) custom.add(k);
     next.custom = [...custom];
+  }
+  const was = extrasOf(s.settings);
+  // The camera switched on or off, or its mode changed: everyone says OK again (they agreed to something else).
+  if (next.cam !== was.cam || next.camMode !== was.camMode) {
+    for (const p of Object.values(s.players)) p.camOk = false;
   }
   s.settings = next;
   // Spectators switched off: everyone watching is let go (their page is told).
@@ -1257,6 +1361,14 @@ function cmdStart(s, actor, cmd, t) {
   s.nextPickupId = 1;
   s.radio = freshRadio();
   s.watchJoins = 0;
+  s.cam = s.settings.cam ? {
+    mode: s.settings.camMode === 'everything' ? 'everything' : 'highlights',
+    ids: ordered(s).filter((p) => p.status === 'in' && p.camOk === true).map((p) => p.id),
+    moments: [],
+    next: 1,
+    near: {},
+    have: {},
+  } : null;
   const headStartMs = schedule(s.settings).headStartMs;
   const t0 = { now: t.now, clock: 0, at: t.now };
   const text = `Game on! Hiders have ${fmtClock(headStartMs)} to hide.`;
@@ -1306,6 +1418,7 @@ function cmdPower(s, actor, cmd, t) {
     const text = `${actor.name} used ${name}.`;
     emit(s, t, 'power', 'hiders', text, { power, by: actor.id });
     note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text });
+    addMoment(s, t, 'power', [actor.id], { data: { power } });
     return null;
   }
   if (actor.team !== 'hunter') return err('not_your_turn', 'Only hunters can use that.');
@@ -1321,6 +1434,8 @@ function cmdPower(s, actor, cmd, t) {
   const text = `${actor.name} used ${name}.`;
   emit(s, t, 'power', 'hunters', text, { power, by: actor.id });
   note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text });
+  // (The free hiders are in it too: Radar's warning and Exposure are "on them".)
+  addMoment(s, t, 'power', [actor.id, ...freeHiders(s).map((h) => h.id)], { data: { power } });
   if (power === 'radar') {
     const liveAt = t.clock + TIMING.RADAR_WARN_MS;
     s.radar = { by: actor.id, at: t.clock, liveAt, until: liveAt + TIMING.RADAR_LIVE_MS, blocked: [], recorded: false };
@@ -1376,6 +1491,7 @@ function cmdTag(s, actor, cmd, t) {
   s.catches.push(c);
   c.askEventId = emit(s, t, 'tag', target.id, `${actor.name} says they tagged you.`, { catchId: c.id, hunter: actor.id }).id;
   emit(s, t, 'tag', 'hunters', `${actor.name} tagged ${target.name}. Waiting for ${target.name} to confirm.`, { catchId: c.id, hider: target.id });
+  addMoment(s, t, 'tag', [actor.id, target.id]);
   return null;
 }
 
@@ -1402,6 +1518,7 @@ function cmdAnswer(s, actor, cmd, t) {
     ? `${hider.name} says no. Settle it in person.`
     : `${actor.name} said no for ${hider.name}. Settle it in person.`;
   emit(s, t, 'denied', 'all', text, { catchId: c.id });
+  addMoment(s, t, 'denied', [c.hunter, hider.id]);
   return null;
 }
 
@@ -1455,6 +1572,7 @@ function cmdSos(s, actor, cmd, t) {
   s.sos = { by: actor.id, at: t.now };
   emit(s, t, 'sos', 'all', `SOS from ${actor.name}. The game is paused.`, { by: actor.id });
   note(s, { kind: 'sos', clock: t.clock, text: `SOS from ${actor.name}.` });
+  addMoment(s, t, 'sos', ordered(s).filter((p) => p.status === 'in').map((p) => p.id));
   return null;
 }
 
@@ -1507,6 +1625,7 @@ function cmdAgain(s, actor, cmd, t) {
   s.nextPickupId = 1;
   s.radio = freshRadio();
   s.watchJoins = 0;
+  s.cam = null;
   emit(s, { now: t.now, clock: 0, at: t.now }, 'again', 'all', 'New round! Back to the lobby.');
   return null;
 }
@@ -1566,6 +1685,13 @@ function cmdUnwatch(s, actor, cmd) {
   return null;
 }
 
+function cmdCamok(s, actor, cmd) {
+  if (typeof cmd.ok !== 'boolean') return err('bad_cmd');
+  if (!extrasOf(s.settings).cam) return err('no_cam');
+  actor.camOk = cmd.ok;
+  return null;
+}
+
 function cmdFace(s, actor, cmd) {
   const v = cmd.faceV;
   if (!Number.isInteger(v) || v < 0 || v > 1e9) return err('face');
@@ -1599,6 +1725,8 @@ const COMMANDS = {
   driver: { host: true, phases: ['lobby'], run: cmdDriver },
   pickup: { phases: ['live'], run: cmdPickup },
   unwatch: { host: true, phases: ANY, run: cmdUnwatch },
+  // v1.2
+  camok: { phases: ['lobby'], run: cmdCamok },
 };
 
 function phaseError(phases) {
@@ -1913,6 +2041,7 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
     drive: null,
     watchers: [],
     driverPick: null,
+    cam: !lobby && s.cam && Array.isArray(s.cam.ids) ? { on: true, mode: s.cam.mode, filmed: s.cam.ids.slice() } : null,
   };
 }
 
@@ -1920,25 +2049,52 @@ function radioOf(s) {
   return s && s.radio && typeof s.radio === 'object' && Array.isArray(s.radio.clips) ? s.radio : freshRadio();
 }
 
-// May this player hear this clip live? A hunter who is in; a hider who turned only from when they turned.
+// Which side a clip was sent on (clips from before v1.2 are the hunters').
+function sideOfClip(clip) {
+  return clip && clip.side === 'hiders' ? 'hiders' : 'hunters';
+}
+
+// May this player hear this clip live? Each team only hears its own. The hunters' clips: a hunter who is in; a
+// hider who turned only from when they turned. The hiders' clips: a hider who is free right now (one who turned
+// hears no hider clips any more, old ones included).
 function hearsLive(p, clip) {
+  if (sideOfClip(clip) === 'hiders') return isFree(p);
   if (!isHunter(p)) return false;
   if (p.startTeam === 'hunter') return true;
   return Number.isFinite(p.turnedAt) && clip.clock >= p.turnedAt;
+}
+
+// May this player send a clip? Hunters who are in; free hiders too with radioHiders.
+function maySend(s, p) {
+  return isHunter(p) || (isFree(p) && !!extrasOf(s.settings).radioHiders);
 }
 
 function typeBase(type) {
   return typeof type === 'string' ? type.split(';')[0].trim().toLowerCase() : '';
 }
 
-// Why a clip can't be taken from this player now (null = it can).
-export function clipProblem(state, playerId, { ms, type, bytes, now } = {}) {
+// The channel a player sends on right now.
+function channelOf(p) {
+  return isHunter(p) ? 'hunters' : 'hiders';
+}
+
+// Why a clip can't be taken from this player now (null = it can). `side` is the channel the page recorded on
+// ('hunters' | 'hiders'; older pages send none): a clip recorded on one channel never goes out on the other.
+// Even without it, a clip whose talking started before the sender turned (a hider caught and turned while
+// the upload was on its way) is refused: it was said to the hiders, never meant for the hunters.
+export function clipProblem(state, playerId, { ms, type, bytes, now, side } = {}) {
   if (!state || state.phase !== 'live') return err('not_live').error;
   const p = playerOf(state, playerId);
   if (!p || !active(p)) return err('gone').error;
-  if (!isHunter(p)) return err('not_your_turn', 'Only hunters have the walkie-talkie.').error;
+  if (!maySend(state, p)) {
+    return err('not_your_turn', extrasOf(state.settings).radioHiders
+      ? "You can't use the walkie-talkie right now." : 'Only hunters have the walkie-talkie.').error;
+  }
   if (!RADIO_TYPES.includes(typeBase(type))) return err('bad_audio').error;
   if (!Number.isInteger(ms) || ms < RADIO_MS_MIN || ms > RADIO_MS_MAX) return err('bad_audio').error;
+  if (side !== undefined && side !== null && side !== channelOf(p)) return err('side_changed').error;
+  if (isHunter(p) && p.startTeam !== 'hunter' && Number.isFinite(p.turnedAt)
+    && clockOf(state, now) - ms < p.turnedAt) return err('side_changed').error;
   if (!Number.isInteger(bytes) || bytes < 1 || bytes > LIMITS.radioBytes) return err('bad_audio').error;
   const r = radioOf(state);
   const last = r.lastAt && Number.isFinite(r.lastAt[p.id]) ? r.lastAt[p.id] : null;
@@ -1947,15 +2103,20 @@ export function clipProblem(state, playerId, { ms, type, bytes, now } = {}) {
   return null;
 }
 
-export function addClip(state, playerId, { id, ms, type, bytes, now } = {}) {
-  const problem = clipProblem(state, playerId, { ms, type, bytes, now });
+export function addClip(state, playerId, { id, ms, type, bytes, now, side } = {}) {
+  const problem = clipProblem(state, playerId, { ms, type, bytes, now, side });
   if (problem) return { error: problem };
   if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) return err('bad_cmd');
   if (radioOf(state).clips.some((c) => c.id === id)) return err('bad_cmd');
   const s = fillIn(copy(state));
   // (clock: when the talking started, not when the clip arrived: the button is let go, then it's sent.)
-  const clip = { n: s.radio.next++, id, from: playerId, clock: Math.max(0, clockOf(s, now) - ms), ms, type: typeBase(type) };
+  const sender = s.players[playerId];
+  const clip = { n: s.radio.next++, id, from: playerId, clock: Math.max(0, clockOf(s, now) - ms), ms, type: typeBase(type),
+    side: channelOf(sender) };
   s.radio.clips.push(clip);
+  // v1.2: a moment for the sender and every filmed player who hears it live.
+  addMoment(s, { now, clock: clip.clock, at: now }, 'radio',
+    [playerId, ...ordered(s).filter((p) => p.id !== playerId && hearsLive(p, clip)).map((p) => p.id)], { ms });
   s.radio.bytes += bytes;
   s.radio.lastAt[playerId] = now;
   s.players[playerId].lastSeen = now;
@@ -2125,7 +2286,7 @@ function marksFor(s, me, { clock, now, positions, sch, parked = false }) {
   return marks;
 }
 
-export function viewFor(state, playerId, { now, positions = {}, since = 0, radioSince = 0 } = {}) {
+export function viewFor(state, playerId, { now, positions = {}, since = 0, radioSince = 0, camSince = 0 } = {}) {
   const s = state;
   const me = playerOf(s, playerId);
   const live = s.phase === 'live';
@@ -2232,13 +2393,14 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
   const marks = marksFor(s, me, { clock, now, positions, sch, parked });
   const drive = live && me ? driveFor(s, me, { now, positions, parked, marks }) : null;
   let radio = null;
-  if (live && isHunter(me)) {
+  if (live && me && maySend(s, me)) {
     const after = Number.isFinite(Number(radioSince)) ? Number(radioSince) : 0;
     const mine = radioOf(s).clips.filter((c) => hearsLive(me, c));
     const fresh = mine.filter((c) => c.n > after).slice(-RADIO_VIEW_MOST)
       .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type }));
-    radio = { clips: fresh, last: mine.length ? mine[mine.length - 1].n : 0 };
+    radio = { clips: fresh, last: mine.length ? mine[mine.length - 1].n : 0, side: isHunter(me) ? 'hunters' : 'hiders' };
   }
+  const cam = camViewFor(s, me, camSince);
   const isHost = !!me && s.hostId === me.id;
   const watchers = isHost ? Object.values(watchersOf(s))
     .sort((a, b) => (a.joinedAt - b.joinedAt) || (a.id < b.id ? -1 : 1))
@@ -2288,6 +2450,45 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     watchers,
     drive,
     radio,
+    cam,
+  };
+}
+
+// v1.2: what a player's view says about the camera (see the contract's "View additions").
+const CAM_VIEW_MOST = 30;
+function camViewFor(s, me, camSince) {
+  if (s.phase === 'lobby') {
+    const settings = extrasOf(s.settings);
+    if (!settings.cam) return null;
+    const inList = ordered(s).filter((p) => p.status === 'in');
+    const okList = inList.filter((p) => p.camOk === true);
+    return {
+      on: true, mode: settings.camMode,
+      ok: !!me && me.camOk === true,
+      okCount: okList.length, inCount: inList.length,
+      okIds: me && s.hostId === me.id ? okList.map((p) => p.id) : null,
+      filmed: [], moments: [], last: 0, kept: null,
+    };
+  }
+  const c = s.cam;
+  if (!c || !Array.isArray(c.ids)) return null;
+  const after = Number.isFinite(Number(camSince)) ? Number(camSince) : 0;
+  const mine = me ? (c.moments || []).filter((m) => Array.isArray(m.ids) && m.ids.includes(me.id)) : [];
+  const moments = mine.filter((m) => m.n > after).slice(-CAM_VIEW_MOST).map((m) => {
+    const out = { n: m.n, clock: m.clock, kind: m.kind };
+    if (Number.isFinite(m.ms)) out.ms = m.ms;
+    return out;
+  });
+  const started = ordered(s).filter((p) => !!p.startTeam).length;
+  return {
+    on: true, mode: c.mode,
+    ok: !!me && c.ids.includes(me.id),
+    okCount: c.ids.length, inCount: started,
+    okIds: null,
+    filmed: c.ids.slice(),
+    moments,
+    last: mine.length ? mine[mine.length - 1].n : 0,
+    kept: null,
   };
 }
 
@@ -2524,7 +2725,7 @@ export function summarize(state, trails = []) {
   const radioSaved = !!extrasOf(s.settings).radioSave;
   const clips = radioOf(s).clips.slice()
     .sort((a, b) => (a.clock - b.clock) || (a.n - b.n))
-    .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type }));
+    .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type, side: sideOfClip(c) }));
   const routes = {};
   for (const [id, points] of Object.entries(tracks)) {
     routes[id] = thin(points, ROUTE_MOST).map((x) => [r6(x.p[0]), r6(x.p[1]), Math.round(x.clock / 1000)]);
@@ -2540,5 +2741,80 @@ export function summarize(state, trails = []) {
     driver: driverRow ? { id: driverRow.id, drivenM: driverRow.drivenM, pickups: driverRow.pickups } : null,
     radioSaved: radioSaved,
     radio: radioSaved && clips.length ? clips : null,
+    cam: camSummaryOf(s),
   };
+}
+
+// v1.2: every moment kept, by clock; a near call's hunter merged into its ids (for the director).
+function camSummaryOf(s) {
+  const c = s.cam;
+  if (!c || !Array.isArray(c.ids)) return null;
+  const moments = (c.moments || []).slice()
+    .sort((a, b) => (a.clock - b.clock) || (a.n - b.n))
+    .map((m) => {
+      const out = { clock: m.clock, kind: m.kind, ids: [...new Set([...(m.ids || []), ...(m.with || [])])] };
+      if (Number.isFinite(m.ms)) out.ms = m.ms;
+      return out;
+    });
+  return { mode: c.mode, filmed: c.ids.slice(), moments };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// v1.2: clips from the highlight cam (checked before an upload is allowed; the page runs it too)
+
+const VIDEO_TYPES = ['video/mp4', 'video/webm'];
+const CAM_SLACK_MS = 5000;
+const CAM_KINDS_MOST = 12;
+
+function camProblem(code) {
+  return { code, message: errorText(code) };
+}
+
+// Why this clip can't be uploaded by this player (null = it can). See "Clip metadata" in the contract.
+export function camClipProblem(state, playerId, clip, { now } = {}) {
+  if (!state || state.phase !== 'over') return camProblem('not_over');
+  const c = state.cam;
+  if (!c || !Array.isArray(c.ids)) return camProblem('no_cam');
+  if (typeof playerId !== 'string' || !c.ids.includes(playerId)) return camProblem('not_recorded');
+  if (!clip || typeof clip !== 'object' || Array.isArray(clip)) return camProblem('bad_video');
+  if (clip.round !== state.startedAt) return camProblem('old_round');
+  const bad = camProblem('bad_video');
+  if (typeof clip.id !== 'string' || !/^[0-9a-f]{16}$/.test(clip.id)) return bad;
+  if (!VIDEO_TYPES.includes(typeBase(clip.type))) return bad;
+  if (!Number.isInteger(clip.bytes) || clip.bytes < 1 || clip.bytes > LIMITS.camClipBytes) return bad;
+  const msMost = c.mode === 'everything'
+    ? TIMING.CAM_PIECE_MS + TIMING.CAM_PIECE_OVERLAP_MS + CAM_SLACK_MS
+    : TIMING.CAM_CLIP_MOST_MS + CAM_SLACK_MS;
+  if (!Number.isInteger(clip.ms) || clip.ms < 1000 || clip.ms > msMost) return bad;
+  const endMost = (Number.isFinite(state.endClock) ? state.endClock : clockOf(state, now)) + TIMING.CAM_POST_MS + CAM_SLACK_MS;
+  const { start, end } = clip;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start > end || end > endMost) return bad;
+  const kinds = clip.kinds;
+  if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > CAM_KINDS_MOST) return bad;
+  if (!kinds.every((k) => typeof k === 'string' && (k === 'piece' || CAM_KINDS.includes(k)))) return bad;
+  const want = Math.ceil(clip.ms / 1000);
+  const sized = (list) => Array.isArray(list) && list.length >= Math.max(1, want - 2) && list.length <= want + 2;
+  if (!sized(clip.clocks) || !sized(clip.loud) || !sized(clip.bright)) return bad;
+  let before = 0;
+  for (const x of clip.clocks) {
+    if (!Number.isInteger(x) || x < before || x > endMost) return bad;
+    before = x;
+  }
+  const pct = (x) => Number.isInteger(x) && x >= 0 && x <= 100;
+  if (!clip.loud.every(pct) || !clip.bright.every(pct)) return bad;
+  return null;
+}
+
+// A filmed player's phone says what it holds (after the game): { count, bytes }, for the end screen's "of N".
+export function noteCamHave(state, playerId, { count, bytes, now } = {}) {
+  if (!state || state.phase !== 'over' || !state.cam || !Array.isArray(state.cam.ids)) return { state, changed: false };
+  if (typeof playerId !== 'string' || !state.cam.ids.includes(playerId)) return { state, changed: false };
+  if (!Number.isInteger(count) || count < 0 || count > 1000) return { state, changed: false };
+  if (!Number.isInteger(bytes) || bytes < 0 || bytes > 2e9) return { state, changed: false };
+  const was = state.cam.have && has(state.cam.have, playerId) ? state.cam.have[playerId] : null;
+  if (was && was.count === count && was.bytes === bytes) return { state, changed: false };
+  const s = fillIn(copy(state));
+  s.cam.have[playerId] = { count, bytes, at: Number.isFinite(now) ? now : null };
+  if (Number.isFinite(now)) s.updatedAt = now;
+  return { state: s, changed: true };
 }

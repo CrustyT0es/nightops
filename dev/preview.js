@@ -15,8 +15,53 @@ import { fmtClock } from '../shared/rules.js';
 import { ringCenter } from '../shared/geo.js';
 import { fixture, faceFor, tickView, ALL } from './fixtures.js';
 import { silentWav, toBase64 } from '../js/radio.js'; // v1.1 PAGE-RADIO
+import { CAM_FILMED, camClips, PEOPLE } from './fixtures.js'; // v1.2 PAGE-CAM
+
+// v1.2 PAGE-CAM: a 3 s WebM drawn here (a moving bar and the time), made once, for the preview's clip links.
+let webm = null;
+function previewWebm() {
+  if (webm) return webm;
+  webm = new Promise((resolve) => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 320;
+      c.height = 240;
+      const g = c.getContext('2d');
+      const rec = new MediaRecorder(c.captureStream(15), { mimeType: 'video/webm' });
+      const parts = [];
+      rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+      rec.onstop = () => resolve(URL.createObjectURL(new Blob(parts, { type: 'video/webm' })));
+      const t0 = performance.now();
+      const draw = () => {
+        const t = performance.now() - t0;
+        g.fillStyle = '#1b2330'; g.fillRect(0, 0, 320, 240);
+        g.fillStyle = '#4ea8ff'; g.fillRect((t / 10) % 320, 90, 60, 60);
+        g.fillStyle = '#e6ebf2'; g.font = '700 28px sans-serif'; g.fillText(`${(t / 1000).toFixed(1)} s`, 16, 40);
+        if (t < 3000) requestAnimationFrame(draw); else rec.stop();
+      };
+      rec.start(500);
+      draw();
+    } catch { resolve(''); }
+  });
+  return webm;
+}
+// v1.2 end PAGE-CAM
 
 const params = Object.fromEntries(new URLSearchParams(location.search));
+// v1.2 PAGE-MAP: &text=130 makes the text 130% (a phone's bigger text), &safe=47,34 stands in for an iPhone's
+// notch and home bar (safe-area top, bottom in px)
+if (/^\d{2,3}$/.test(params.text || '')) document.documentElement.style.fontSize = `${params.text}%`;
+if (/^\d{1,3},\d{1,3}$/.test(params.safe || '')) {
+  const [top, bottom] = params.safe.split(',');
+  document.documentElement.style.setProperty('--safe-top', `${top}px`);
+  document.documentElement.style.setProperty('--safe-bottom', `${bottom}px`);
+}
+// v1.2 end PAGE-MAP
+// v1.2 PAGE-RADIO: &quiet=1 / &quiet=0 sets the hiders' Quiet before the page starts (kept per phone)
+if (params.quiet === '1' || params.quiet === '0') {
+  try { localStorage.setItem('nightops-quiet', params.quiet === '1' ? 'on' : 'off'); } catch { /* fine */ }
+}
+// v1.2 end PAGE-RADIO
 const screen = (params.screen || 'home').toLowerCase().replace(/[^a-z-]/g, '') || 'home';
 const ticking = params.tick === '1';
 const log = [];
@@ -91,6 +136,32 @@ const api = {
         return { ok: true, clip: { n: body.n, from: c ? c.from : '', clock: c ? c.clock : 0, ms: c ? c.ms : 1500, type: 'audio/wav', audio: toBase64(wav) } };
       }
       // v1.1 end PAGE-RADIO
+      // v1.2 PAGE-CAM: the camera's actions (cam=1): every clip is up, each link a short WebM made here
+      case 'cam-list': {
+        const list = camClips(current && current.clock);
+        const progress = CAM_FILMED.map((k) => {
+          const id = PEOPLE[k].id;
+          const done = list.filter((c) => c.pid === id);
+          return { pid: id, done: done.length, bytes: done.reduce((t, c) => t + c.bytes, 0), have: k === 'mia' ? null : { count: done.length + (k === 'ava' ? 2 : 0), bytes: 0 } };
+        });
+        return { ok: true, mode: 'highlights', round: current ? current.round : 0, clips: list, progress, kept: current && current.cam ? current.cam.kept : null };
+      }
+      case 'cam-urls': {
+        const url = await previewWebm();
+        return { ok: true, urls: Object.fromEntries((body.ids || []).map((id) => [id, url])) };
+      }
+      case 'cam-have':
+      case 'cam-done':
+      case 'cam-upload':
+        say(action, body);
+        return { ok: true, skip: true, id: body.clip ? body.clip.id : body.id };
+      case 'cam-keep': {
+        say('cam-keep', body.keep);
+        const kept = body.keep ? Date.now() + 30 * 24 * 3600 * 1000 : null;
+        if (current && current.cam) current = { ...current, cam: { ...current.cam, kept } };
+        return { ok: true, kept, released: [] };
+      }
+      // v1.2 end PAGE-CAM
       case 'cmd':
         onCmd(body.cmd);
         return { ok: true, view: snapshot(body.since) };
@@ -240,3 +311,13 @@ if (screen === 'home' || !fx.game) {
   app.start({});
   app.syncNow().then(() => app.go(screen));
 }
+// v1.2 PAGE-MAP: &replay=1 opens the end screen's replay layer
+if (screen === 'over' && params.replay === '1') {
+  const openReplay = (tries = 0) => {
+    const b = document.querySelector('.over-watch-replay');
+    if (b && !b.hidden) b.click();
+    else if (tries < 40) setTimeout(() => openReplay(tries + 1), 150);
+  };
+  setTimeout(openReplay, 300);
+}
+// v1.2 end PAGE-MAP

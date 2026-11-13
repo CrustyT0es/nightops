@@ -39,6 +39,7 @@ import { backButton } from './ui/back.js';
 import { ApiError, toApiError, WORDS } from './api.js';
 import { cleanName, cleanFace } from './identity.js';
 import { createRadio, fromBase64 } from './radio.js'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js'; // v1.2 PAGE-CAM
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 export const EVENT_CAP = 400;
@@ -280,6 +281,7 @@ export class App {
     autoScreen = true,
     back = backButton,
     radio = createRadio, // v1.1 PAGE-RADIO: makes app.radio (null = no walkie-talkie)
+    camera = createCamera, // v1.2 PAGE-CAM: makes app.cam (null = this browser can't film)
   } = {}) {
     this.api = api;
     this.back = back;
@@ -347,6 +349,16 @@ export class App {
       this.radio = null;
     }
     // v1.1 end PAGE-RADIO
+    // v1.2 PAGE-CAM: the highlight cam (null when this browser can't record video), and the newest moment taken
+    this.camSince = 0;
+    this.cam = null;
+    try {
+      this.cam = typeof camera === 'function' ? camera({ app: this, alerts, doc, win }) || null : null;
+    } catch (e) {
+      console.error(e);
+      this.cam = null;
+    }
+    // v1.2 end PAGE-CAM
   }
 
   // v1.1 PAGE-WATCH: true while this phone is a spectator (app.game is null then)
@@ -633,6 +645,7 @@ export class App {
     this._failures = 0;
     this._held = [];
     this._radioReset(); // v1.1 PAGE-RADIO: the walkie-talkie stops, its clips go
+    this._camReset(); // v1.2 PAGE-CAM: filming stops (clips kept on the phone stay)
     this._setConnection('ok');
     if (this._locOn && this.location) {
       this._locOn = false;
@@ -705,6 +718,7 @@ export class App {
     const game = this.game;
     const body = { since: this._since };
     body.radioSince = this._radioSince(); // v1.1 PAGE-RADIO
+    body.camSince = this._camSince(); // v1.2 PAGE-CAM
     const pos = this._posToSend();
     if (pos) body.pos = pos;
     this._syncing = this._post('sync', body, { timeoutMs: 9000 })
@@ -793,6 +807,7 @@ export class App {
     const game = this.game;
     const body = { cmd, since: this._since };
     body.radioSince = this._radioSince(); // v1.1 PAGE-RADIO
+    body.camSince = this._camSince(); // v1.2 PAGE-CAM
     const pos = this._posToSend();
     if (pos) body.pos = pos;
     try {
@@ -911,10 +926,12 @@ export class App {
   }
 
   // Send a recorded clip ({ audio: base64, type, ms }). -> Promise<{ n, clock } | ApiError>
-  async sendClip({ audio, type, ms } = {}) {
+  async sendClip({ audio, type, ms, side } = {}) {
     if (!this.game) return new ApiError({ code: 'not_in_game', message: "You're not in a game right now." });
     const game = this.game;
     const body = { audio, type, ms, since: this._since, radioSince: this._radioSince() };
+    if (side === 'hunters' || side === 'hiders') body.side = side; // the channel it was recorded on
+    body.camSince = this._camSince(); // v1.2 PAGE-CAM
     const pos = this._posToSend();
     if (pos) body.pos = pos;
     try {
@@ -931,6 +948,58 @@ export class App {
     }
   }
   // v1.1 end PAGE-RADIO ----------------------------------------------------------------------------------
+
+  // v1.2 PAGE-CAM: the highlight cam ---------------------------------------------------------------------
+
+  _camSince() {
+    const n = Number(this.camSince);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  }
+
+  _camReset() {
+    this.camSince = 0;
+    try { if (this.cam) this.cam.stop(); } catch (e) { console.error(e); }
+  }
+
+  // The game clock now (ms): the newest view's clock and how long ago it came, standing still while paused.
+  // null without a live or over view.
+  gameClock() {
+    const v = this.view;
+    if (!v || (v.phase !== 'live' && v.phase !== 'over') || !Number.isFinite(Number(v.clock))) return null;
+    const now = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+    const at = Number.isFinite(this.viewAt) && this.viewAt <= now ? this.viewAt : now;
+    return v.paused ? Number(v.clock) : Number(v.clock) + (now - at);
+  }
+
+  // The microphone for the walkie-talkie: the camera's own audio while it films (never stop it: shared), else a
+  // microphone of its own. -> Promise<{ stream, shared }>
+  async mic() {
+    try {
+      const s = this.cam && typeof this.cam.stream === 'function' ? this.cam.stream() : null;
+      const tracks = s && typeof s.getAudioTracks === 'function' ? s.getAudioTracks().filter((t) => t.readyState !== 'ended' && t.muted !== true) : [];
+      if (tracks.length) {
+        const M = (this.win && this.win.MediaStream) || globalThis.MediaStream;
+        return { stream: M ? new M(tracks) : s, shared: true };
+      }
+    } catch (e) { console.error(e); }
+    const media = globalThis.navigator && globalThis.navigator.mediaDevices;
+    const stream = await media.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    return { stream, shared: false };
+  }
+
+  // A cam-* action with this phone's player (or spectator) details. -> Promise<answer> (rejects with an ApiError)
+  video(action, body = {}) {
+    if (!/^cam-(upload|done|have|list|urls|keep|forget)$/.test(String(action))) {
+      return Promise.reject(new ApiError({ code: 'bad_request', message: "That didn't work. Try again." }));
+    }
+    if (!this.game && !this.watching) {
+      return Promise.reject(new ApiError({ code: 'not_in_game', message: "You're not in a game right now." }));
+    }
+    return this._post(action, body && typeof body === 'object' ? body : {}, { timeoutMs: 20000 }).catch((e) => {
+      throw toApiError(e);
+    });
+  }
+  // v1.2 end PAGE-CAM -------------------------------------------------------------------------------------
 
   // v1.1 PAGE-WATCH: spectators -------------------------------------------------------------------------
   // A spectator has their own id and secret (identity's 'nightops-watch'), never plays and never sends a
@@ -1219,6 +1288,7 @@ export class App {
       refetch = !incoming.some((e) => e.kind === 'again');
       try { this.store.remove(REVEALED_KEY); } catch { /* ignore */ }
       this._radioReset(); // v1.1 PAGE-RADIO: a new round's clips count from 1 again
+      this._camReset(); // v1.2 PAGE-CAM: a new round's moments count from 1 again
     }
     // The side you're no longer on (a hider who joined the hunters, or was caught and sits out): its news goes.
     const was = sideNow(prev);
@@ -1250,6 +1320,9 @@ export class App {
       // v1.1 PAGE-RADIO: new walkie-talkie clips (live hunters only; anyone else's radio stops)
       try { if (this.radio) this.radio.take(view); } catch (e) { console.error(e); }
       // v1.1 end PAGE-RADIO
+      // v1.2 PAGE-CAM: moments for the camera (a filmed player's phone only)
+      try { if (this.cam) this.cam.take(view); } catch (e) { console.error(e); }
+      // v1.2 end PAGE-CAM
     } else if (this.view) {
       this.view.events = this.events;
     }

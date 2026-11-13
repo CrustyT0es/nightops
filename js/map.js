@@ -18,6 +18,13 @@
 //   map.setRoutes(routes | null, clockSeconds, { players, faces })      the replay
 //   map.mode() -> 'maplibre' | 'plain'     map.ready -> Promise<'maplibre' | 'plain'> (never rejects)
 //   map.getCenter(), map.getZoom(), map.project(p), map.unproject([x, y]), map.resize(), map.destroy()
+//   v1.2: map.setInsets({ top, right, bottom, left })   px hidden by a screen's bars: fit/center/fitAll keep to the rest
+//         map.fitAll({ ring, marks, padding })          Fit everyone: the ring and every mark (with its circle)
+//         map.zoomBy(step)                              +1 / -1 around the middle of what shows, animated
+//         map.onMode(fn(mode)) -> off()                 the map swapped engines ('maplibre' | 'plain')
+//   Faces that would overlap are grouped (clusterMarks): 2-3 spread round their middle with a stem to their spot,
+//   4 or more merged into one face with a "+N" badge (a tap zooms in on them). Made again after setMarks and when
+//   the zoom settles, never every frame.
 //
 // Marks are buttons only when setMarks gets an onTap handler (by default only hiders' marks: hunters tap them to
 // tag); otherwise they're aria-hidden pictures and the screens give the words.
@@ -41,6 +48,10 @@ export const DEFAULT_ZOOM = 16;      // about 350 m across a phone
 export const MAX_ZOOM = 19;
 export const PLAIN_MIN_ZOOM = 10;    // the plain map: about 20 km across a phone at most
 export const FIT_MAX_ZOOM = 17.5;
+export const MARK_SIZE = Object.freeze({ me: 48, other: 42, sos: 52 }); // v1.2: faces, px
+export const ROUTE_FACE = 40;                 // the replay's moving faces
+const CLUSTER_SETTLE_MS = 160;      // the zoom has stood still this long: group the faces again
+const CLUSTER_ROUTES_MS = 500;      // the replay's faces are grouped again at most this often
 const CONTEXT_WAIT_MS = 5000;        // a lost WebGL context must come back within this (while the page is shown)
 const ROUTES_EVERY_MS = 100;         // the street map's replay lines are redrawn at most this often
 const AGE_DRIFT_MS = 30000;          // between views, ages tick on by themselves, at most this far
@@ -240,6 +251,147 @@ export function markKey(mark, i) {
   return `${markSlot(mark && mark.kind)}:${id}`;
 }
 
+// v1.2: faces closer than `near` px on screen are grouped (single link: a chain of close faces is one group).
+// items [{ key, x, y, rank }] -> [{ keys, top, x, y, spread: [{ key, dx, dy }] | null, more }]
+//   one face:        as it is (spread null, more 0)
+//   2..spreadMost:   x, y = their middle; spread moves each face (dx, dy from its own spot) onto a `ring` px circle
+//   more than that:  merged: x, y = the top face's spot (highest rank, then key), more = how many it stands for
+// Pure and in a fixed order (keys sorted), so the same picture always gives the same groups.
+//   alone: true      never grouped (an SOS face: it must never be hidden behind someone else's "+N")
+export function clusterMarks(items, { near = 44, spreadMost = 3, ring = 30 } = {}) {
+  const all = (Array.isArray(items) ? items : [])
+    .filter((it) => it && it.key !== undefined && Number.isFinite(it.x) && Number.isFinite(it.y));
+  const alone = all.filter((it) => it.alone)
+    .map((it) => ({ keys: [String(it.key)], top: String(it.key), x: it.x, y: it.y, spread: null, more: 0 }));
+  const grouped = clusterGroups(all.filter((it) => !it.alone), { near, spreadMost, ring });
+  return alone.length ? [...grouped, ...alone].sort((a, b) => (a.keys[0] < b.keys[0] ? -1 : a.keys[0] > b.keys[0] ? 1 : 0)) : grouped;
+}
+
+function clusterGroups(items, { near, spreadMost, ring }) {
+  const list = items
+    .map((it) => ({ key: String(it.key), x: it.x, y: it.y, rank: Number.isFinite(it.rank) ? it.rank : 0 }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const n = list.length;
+  const parent = list.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const near2 = near * near;
+  // Sorted by x, so only faces within `near` across are compared.
+  const byX = list.map((_, i) => i).sort((a, b) => list[a].x - list[b].x);
+  for (let a = 0; a < n; a++) {
+    const A = list[byX[a]];
+    for (let b = a + 1; b < n; b++) {
+      const B = list[byX[b]];
+      if (B.x - A.x >= near) break;
+      const dx = B.x - A.x;
+      const dy = B.y - A.y;
+      if (dx * dx + dy * dy < near2) {
+        const ra = find(byX[a]);
+        const rb = find(byX[b]);
+        if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+      }
+    }
+  }
+  const groups = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(list[i]);
+  }
+  const out = [];
+  for (const g of [...groups.keys()].sort((a, b) => a - b).map((k) => groups.get(k))) {
+    const keys = g.map((it) => it.key);
+    let top = g[0];
+    for (const it of g) if (it.rank > top.rank) top = it;
+    if (g.length === 1) {
+      out.push({ keys, top: top.key, x: top.x, y: top.y, spread: null, more: 0 });
+    } else if (g.length <= spreadMost) {
+      const mx = g.reduce((s, it) => s + it.x, 0) / g.length;
+      const my = g.reduce((s, it) => s + it.y, 0) / g.length;
+      // Two side by side; three or more from the top round the clock.
+      const start = g.length === 2 ? Math.PI : -Math.PI / 2;
+      const spread = g.map((it, i) => {
+        const a = start + (i * 2 * Math.PI) / g.length;
+        const fx = mx + ring * Math.cos(a);
+        const fy = my + ring * Math.sin(a);
+        return { key: it.key, dx: Math.round((fx - it.x) * 10) / 10, dy: Math.round((fy - it.y) * 10) / 10 };
+      });
+      out.push({ keys, top: top.key, x: mx, y: my, spread, more: 0 });
+    } else {
+      out.push({ keys, top: top.key, x: top.x, y: top.y, spread: null, more: g.length - 1 });
+    }
+  }
+  // A spread that would land a face on someone else's is merged instead (spreading never makes a new overlap).
+  const byKey = new Map(list.map((it) => [it.key, it]));
+  const facesOf = (g) => (g.spread
+    ? g.spread.map((s) => ({ x: byKey.get(s.key).x + s.dx, y: byKey.get(s.key).y + s.dy }))
+    : [{ x: g.x, y: g.y }]);
+  for (const g of out) {
+    if (!g.spread) continue;
+    const mine = facesOf(g);
+    const clash = out.some((o) => o !== g && facesOf(o).some((f) => mine.some((m) => (m.x - f.x) ** 2 + (m.y - f.y) ** 2 < near2)));
+    if (!clash) continue;
+    const top = byKey.get(g.top);
+    g.spread = null;
+    g.x = top.x;
+    g.y = top.y;
+    g.more = g.keys.length - 1;
+  }
+  return out;
+}
+
+// v1.2: where each face's labels (name, chip, age) go so they don't run into another's labels or face.
+// items [{ key, x, y (the face's middle), half (half the face), below (px from the middle to where labels start when
+// under the face), w, h (the labels' size), rank }] -> Map key -> 'below' | 'above' | 'right' | 'left' | 'hidden'.
+// Higher ranks are placed first (and keep 'below' when they can); a label with no free place is hidden (the face
+// stays, its words are in its button or the screen's lists); keep: true never hides (an SOS). Pure.
+export function placeLabels(items, { gap = 4, pad = 2 } = {}) {
+  const list = (Array.isArray(items) ? items : [])
+    .filter((it) => it && it.key !== undefined && Number.isFinite(it.x) && Number.isFinite(it.y))
+    .map((it) => ({ ...it, key: String(it.key), half: Number(it.half) || 21, w: Math.max(0, Number(it.w) || 0), h: Math.max(0, Number(it.h) || 0), rank: Number(it.rank) || 0 }))
+    .sort((a, b) => (b.rank - a.rank) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const faces = list.map((it) => ({ key: it.key, l: it.x - it.half, t: it.y - it.half, r: it.x + it.half, b: it.y + it.half }));
+  const placed = [];
+  const out = new Map();
+  const hits = (a, b) => a.l < b.r - pad && b.l < a.r - pad && a.t < b.b - pad && b.t < a.b - pad;
+  for (const it of list) {
+    if (!it.w || !it.h) { out.set(it.key, 'below'); continue; }
+    const below = Number.isFinite(it.below) ? it.below : it.half + gap;
+    const spots = [
+      ['below', { l: it.x - it.w / 2, t: it.y + below }],
+      ['above', { l: it.x - it.w / 2, t: it.y - it.half - gap - it.h }],
+      ['right', { l: it.x + it.half + gap, t: it.y - it.h / 2 }],
+      ['left', { l: it.x - it.half - gap - it.w, t: it.y - it.h / 2 }],
+    ];
+    let at = 'hidden';
+    if (it.keep) at = 'below'; // (an SOS's name always shows: first, and under its face if nothing is free)
+    for (const [name, p] of spots) {
+      const box = { l: p.l, t: p.t, r: p.l + it.w, b: p.t + it.h };
+      if (placed.some((x) => hits(box, x))) continue;
+      if (faces.some((f) => f.key !== it.key && hits(box, f))) continue;
+      at = name;
+      break;
+    }
+    if (at !== 'hidden') {
+      const p = spots.find(([n]) => n === at)[1];
+      placed.push({ l: p.l, t: p.t, r: p.l + it.w, b: p.t + it.h });
+    }
+    out.set(it.key, at);
+  }
+  return out;
+}
+
+// Which face stands for a merged group: you > SOS > live > offline > the newest ping > the rest.
+export function markRank(kind, { me = false, age = 0 } = {}) {
+  if (me) return 100;
+  if (kind === 'sos') return 90;
+  if (kind === 'radar' || kind === 'exposure' || kind === 'outside' || kind === 'near' || kind === 'hunter' || kind === 'hider' || kind === 'self') return 60;
+  if (kind === 'route') return 50;
+  if (kind === 'offline') return 30;
+  if (kind === 'ping') return 20 + Math.max(0, 9 - Math.min(9, (Number(age) || 0) / 60000));
+  if (kind === 'seen') return 5;
+  return 10;
+}
+
 // How each kind of mark looks.
 const KINDS = {
   hunter: { team: 'hunter' },
@@ -382,6 +534,7 @@ class PlainMap {
       routes: { hunter: path('nmap-route hunter'), hider: path('nmap-route hider'), other: path('nmap-route other') },
       full: path('nmap-ring-full'),
       glow: path('nmap-ring-glow'),
+      edge: path('nmap-ring-edge'), // v1.2: a dark edge under the ring line, so it reads on light streets
       ring: path('nmap-ring'),
       dfill: path('nmap-draft-fill'),
       dline: path('nmap-draft-line'),
@@ -553,9 +706,10 @@ class PlainMap {
       setD(P.inside, hole);
       setD(P.dim, `M-60 -60H${w + 60}V${hgt + 60}H-60Z${hole}`);
       setD(P.glow, hole);
+      setD(P.edge, hole);
       setD(P.ring, hole);
     } else {
-      setD(P.inside, ''); setD(P.dim, ''); setD(P.glow, ''); setD(P.ring, '');
+      setD(P.inside, ''); setD(P.dim, ''); setD(P.glow, ''); setD(P.edge, ''); setD(P.ring, '');
     }
     setD(P.full, placed && m.fullOutline ? this.pathOf(m.fullOutline, true) : '');
 
@@ -826,7 +980,8 @@ class GlMap {
     });
     map.addLayer({ id: 'nightops-full', type: 'line', source: 'nightops-shapes', filter: part('full'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 1.5, 'line-opacity': 0.55, 'line-dasharray': [3, 3] } });
     map.addLayer({ id: 'nightops-ring-glow', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 9, 'line-opacity': 0.18, 'line-blur': 4 } });
-    map.addLayer({ id: 'nightops-ring', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 3 } });
+    map.addLayer({ id: 'nightops-ring-edge', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': '#000000', 'line-width': 8, 'line-opacity': 0.55 } });
+    map.addLayer({ id: 'nightops-ring', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 4 } });
     map.addLayer({ id: 'nightops-draft-fill', type: 'fill', source: 'nightops-shapes', filter: part('dfill'), paint: { 'fill-color': colors.hider, 'fill-opacity': 0.14 } });
     map.addLayer({ id: 'nightops-draft-line', type: 'line', source: 'nightops-shapes', filter: part('dline'), layout: round, paint: { 'line-color': colors.hider, 'line-width': 2.5 } });
     map.addLayer({ id: 'nightops-draft-close', type: 'line', source: 'nightops-shapes', filter: part('dclose'), layout: round, paint: { 'line-color': colors.hider, 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [1.5, 2] } });
@@ -919,6 +1074,12 @@ export function createMap(container, { interactive = true } = {}) {
     mode: 'plain',
     final: false,
     reduced: false,
+    insets: { top: 0, right: 0, bottom: 0, left: 0 }, // v1.2: px hidden by the screen's own bars
+    modeFns: new Set(),  // v1.2: onMode listeners
+    clusterZ: null,      // the zoom the faces were last grouped at
+    seenZ: null,         // the zoom the last frame was drawn at
+    clusterTimer: 0,
+    clusterAt: 0,
   };
 
   // Keep the container a positioning box for the map's layers.
@@ -933,7 +1094,8 @@ export function createMap(container, { interactive = true } = {}) {
   const root = h('div.nmap', { 'data-mode': 'plain' });
   const areaSvg = svgNode('svg', { class: 'nmap-areas', 'aria-hidden': 'true', focusable: 'false' });
   const facesLayer = h('div.nmap-faces');
-  root.append(areaSvg, facesLayer);
+  const groupsLayer = h('div.nmap-groups'); // v1.2: the "+N" buttons of merged faces
+  root.append(areaSvg, facesLayer, groupsLayer);
   container.appendChild(root);
 
   const timers = new Set();
@@ -1052,6 +1214,11 @@ export function createMap(container, { interactive = true } = {}) {
     root.dataset.mode = mode;
     if (mode === 'plain' && plain) plain.setFinal();
     resolveReady(mode);
+    tellMode();
+  }
+
+  function tellMode() {
+    for (const fn of [...S.modeFns]) { try { fn(S.mode); } catch (e) { console.error(e); } }
   }
 
   function dropGl() {
@@ -1172,6 +1339,7 @@ export function createMap(container, { interactive = true } = {}) {
     S.mode = 'plain';
     root.dataset.mode = 'plain';
     plain.setFinal();
+    if (S.final) tellMode(); // (finish() tells it only the first time)
     finish('plain');
     requestFrame();
   }
@@ -1181,8 +1349,13 @@ export function createMap(container, { interactive = true } = {}) {
   function camera(cmd) {
     if (!S.w || !S.h) { S.pendingCam = cmd; return; }
     const eng = active;
+    const ins = S.insets;
     if (cmd.type === 'fit') {
-      const pad = padBox(cmd.padding, S.w, S.h);
+      // v1.2: what the screen's bars hide is added to the padding, so the fit lands in what shows.
+      const base = padBox(cmd.padding, S.w * 4, S.h * 4);
+      const pad = padBox({
+        top: base.top + ins.top, right: base.right + ins.right, bottom: base.bottom + ins.bottom, left: base.left + ins.left,
+      }, S.w, S.h);
       const maxZoom = Number.isFinite(cmd.maxZoom) ? cmd.maxZoom : FIT_MAX_ZOOM;
       const b = cmd.bounds;
       if (eng === plain) {
@@ -1193,9 +1366,29 @@ export function createMap(container, { interactive = true } = {}) {
         else eng.fitBounds(b, pad, { animate: cmd.animate, maxZoom });
       }
     } else if (cmd.type === 'center') {
-      eng.jumpTo({ center: cmd.point, zoom: cmd.zoom }, cmd.animate);
+      eng.jumpTo({ center: shifted(cmd.point, cmd.zoom, eng), zoom: cmd.zoom }, cmd.animate);
     }
     requestFrame();
+  }
+
+  // v1.2: the map's centre that puts `point` in the middle of what the bars leave showing.
+  function shifted(point, zoom, eng) {
+    const ins = S.insets;
+    const ox = (ins.left - ins.right) / 2;
+    const oy = (ins.top - ins.bottom) / 2;
+    if (!ox && !oy) return point;
+    let z = Number.isFinite(zoom) ? zoom : null;
+    if (z === null) { try { z = eng.hasPlace() ? eng.getZoom() : DEFAULT_ZOOM; } catch { z = DEFAULT_ZOOM; } }
+    if (!Number.isFinite(z)) z = DEFAULT_ZOOM;
+    const ppm = metresToPixels(1, point[1], z);
+    if (!(ppm > 0)) return point;
+    return fromLocal(point, [-ox / ppm, oy / ppm]);
+  }
+
+  // The middle of what shows, in px from the map's corner.
+  function visibleMiddle() {
+    const ins = S.insets;
+    return [ins.left + Math.max(0, S.w - ins.left - ins.right) / 2, ins.top + Math.max(0, S.h - ins.top - ins.bottom) / 2];
   }
 
   function originFrom(p) {
@@ -1266,8 +1459,13 @@ export function createMap(container, { interactive = true } = {}) {
   function drawRec(rec, now, eng) {
     const { p, moving } = posOf(rec, now);
     const xy = eng.project(p);
-    if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) { unplace(rec); return moving; }
-    place(rec, xy[0], xy[1]);
+    if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) { unplace(rec); rec.rx = null; drawTether(rec, null); return moving; }
+    // v1.2: a spread face sits off its spot (rec.off), with a thin stem back to it.
+    rec.rx = xy[0];
+    rec.ry = xy[1];
+    const off = rec.off;
+    place(rec, xy[0] + (off ? off.dx : 0), xy[1] + (off ? off.dy : 0));
+    drawTether(rec, off ? xy : null);
     if (rec.circle) {
       const r = Math.max(MIN_AREA_PX, (rec.rM || 0) * eng.pxPerMetre(p[1]));
       const cx = Math.round(xy[0] * 10) / 10;
@@ -1292,6 +1490,16 @@ export function createMap(container, { interactive = true } = {}) {
     let moving = false;
     for (const rec of recs.values()) if (drawRec(rec, now, eng)) moving = true;
     for (const rec of heads.values()) drawRec(rec, now, eng);
+    placeGroups();
+    // v1.2: a new zoom (or size): group the faces again once it stands still.
+    let z = null;
+    try { z = eng.hasPlace() ? eng.getZoom() : null; } catch { z = null; }
+    const zKey = Number.isFinite(z) ? `${Math.round(z * 50)}:${S.w}x${S.h}` : null;
+    // (Re-armed only while the zoom keeps changing, so it fires once it stands still.)
+    if (zKey !== null && zKey !== S.seenZ) {
+      S.seenZ = zKey;
+      if (zKey !== S.clusterZ) clusterSoon(CLUSTER_SETTLE_MS);
+    }
     const d = S.model && S.model.draft;
     const pts = d ? d.corners : [];
     for (let i = 0; i < corners.length; i++) {
@@ -1303,6 +1511,161 @@ export function createMap(container, { interactive = true } = {}) {
       if (xy) place(centerDot, xy[0], xy[1]); else unplace(centerDot);
     }
     return moving;
+  }
+
+  // ---- v1.2: faces that would overlap ----
+
+  const groupBtns = new Map(); // top rec key -> { el, n, rec, x, y }
+
+  function drawTether(rec, real) {
+    if (!real || !rec.off || !rec.shown) {
+      if (rec.tether) { rec.tether.remove(); rec.tether = null; }
+      return;
+    }
+    if (!rec.tether) {
+      rec.tether = svgNode('g', { class: 'nmap-tether' });
+      rec.tether.append(svgNode('line', {}), svgNode('circle', { r: 3.5 }));
+      areaSvg.appendChild(rec.tether);
+    }
+    const [line, dot] = rec.tether.childNodes;
+    const x1 = Math.round(real[0] * 10) / 10;
+    const y1 = Math.round(real[1] * 10) / 10;
+    const x2 = Math.round((real[0] + rec.off.dx) * 10) / 10;
+    const y2 = Math.round((real[1] + rec.off.dy) * 10) / 10;
+    const sig = `${x1},${y1},${x2},${y2}`;
+    if (rec.tether._sig === sig) return;
+    rec.tether._sig = sig;
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+    dot.setAttribute('cx', x1); dot.setAttribute('cy', y1);
+  }
+
+  function placeGroups() {
+    for (const g of groupBtns.values()) {
+      const r = g.rec;
+      if (!r.shown || !Number.isFinite(r.x)) { if (!g.el.hidden) g.el.hidden = true; continue; }
+      if (g.el.hidden) g.el.hidden = false;
+      // (An exact spot's face sits up on its stem: the button goes on the face, not the dot under it.)
+      const y = r.y - (r.el && r.el.classList.contains('exact') ? 32 : 0);
+      if (g.x === r.x && g.y === y) continue;
+      g.x = r.x;
+      g.y = y;
+      g.el.style.transform = `translate3d(${r.x}px, ${y}px, 0)`;
+    }
+  }
+
+  function clusterSoon(ms) {
+    if (S.destroyed) return;
+    cancel(S.clusterTimer);
+    S.clusterTimer = later(() => { S.clusterTimer = 0; recluster(); }, ms);
+  }
+
+  // Groups every face on the map now (marks and the replay's heads), and shows it.
+  function recluster() {
+    const eng = active;
+    if (!eng || S.destroyed) return;
+    let z = null;
+    try { z = eng.hasPlace() ? eng.getZoom() : null; } catch { z = null; }
+    S.clusterZ = Number.isFinite(z) ? `${Math.round(z * 50)}:${S.w}x${S.h}` : null;
+    S.clusterAt = performance.now();
+    const all = new Map();
+    const items = [];
+    const add = (prefix, map) => {
+      for (const [key, rec] of map) {
+        const k = `${prefix}${key}`;
+        all.set(k, rec);
+        if (rec.leaving || !rec.shown || !Number.isFinite(rec.rx)) continue;
+        // "What they saw" stays dim on its own circle, under the faces (it never moves or hides anyone).
+        if (rec.kind === 'seen') continue;
+        // An exact spot's face sits up on its stem: group it where the face is. An SOS is never grouped.
+        const lift = rec.el.classList.contains('exact') ? 32 : 0;
+        items.push({ key: k, x: rec.rx, y: rec.ry - lift, rank: rec.rank || 0, alone: rec.kind === 'sos' });
+      }
+    };
+    add('m:', recs);
+    add('r:', heads);
+    const groups = clusterMarks(items, { near: 44, spreadMost: 3, ring: 30 });
+    const placed = new Map(); // key -> { off, merged, hidden, keys }
+    for (const g of groups) {
+      if (g.spread) for (const s2 of g.spread) placed.set(s2.key, { off: { dx: s2.dx, dy: s2.dy }, merged: 0, hidden: false, keys: g.keys });
+      else if (g.more) {
+        for (const k of g.keys) placed.set(k, { off: null, merged: k === g.top ? g.more : 0, hidden: k !== g.top, keys: g.keys });
+      }
+    }
+    const tops = new Set();
+    for (const [k, rec] of all) {
+      const p = placed.get(k) || { off: null, merged: 0, hidden: false, keys: null };
+      const offSig = p.off ? `${p.off.dx},${p.off.dy}` : '';
+      if ((rec.offSig || '') !== offSig) { rec.offSig = offSig; rec.off = p.off; }
+      rec.merged = p.merged;
+      rec.grouped = p.keys && p.merged ? p.keys.map((kk) => all.get(kk)).filter(Boolean) : null;
+      if (rec.el.classList.contains('grouped') !== p.hidden) rec.el.classList.toggle('grouped', p.hidden);
+      if (rec.el.classList.contains('spread') !== !!p.off) rec.el.classList.toggle('spread', !!p.off);
+      writeTag(rec);
+      if (p.merged) { tops.add(k); groupButton(k, rec); }
+    }
+    for (const [k, g] of groupBtns) if (!tops.has(k) || all.get(k) !== g.rec) { g.el.remove(); groupBtns.delete(k); }
+    spaceLabels(all, placed);
+    drawOverlay(performance.now());
+  }
+
+  // Each shown face's labels go where they don't run into another's (placeLabels), measured now (not each frame).
+  function spaceLabels(all, placed) {
+    const items = [];
+    const recsOf = new Map();
+    for (const [k, rec] of all) {
+      if (!rec.labels) continue;
+      const p = placed.get(k);
+      const hiddenNow = rec.leaving || !rec.shown || !Number.isFinite(rec.rx) || rec.kind === 'seen' || (p && p.hidden);
+      if (hiddenNow) { if (rec.labels.dataset.at && rec.labels.dataset.at !== 'below') rec.labels.dataset.at = 'below'; continue; }
+      const lift = rec.el.classList.contains('exact') ? 32 : 0;
+      const half = rec.kind === 'sos' ? 26 : rec.el.classList.contains('me') ? 24 : 21;
+      const off = p && p.off ? p.off : { dx: 0, dy: 0 };
+      let w = 0;
+      let hh = 0;
+      try { w = rec.labels.offsetWidth || 0; hh = rec.labels.offsetHeight || 0; } catch { /* not laid out */ }
+      items.push({
+        key: k, x: rec.rx + off.dx, y: rec.ry + off.dy - lift, half,
+        below: lift ? lift + 10 : half + 4, w, h: hh, rank: rec.kind === 'sos' ? 1000 : (rec.rank || 0) + (rec.merged ? 1 : 0),
+        keep: rec.kind === 'sos',
+      });
+      recsOf.set(k, rec);
+    }
+    const at = placeLabels(items);
+    for (const [k, where] of at) {
+      const rec = recsOf.get(k);
+      if (rec && rec.labels.dataset.at !== where) rec.labels.dataset.at = where;
+    }
+  }
+
+  function writeTag(rec) {
+    const base = rec.baseTag || '';
+    const words = rec.merged ? `${base || 'Someone'} +${rec.merged}` : base;
+    text(rec.tagEl, words);
+    show(rec.tagEl, !!words);
+  }
+
+  function groupButton(key, rec) {
+    let g = groupBtns.get(key);
+    if (!g) {
+      const n = h('span.nmap-group-n');
+      const el = h('button.nmap-group', { type: 'button' }, n);
+      el.addEventListener('click', () => {
+        const pts = (g.rec.grouped || []).map((r) => r.to).filter(isPoint);
+        if (pts.length) fit(pts, { padding: 90, maxZoom: MAX_ZOOM - 0.5, animate: !S.reduced });
+      });
+      g = { el, n, rec, x: null, y: null };
+      groupBtns.set(key, g);
+      groupsLayer.appendChild(el);
+    }
+    g.rec = rec;
+    cls2(g.el, 'me', rec.el.classList.contains('me') || rec.el.classList.contains('k-sos'));
+    text(g.n, `+${rec.merged}`);
+    const label = `${rec.baseTag || 'Someone'} and ${rec.merged} more here. Zoom in on them`;
+    if (g.el.getAttribute('aria-label') !== label) g.el.setAttribute('aria-label', label);
+  }
+
+  function cls2(el, name, on) {
+    if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
   }
 
   function faceSrc(faces, id) {
@@ -1362,7 +1725,8 @@ export function createMap(container, { interactive = true } = {}) {
       showsAge,
       age,
       stale,
-      size: kind === 'sos' ? 48 : me ? 44 : 34,
+      size: kind === 'sos' ? MARK_SIZE.sos : me ? MARK_SIZE.me : MARK_SIZE.other,
+      rank: markRank(kind, { me, age }),
       area: K.area || null,
       exact: !!K.exact,
       pulse: !!K.pulse,
@@ -1378,6 +1742,7 @@ export function createMap(container, { interactive = true } = {}) {
       kind: desc.kind || '', labelR: null,
       to: null, glide: null, x: null, y: null, shown: null, leaving: 0, faceKey: '', tappable: desc.tappable,
       mark: null, ageBase: null, rM: 0,
+      rank: desc.rank || 0, baseTag: '', off: null, offSig: '', merged: 0, grouped: null, tether: null, rx: null, ry: null, // v1.2
     };
     rec.faceBox = h('span.nmark-face');
     rec.hit = desc.tappable
@@ -1398,6 +1763,8 @@ export function createMap(container, { interactive = true } = {}) {
     cancel(rec.leaving);
     rec.el.remove();
     if (rec.circle) rec.circle.remove();
+    if (rec.tether) { rec.tether.remove(); rec.tether = null; } // v1.2
+    for (const [k, g] of groupBtns) if (g.rec === rec) { g.el.remove(); groupBtns.delete(k); }
   }
 
   function leave(map, key, rec) {
@@ -1443,6 +1810,9 @@ export function createMap(container, { interactive = true } = {}) {
     if (desc.driver) cls.push('is-driver'); // v1.1 PAGE-DRIVER
     if (!rec.shown) cls.push('unplaced');
     if (rec.leaving) cls.push('leaving');
+    if (rec.el.classList.contains('grouped')) cls.push('grouped'); // v1.2: kept until the faces are grouped again
+    if (rec.off) cls.push('spread');
+    rec.rank = desc.rank || 0;
     const className = cls.join(' ');
     if (rec.el.className !== className) rec.el.className = className;
     setFace(rec, desc, faceSrc(opts.faces, mark.id));
@@ -1450,8 +1820,8 @@ export function createMap(container, { interactive = true } = {}) {
     if (desc.driver && !rec.carEl) { rec.carEl = h('span.nmark-car', icon('car', 14)); rec.faceBox.after(rec.carEl); }
     if (rec.carEl) rec.carEl.hidden = !desc.driver;
     // v1.1 end PAGE-DRIVER
-    text(rec.tagEl, desc.tag);
-    show(rec.tagEl, !!desc.tag);
+    rec.baseTag = desc.tag;
+    writeTag(rec); // v1.2: "Ava +3" for a merged group
     text(rec.chipEl, desc.chip);
     show(rec.chipEl, !!desc.chip);
     if (rec.chipEl.dataset.kind !== desc.chipKind) rec.chipEl.dataset.kind = desc.chipKind;
@@ -1567,6 +1937,7 @@ export function createMap(container, { interactive = true } = {}) {
     // z order by kind is CSS; DOM order follows the view's order so focus moves predictably.
     for (const [key, rec] of recs) if (!seen.has(key)) leave(recs, key, rec);
     syncTicker();
+    clusterSoon(0); // v1.2: group the faces again (after this frame's placing)
     if (first) {
       originFrom(first);
       autoPlace({ type: 'center', point: first, zoom: DEFAULT_ZOOM }, 1);
@@ -1641,18 +2012,20 @@ export function createMap(container, { interactive = true } = {}) {
       live.add(id);
       let rec = heads.get(id);
       const name = String((person && person.name) || '').trim();
-      const desc = { kind: 'route', name, team: team === 'hunter' || team === 'hider' ? team : 'out', size: 30 };
+      const desc = { kind: 'route', name, team: team === 'hunter' || team === 'hider' ? team : 'out', size: ROUTE_FACE };
       if (!rec) {
         rec = makeRec(id, { tappable: false });
         heads.set(id, rec);
       } else {
         revive(rec);
       }
-      const className = `nmark k-route t-${desc.team}${rec.shown ? '' : ' unplaced'}`;
+      const className = `nmark k-route t-${desc.team}${rec.shown ? '' : ' unplaced'}`
+        + `${rec.el.classList.contains('grouped') ? ' grouped' : ''}${rec.off ? ' spread' : ''}`; // v1.2
       if (rec.el.className !== className) rec.el.className = className;
       setFace(rec, desc, faceSrc(faces, id));
-      text(rec.tagEl, name);
-      show(rec.tagEl, !!name);
+      rec.rank = markRank('route');
+      rec.baseTag = name;
+      writeTag(rec);
       rec.to = head;
       rec.glide = null;
     }
@@ -1668,6 +2041,8 @@ export function createMap(container, { interactive = true } = {}) {
       }
     }
     if (active) for (const rec of heads.values()) drawRec(rec, now, active);
+    // v1.2: the replay's faces move every frame: grouped again at most every CLUSTER_ROUTES_MS
+    if (!S.clusterTimer) clusterSoon(Math.max(0, CLUSTER_ROUTES_MS - (now - S.clusterAt)));
     requestFrame();
   }
 
@@ -1706,9 +2081,74 @@ export function createMap(container, { interactive = true } = {}) {
     camera({ type: 'center', point: [point[0], point[1]], zoom: Number.isFinite(zoom) ? zoom : undefined, animate });
   }
 
+  // ---- v1.2: the big map's calls ----
+
+  function setInsets(ins = {}) {
+    if (S.destroyed) return;
+    const n = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+    const next = { top: n(ins && ins.top), right: n(ins && ins.right), bottom: n(ins && ins.bottom), left: n(ins && ins.left) };
+    const was = S.insets;
+    if (was.top === next.top && was.right === next.right && was.bottom === next.bottom && was.left === next.left) return;
+    S.insets = next;
+    // The credits and the scale bar keep clear of the bars.
+    root.style.setProperty('--map-inset-top', `${next.top}px`);
+    root.style.setProperty('--map-inset-bottom', `${next.bottom}px`);
+  }
+
+  // The ring and every mark's spot (with its circle): what "Fit everyone" shows.
+  function allBounds({ ring = null, marks = null } = {}) {
+    const pts = [];
+    const r = validRing(ring) || S.ringNow || S.ring;
+    const rb = r ? ringBounds(r) : null;
+    if (rb) pts.push(rb[0], rb[1]);
+    const list = Array.isArray(marks) ? marks : [...recs.values()].filter((x) => !x.leaving && x.mark).map((x) => x.mark);
+    for (const m of list) {
+      if (!m || !isPoint(m.p)) continue;
+      const rm = Number.isFinite(m.r) && m.r > 0 ? Math.min(m.r, 5000) : 0;
+      if (rm) {
+        const dLat = rm / 111320;
+        const dLng = rm / (111320 * Math.max(0.05, Math.cos(m.p[1] * RAD)));
+        pts.push([m.p[0] - dLng, m.p[1] - dLat], [m.p[0] + dLng, m.p[1] + dLat]);
+      } else pts.push(m.p);
+    }
+    for (const rec of heads.values()) if (!rec.leaving && isPoint(rec.to)) pts.push(rec.to);
+    return pts.length ? boundsOf(pts) : null;
+  }
+
+  function fitAll(opts = {}) {
+    if (S.destroyed) return false;
+    opts = opts && typeof opts === 'object' ? opts : {};
+    const b = allBounds(opts);
+    if (!b) return false;
+    fit(b, { padding: Number.isFinite(opts.padding) ? opts.padding : 36, animate: opts.animate !== undefined ? opts.animate : !S.reduced, maxZoom: opts.maxZoom });
+    return true;
+  }
+
+  function zoomBy(step) {
+    if (S.destroyed || !Number.isFinite(step) || !step || !active || !active.hasPlace()) return;
+    S.cameraSet = true;
+    const [mx, my] = visibleMiddle();
+    if (active === plain) {
+      plain.zoomAround(2 ** step, mx, my, !S.reduced);
+    } else if (gl && active === gl) {
+      try {
+        const z = Math.max(1, Math.min(MAX_ZOOM, gl.getZoom() + step));
+        gl.map.easeTo({ zoom: z, around: gl.map.unproject([mx, my]), duration: S.reduced ? 0 : 300, essential: true });
+      } catch { /* fine */ }
+    }
+    requestFrame();
+  }
+
+  function onMode(fn) {
+    if (S.destroyed || typeof fn !== 'function') return () => {};
+    S.modeFns.add(fn);
+    return () => { S.modeFns.delete(fn); };
+  }
+
   function destroy() {
     if (S.destroyed) return;
     S.destroyed = true;
+    S.modeFns.clear();
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
     if (ticker) clearInterval(ticker);
@@ -1743,6 +2183,10 @@ export function createMap(container, { interactive = true } = {}) {
     fit,
     center,
     setRoutes,
+    setInsets,
+    fitAll,
+    zoomBy,
+    onMode,
     destroy,
     resize: () => { if (!S.destroyed) measure(); },
     getCenter: () => (active && active.hasPlace() ? active.getCenter() : null),

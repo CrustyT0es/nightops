@@ -398,33 +398,71 @@
 .over-key.k-catch::before { background: var(--hunter); }
 .over-key.k-close::before { background: var(--warn); }
 
-/* Full screen: the replay fills the phone; pinch and drag move the map. */
+/* v1.2 PAGE-MAP: the poster on the page (a still map of the whole routes) and the replay layer over everything:
+   the map edge to edge, a slim HUD (caption, clock, Close) on top, PAGE-CAM's video window under it (top left), and
+   the tray (map.css) at the bottom. over.js sets --ov-hud-bottom and --ov-tray-h on the layer. */
+.over-poster-wrap { cursor: pointer; height: clamp(200px, 38vh, 360px); height: clamp(200px, 38dvh, 360px); }
+.over-poster-line { color: var(--text-2); font-size: 14px; line-height: 1.4; }
+.over-poster-line:empty { display: none; }
+.over-watch-replay { min-height: 52px; gap: 10px; font-size: 17px; }
+
 html.over-full-on, html.over-full-on body { overflow: hidden; }
-.over-replay.full {
+.over-replay.ov-layer {
   position: fixed;
   inset: 0;
   z-index: 30;
+  overflow: hidden;
+  background: var(--bg);
+}
+.ov-map-wrap.over-map-wrap {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+}
+.ov-hud {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: max(8px, var(--safe-top)) max(10px, calc(var(--safe-right) + 6px)) 8px max(12px, calc(var(--safe-left) + 8px));
+  background: rgba(7, 9, 13, 0.84);
+  border-bottom: 1px solid var(--line);
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ov-hud { background: rgba(7, 9, 13, 0.72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+}
+.ov-hud-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.ov-hud .over-caption { flex: 1 1 auto; min-width: 0; min-height: 0; font-size: 14px; }
+.ov-hud .over-clock { flex: none; min-width: 0; justify-items: end; text-align: right; }
+.ov-hud .over-now { font-size: 20px; }
+.ov-hud .over-phase { display: none; }
+.ov-video-slot {
+  position: absolute;
+  z-index: 6;
+  top: calc(var(--ov-hud-bottom, 60px) + 10px);
+  left: max(12px, calc(var(--safe-left) + 6px));
+}
+.ov-video-slot:empty { display: none; }
+.ov-mapbtns {
+  position: absolute;
+  z-index: 6;
+  right: max(12px, calc(var(--safe-right) + 6px));
+  bottom: calc(var(--ov-tray-h, 120px) + 12px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 0;
-  padding: 0 max(14px, var(--safe-right)) max(12px, var(--safe-bottom)) max(14px, var(--safe-left));
-  border: 0;
-  border-radius: 0;
-  background: var(--panel);
+  gap: 8px;
 }
-.over-replay.full::before, .over-replay.full .over-card-head { display: none; }
-.over-replay.full .over-map-wrap {
-  flex: 1 1 auto;
-  height: auto;
-  min-height: 180px;
-  margin: 0 calc(-1 * max(14px, var(--safe-right))) 0 calc(-1 * max(14px, var(--safe-left)));
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-}
-.over-replay.full .over-map-tools { top: max(10px, calc(var(--safe-top) + 6px)); right: max(10px, var(--safe-right)); }
-.over-replay.full .over-caption, .over-replay.full .over-controls, .over-replay.full .over-track, .over-replay.full .over-legend { flex: none; }
+.ov-tray .tray-main { align-items: center; }
+.ov-tray .over-play { width: 56px; height: 56px; min-height: 56px; }
+.ov-tray .over-track { height: 56px; min-width: 0; }
+.ov-tray .over-range { height: 56px; }
+.ov-tray .over-ticks { margin-top: -9px; }
+.ov-tray .over-controls { gap: 10px; }
+.ov-tray .over-fit { gap: 8px; }
+.ov-tray .over-legend { margin-top: 0; }
 
 /* ---- close calls ---- */
 
@@ -604,3 +642,13 @@ html.over-full-on, html.over-full-on body { overflow: hidden; }
   .over-again { font-size: 16px; padding: 0 10px; }
   .over-again .icon { display: none; }
 }
+
+/* v1.2 review fixes: while the replay layer is open its HUD (the clock, Close) stays clear of banners, which sit
+   just under it (over.js sets --ov-hud-bottom-page); and the video window never reaches under the tray. */
+html.over-full-on .banners { top: max(calc(max(8px, var(--safe-top)) + 6px), calc(var(--ov-hud-bottom-page, 0px) + 8px)); }
+html.over-full-on.sheet-open .banners { top: calc(max(8px, var(--safe-top)) + 6px); }
+.ov-video-slot .cam-v-screen {
+  max-height: max(96px, calc(100vh - var(--ov-hud-bottom, 60px) - var(--ov-tray-h, 120px) - 84px));
+  max-height: max(96px, calc(100dvh - var(--ov-hud-bottom, 60px) - var(--ov-tray-h, 120px) - 84px));
+}
+.ov-mapbtns .ov-fit[hidden] { display: none; }

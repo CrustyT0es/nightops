@@ -471,6 +471,8 @@ export function fixture(params = {}) {
     summary: phase === 'over' ? summaryFor(settings, hidersWin) : null,
   };
   withRadio(view, params); // v1.1 PAGE-RADIO
+  withCam(view, params); // v1.2 PAGE-CAM
+  withHidersRadio(view, params); // v1.2 PAGE-RADIO
 
   return {
     view,
@@ -504,6 +506,37 @@ function withRadio(view, params = {}) {
   return view;
 }
 // v1.1 end PAGE-RADIO
+
+// v1.2 PAGE-RADIO: the hiders' walkie-talkie (hradio=1, with radioHiders on). A live hider who is in gets
+// view.radio with side 'hiders' and two messages from Leo and Priya a few seconds ago (with &quiet=1 in the
+// preview, Quiet holds them); hunters get side 'hunters'. Over with radio=1: the hiders' clips join the replay.
+export const HIDER_CLIPS = [
+  { n: 5, from: 'p_leo', clock: 700000, ms: 3600, type: 'audio/mp4', side: 'hiders' },
+  { n: 6, from: 'p_priya', clock: 1070000, ms: 2500, type: 'audio/mp4', side: 'hiders' },
+];
+function withHidersRadio(view, params = {}) {
+  if (params.hradio !== '1') return view;
+  const ids = Object.fromEntries(Object.entries(PEOPLE).map(([k, p]) => [`p_${k}`, p.id]));
+  if (view.settings) view.settings = { ...view.settings, radioHiders: true };
+  if (view.phase === 'live' && view.me && view.me.status === 'in') {
+    if (view.me.team === 'hider') {
+      const fresh = [
+        { n: 5, from: ids.p_leo, clock: Math.max(0, view.clock - 6000), ms: 3600, type: 'audio/mp4' },
+        { n: 6, from: ids.p_priya, clock: Math.max(0, view.clock - 3000), ms: 2500, type: 'audio/mp4' },
+      ].filter((c) => c.from !== view.me.id);
+      view.radio = { clips: fresh, last: 6, side: 'hiders' };
+    } else if (view.radio) {
+      view.radio = { ...view.radio, side: 'hunters' };
+    }
+  }
+  if (view.summary && Array.isArray(view.summary.radio)) {
+    const hiders = HIDER_CLIPS.map((c) => ({ ...c, from: ids[c.from] || c.from }));
+    view.summary.radio = [...view.summary.radio.map((c) => ({ ...c, side: 'hunters' })), ...hiders]
+      .sort((a, b) => a.clock - b.clock);
+  }
+  return view;
+}
+// v1.2 end PAGE-RADIO
 
 // Move a view's clock on by ms (the preview's ?tick=1): timers count down, nothing else changes.
 export function tickView(view, ms) {
@@ -617,3 +650,51 @@ export function watchFixture(params = {}) {
   return { view, me: { name: WATCHER.name, face: null }, game: null, watch: { code: CODE, id: WATCHER.id, secret: WATCHER.secret } };
 }
 // v1.1 end PAGE-WATCH
+
+// v1.2 PAGE-CAM: the highlight cam (cam=1). Lobby: the Camera row on (Ava and Sam said OK); live: Ava (as=hider) or
+// Sam (as=hunter) is filmed; over: summary.cam with moments, and CAM_CLIPS answered by the preview's cam-list.
+export const CAM_FILMED = ['ava', 'sam', 'mia'];
+export function camClips(endMs = 2400000) {
+  const ids = Object.fromEntries(Object.entries(PEOPLE).map(([k, p]) => [k, p.id]));
+  const at = (k, start, s, i) => ({
+    id: `c0ffee00000000${String(i).padStart(2, '0')}`, pid: ids[k], type: 'video/webm', bytes: 3200000 + i * 400000,
+    ms: s * 1000, start, end: start + s * 1000, kinds: ['tag'],
+    clocks: Array.from({ length: s }, (_, j) => start + j * 1000),
+    loud: Array.from({ length: s }, (_, j) => (k === 'sam' ? 60 : 30) + (j % 5) * 4),
+    bright: Array.from({ length: s }, () => 55),
+  });
+  return [at('ava', 630000, 30, 1), at('sam', 1055000, 30, 2), at('mia', 1058000, 30, 3), at('sam', Math.max(0, endMs - 25000), 30, 4)];
+}
+function withCam(view, params = {}) {
+  if (params.cam !== '1') return view;
+  const ids = Object.fromEntries(Object.entries(PEOPLE).map(([k, p]) => [k, p.id]));
+  const filmed = CAM_FILMED.map((k) => ids[k]);
+  const mode = params.camMode === 'everything' ? 'everything' : 'highlights';
+  if (view.settings) view.settings = { ...view.settings, cam: true, camMode: mode };
+  const meId = view.me ? view.me.id : null;
+  if (view.phase === 'lobby') {
+    const okIds = [ids.ava, ids.sam];
+    view.cam = {
+      on: true, mode, ok: okIds.includes(meId), okCount: okIds.length,
+      inCount: (view.players || []).filter((p) => p.status === 'in').length,
+      okIds: view.me && view.me.host ? okIds : null, filmed: [], moments: [], last: 0, kept: null,
+    };
+  } else {
+    view.cam = {
+      on: true, mode, ok: filmed.includes(meId), okCount: filmed.length, inCount: (view.players || []).length, okIds: null,
+      filmed, moments: [], last: 0, kept: params.kept === '1' ? NOW + 30 * 24 * 3600 * 1000 : null,
+    };
+  }
+  if (view.summary) {
+    view.summary.cam = {
+      mode, filmed,
+      moments: [
+        { clock: 640000, kind: 'radio', ids: [ids.mia], ms: 4200 },
+        { clock: 1063000, kind: 'tag', ids: [ids.sam, ids.ava] },
+        { clock: 1066000, kind: 'caught', ids: [ids.ava, ids.sam] },
+      ],
+    };
+  }
+  return view;
+}
+// v1.2 end PAGE-CAM

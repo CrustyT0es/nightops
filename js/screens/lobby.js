@@ -18,6 +18,12 @@ import {
 // v1.1 PAGE-WATCH: the Extras card's three rows (each its builder's module), loaded so that one that's missing
 // or broken only leaves its row out, never the lobby.
 const EXTRA_ROWS = ['driver', 'watch', 'radio'];
+// v1.2 PAGE-RADIO: the "Walkie-talkie for hiders too" row
+EXTRA_ROWS.push('radiohiders');
+// v1.2 end PAGE-RADIO
+// v1.2 PAGE-CAM: the Camera row
+EXTRA_ROWS.push('cam');
+// v1.2 end PAGE-CAM
 let extraMakers = null;
 function loadExtraRows() {
   if (!extraMakers) {

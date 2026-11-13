@@ -12,6 +12,12 @@ export const LIMITS = {
   radioClips: 400,          // walkie-talkie clips in one round
   radioBytes: 48000,        // one clip's audio, decoded (15 s at 24 kbps = 45 KB)
   radioGameBytes: 12000000, // all of a round's clips together
+  // v1.2: the highlight cam
+  camClipBytes: 60000000,   // one clip's file at most (a free Supabase bucket stops at 50 MB a file anyway)
+  camPlayerBytes: Object.freeze({ highlights: 150000000, everything: 400000000 }), // one player's clips in one round
+  camGameBytes: 900000000,  // a round's clips from everyone (the handler's default; createHandler can lower it)
+  camMoments: 1000,         // moments kept in one round (newest)
+  camClipsEach: 200,        // clips one player may upload in one round
 };
 
 export const TIMING = {
@@ -45,6 +51,17 @@ export const TIMING = {
   RADIO_MIN_MS: 400,           // shorter holds are dropped (the page); the server refuses under 300 ms
   RADIO_GAP_MS: 2000,          // at most one clip per player this often
   RADIO_STALE_MS: 60000,       // the page plays a new clip by itself only if it's no older than this
+  // v1.2: the highlight cam
+  CAM_PRE_MS: 10000,           // a Highlights clip starts this long before its moment...
+  CAM_POST_MS: 20000,          // ...and ends this long after it (moments closer than that merge)
+  CAM_CLIP_MOST_MS: 60000,     // one Highlights clip at most (a longer run of moments becomes the next clip)
+  CAM_ROLL_EVERY_MS: 5000,     // Highlights: a new rolling recorder starts this often (so a clip's lead-in is 10-15 s)...
+  CAM_ROLL_KEEP_MS: 15000,     // ...and is thrown away at this age unless a moment claimed it (3 run at once)
+  CAM_PIECE_MS: 90000,         // Everything: one piece is this long...
+  CAM_PIECE_OVERLAP_MS: 2000,  // ...and the next one starts this long before it ends
+  CAM_NEAR_M: 50,              // close call for the camera: a hunter this close to a free hider...
+  CAM_NEAR_FRESH_MS: 20000,    // ...both fixes no older than this...
+  CAM_NEAR_GAP_MS: 60000,      // ...and at most one such moment per hunter-hider pair this often
 };
 
 export const MODES = {
@@ -80,18 +97,36 @@ export const DEFAULTS = Object.freeze({
   // v1.1 extras: never in `custom`, presets or recommendations
   driver: false,           // one hunter drives and gives rides
   spectators: true,        // friends may watch, 2 minutes behind
-  radioSave: true,         // the hunters' walkie-talkie is kept for the replay
+  radioSave: true,         // the walkie-talkie is kept for the replay
+  // v1.2 extras
+  radioHiders: false,      // hiders get their own walkie-talkie
+  cam: false,              // phones film clips for the replay (only players who say OK)
+  camMode: 'highlights',   // 'highlights' or 'everything' (EXTRA_CHOICES)
 });
 
-// The three v1.1 switches (booleans; never counted as "changed by hand").
-export const EXTRA_KEYS = Object.freeze(['driver', 'spectators', 'radioSave']);
+// The extra switches (booleans; never counted as "changed by hand", never in presets or recommendations).
+export const EXTRA_KEYS = Object.freeze(['driver', 'spectators', 'radioSave', 'radioHiders', 'cam']);
+// Extra choices (one of a list; the same rules as EXTRA_KEYS).
+export const EXTRA_CHOICES = Object.freeze({ camMode: Object.freeze(['highlights', 'everything']) });
+const EXTRA_ALL = [...EXTRA_KEYS, ...Object.keys(EXTRA_CHOICES)];
 
 // The lobby's "Extras" card, in this order.
 export const EXTRAS_UI = [
   { key: 'driver', label: 'Driver', hint: 'One hunter drives a car and gives the others rides. The driver never tags.' },
   { key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game 2 minutes behind. They never see chats.' },
-  { key: 'radioSave', label: 'Save the walkie-talkie for the replay', hint: "The hunters' walkie-talkie is saved for the end-of-game replay." },
+  { key: 'radioSave', label: 'Save the walkie-talkie for the replay', hint: 'The walkie-talkie is saved for the end-of-game replay.' },
+  { key: 'radioHiders', label: 'Walkie-talkie for hiders too', hint: 'Hiders get their own walkie-talkie. Each team only hears its own.' },
+  { key: 'cam', label: 'Camera', hint: 'Phones film clips with the selfie camera for the replay. Only people who say OK are filmed.' },
 ];
+
+// The Camera row's two choices.
+export const CAM_MODES_UI = [
+  { value: 'highlights', label: 'Highlights', line: 'Short clips around the big moments. Smaller to upload.' },
+  { value: 'everything', label: 'Everything', line: 'Films the whole game. Big uploads: use wifi.' },
+];
+
+// Moment kinds ('mark' = the phone's own "Record this", never from the server).
+export const CAM_KINDS = Object.freeze(['radio', 'tag', 'denied', 'caught', 'near', 'power', 'sos', 'outside', 'over', 'mark']);
 
 export const PRESETS = {
   quick: { label: 'Quick', line: '20 min, pings every 3', settings: { durationMin: 20, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1 } },
@@ -156,6 +191,9 @@ export function cleanSettings(input, base = DEFAULTS) {
   }
   if ('shrink' in input && typeof input.shrink === 'boolean') out.shrink = input.shrink;
   for (const key of EXTRA_KEYS) if (key in input && typeof input[key] === 'boolean') out[key] = input[key];
+  for (const [key, list] of Object.entries(EXTRA_CHOICES)) {
+    if (key in input && list.includes(input[key])) out[key] = input[key];
+  }
   if (input.powers && typeof input.powers === 'object') {
     for (const p of Object.keys(POWERS)) {
       if (typeof input.powers[p] === 'boolean') out.powers[p] = input.powers[p];
@@ -164,15 +202,16 @@ export function cleanSettings(input, base = DEFAULTS) {
   if (Array.isArray(input.custom)) {
     // An own key, not `in`: 'toString' or 'constructor' are "in" every object.
     const own = (k) => Object.prototype.hasOwnProperty.call(DEFAULTS, k);
-    out.custom = [...new Set(input.custom.filter((k) => typeof k === 'string' && own(k) && k !== 'custom' && !EXTRA_KEYS.includes(k)))];
+    out.custom = [...new Set(input.custom.filter((k) => typeof k === 'string' && own(k) && k !== 'custom' && !EXTRA_ALL.includes(k)))];
   }
   return fixUp(out);
 }
 
 function fixUp(s) {
-  // (Older stored settings lack the v1.1 switches: they get the defaults.)
+  // (Older stored settings lack the v1.1/v1.2 extras: they get the defaults.)
   for (const key of EXTRA_KEYS) if (typeof s[key] !== 'boolean') s[key] = DEFAULTS[key];
-  if (Array.isArray(s.custom)) s.custom = s.custom.filter((k) => !EXTRA_KEYS.includes(k));
+  for (const [key, list] of Object.entries(EXTRA_CHOICES)) if (!list.includes(s[key])) s[key] = DEFAULTS[key];
+  if (Array.isArray(s.custom)) s.custom = s.custom.filter((k) => !EXTRA_ALL.includes(k));
   // Infection starts with one hunter: no driver.
   if (s.mode === 'infection') s.driver = false;
   if (s.closingMin >= s.durationMin) s.closingMin = Math.max(0, Math.floor((s.durationMin - 5) / 5) * 5);

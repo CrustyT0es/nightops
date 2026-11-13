@@ -14,6 +14,17 @@
 //   radio.stop()           playback and recording stopped, the queue emptied, the microphone let go
 //   radio.destroy()
 //
+// v1.2 (PAGE-RADIO): the hiders' walkie-talkie and Quiet.
+//   createRadio({ ..., getMic })   the microphone: app.mic() when the app has it (the camera's own audio while it
+//                          films, shared: never stopped here), else getUserMedia as before
+//   radio.side             'hunters' | 'hiders' | null, from the latest view.radio (a caught hider who joins the
+//                          hunters switches with the next view: the hiders' messages waiting are dropped)
+//   radio.quiet            radio.setQuiet(on) (kept per phone: localStorage 'nightops-quiet'). Hiders only: while
+//                          on, a new message isn't played: one short buzz, and it waits in radio.held
+//   radio.held             [{ n, from, name, ms, clock }] oldest first, HELD_MOST at most; radio.playHeld(n)
+//   radio.quietButton()    the Quiet switch (a 56px tray square); radio.heldList() the waiting messages with Play
+//   radio.on('held' | 'quiet' | 'side', fn)
+//
 // The replay's side (over.js): clipPlan(clips, fromS, toS, playing) says which clips a replay frame crossed, and
 // createReplayRadio({ app, getClock, onChange }) plays them one at a time while the replay runs at real time.
 //
@@ -42,6 +53,11 @@ export const CLIP_TRIES = 4;          // a clip that didn't download (no signal)
 export const RETRY_MS = 2000;         // ...waiting this long, then twice as long each time
 export const SPEECH_WAIT_MS = 10000;  // a clip waits at most this long for the driver's voice to finish
 const LOOK_AGAIN_MS = 300;
+// v1.2 PAGE-RADIO
+export const QUIET_KEY = 'nightops-quiet';
+export const HELD_MOST = 10;          // messages kept waiting while Quiet is on (the oldest goes)
+export const BUZZ_MS = 60;            // one short buzz for each message held
+// v1.2 end PAGE-RADIO
 
 export const WORDS = {
   hold: 'Hold to talk',
@@ -58,6 +74,11 @@ export const WORDS = {
   tap: 'Tap the screen once to hear the walkie-talkie.',
   off: 'Only hunters have the walkie-talkie.',
   letGo: 'Let go to send',
+  // v1.2 PAGE-RADIO
+  earbuds: 'Earbuds help: nobody near you hears it.',
+  quietOn: 'Quiet is on: messages wait here. Tap Play to hear one.',
+  quietOff: 'Quiet keeps messages from playing out loud. They wait here.',
+  // v1.2 end PAGE-RADIO
 };
 
 export const talkingWords = (name) => `${name || 'A hunter'} is talking`;
@@ -65,6 +86,35 @@ export const cantPlayWords = (name) => `${name || 'A hunter'}'s message can't pl
 export const notHereWords = (name) => `${name || 'A hunter'}'s message didn't come through.`;
 
 // ---- pure helpers (tested in Node) ----------------------------------------------------------------------------
+
+// v1.2 PAGE-RADIO: the hiders' side
+export const sideOf = (radio) => (radio && radio.side === 'hiders' ? 'hiders' : 'hunters');
+export const someone = (side) => (side === 'hiders' ? 'A hider' : 'A hunter');
+export const sideLabel = (side) => (side === 'hiders' ? "Hiders' walkie-talkie" : "Hunters' walkie-talkie");
+// "Mia sent a message (4 s)"
+export function heldWords(name, ms) {
+  const s = Math.max(1, Math.round((num(ms) || 0) / 1000));
+  return `${name || 'Someone'} sent a message (${s} s)`;
+}
+// The replay's caption: "Ava (hiders) is talking" when both teams talked, else "Sam is talking".
+export function replayTalkingWords(name, side, both) {
+  const who = name || someone(side);
+  return both ? `${who} (${side === 'hiders' ? 'hiders' : 'hunters'}) is talking` : `${who} is talking`;
+}
+export function readQuiet(store) {
+  try { return !!store && store.getItem(QUIET_KEY) === 'on'; } catch { return false; }
+}
+export function saveQuiet(store, on) {
+  try { if (store) store.setItem(QUIET_KEY, on ? 'on' : 'off'); } catch { /* private mode: this page remembers */ }
+}
+// Held messages, oldest first, the oldest dropped past `most`. Pure: -> a new list.
+export function addHeld(list, item, most = HELD_MOST) {
+  const out = (Array.isArray(list) ? list : []).filter((x) => x && x.n !== item.n);
+  out.push(item);
+  out.sort((a, b) => a.n - b.n);
+  return out.length > most ? out.slice(out.length - most) : out;
+}
+// v1.2 end PAGE-RADIO
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
@@ -242,8 +292,19 @@ export function createRadio({
   clearTimer = (t) => clearTimeout(t),
   // Something else is speaking (the driver's voice): a new clip waits for it (at most SPEECH_WAIT_MS).
   otherBusy = () => !!(win && win.speechSynthesis && win.speechSynthesis.speaking),
+  // v1.2 PAGE-RADIO: the microphone (-> Promise<MediaStream | { stream, shared }>) and where Quiet is kept
+  getMic = null,
+  store = (() => { try { return globalThis.localStorage || null; } catch { return null; } })(),
+  // v1.2 end PAGE-RADIO
 } = {}) {
-  if (typeof Recorder !== 'function' || !media || typeof media.getUserMedia !== 'function') return null;
+  // v1.2 PAGE-RADIO: app.mic() first (one microphone for the camera and the walkie-talkie on iPhones)
+  const micFrom = typeof getMic === 'function' ? getMic
+    : app && typeof app.mic === 'function' ? () => app.mic()
+    : media && typeof media.getUserMedia === 'function'
+      ? () => media.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      : null;
+  if (typeof Recorder !== 'function' || !micFrom) return null;
+  // v1.2 end PAGE-RADIO
   const ev = emitter();
   const audio = unlocker(win, makeAudio);
   const buttons = new Set();
@@ -277,13 +338,19 @@ export function createRadio({
     retries: new Set(),     // timers bringing a clip back to try again
     waitSince: null,        // a clip waiting for the driver's voice, since
     pumpTimer: null,
+    // v1.2 PAGE-RADIO
+    shared: false,          // R.stream is the camera's: never stopped here
+    side: null,             // 'hunters' | 'hiders' (the latest view.radio)
+    quiet: readQuiet(store),
+    held: [],               // [{ n, from, name, ms, clock, clip }]
+    // v1.2 end PAGE-RADIO
   };
 
   const nameOf = (id) => {
     try {
       const p = app && typeof app.player === 'function' ? app.player(id) : null;
-      return p && p.name ? String(p.name).slice(0, 40) : 'A hunter';
-    } catch { return 'A hunter'; }
+      return p && p.name ? String(p.name).slice(0, 40) : someone(R.side);
+    } catch { return someone(R.side); }
   };
 
   function setState(s) {
@@ -315,7 +382,7 @@ export function createRadio({
     if (R.state === 'recording') return `Talking ${fmtClock(Math.max(0, now() - R.startedAt))}`;
     if (R.state === 'asking') return R.granted ? WORDS.hold : WORDS.asking;
     if (R.state === 'sending') return WORDS.sending;
-    if (R.talking) return talkingWords(R.talking.name);
+    if (R.talking) return talkingWords(R.talking.name || someone(R.side));
     return WORDS.hold;
   }
 
@@ -334,7 +401,7 @@ export function createRadio({
       b.btn.setAttribute('aria-pressed', R.state === 'recording' ? 'true' : 'false');
       b.btn.setAttribute('aria-label', R.state === 'recording'
         ? 'Walkie-talkie: recording. Let go to send.'
-        : 'Walkie-talkie: hold to talk to the hunters');
+        : `Walkie-talkie: hold to talk to the ${R.side === 'hiders' ? 'hiders' : 'hunters'}`);
     }
   }
 
@@ -401,11 +468,16 @@ export function createRadio({
     setState('asking');
     let p;
     try {
-      p = media.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      p = micFrom(); // v1.2 PAGE-RADIO
     } catch (e) {
       p = Promise.reject(e);
     }
-    Promise.resolve(p).then((stream) => {
+    Promise.resolve(p).then((got) => {
+      // v1.2 PAGE-RADIO: { stream, shared } from app.mic(), or a plain stream
+      const shared = !!(got && got.stream && got.shared);
+      const stream = got && got.stream ? got.stream : got;
+      const dropStream = (s) => { if (!shared) dropOwn(s); };
+      // v1.2 end PAGE-RADIO
       if (R.dead || !R.on) { dropStream(stream); if (!R.dead) setState('idle'); return; }
       const first = !R.granted;
       R.granted = true;
@@ -417,6 +489,7 @@ export function createRadio({
         return;
       }
       R.stream = stream;
+      R.shared = shared; // v1.2 PAGE-RADIO
       try {
         for (const t of stream.getTracks()) t.addEventListener?.('ended', () => { if (R.stream === stream) R.stream = null; });
       } catch { /* fine */ }
@@ -482,6 +555,7 @@ export function createRadio({
       say(WORDS.unsupported, { error: true });
       dropStream(R.stream);
       R.stream = null;
+      R.shared = false;
       resumePlayback();
       return;
     }
@@ -520,7 +594,7 @@ export function createRadio({
     const chunks = R.chunks;
     R.chunks = [];
     // Recorded: the microphone is let go of at once (asked for again, with no prompt, at the next hold).
-    if (R.stream) { dropStream(R.stream); R.stream = null; }
+    if (R.stream) { dropStream(R.stream); R.stream = null; R.shared = false; }
     if (R.discard || R.dead) {
       R.discard = false;
       if (!R.dead) { setState('idle'); resumePlayback(); }
@@ -535,10 +609,12 @@ export function createRadio({
     const kind = baseType(rec.mimeType) || baseType(chunks[0] && chunks[0].type) || baseType(type);
     setState('sending');
     resumePlayback();
-    send(chunks, kind, ms);
+    send(chunks, kind, ms, R.side);
   }
 
-  async function send(chunks, kind, ms) {
+  // `side`: the channel it was recorded on. The server refuses it if the team changed meanwhile (a hider
+  // caught and turned while this was on its way must never be heard by the hunters).
+  async function send(chunks, kind, ms, side) {
     try {
       const B = (win && win.Blob) || globalThis.Blob;
       const blob = new B(chunks, { type: kind || 'audio/mp4' });
@@ -547,7 +623,8 @@ export function createRadio({
       if (bytes.length) R.bytesPerMs = bytes.length / Math.max(1, ms);
       if (!kind || !bytes.length) { setState('idle'); say(WORDS.unsupported, { error: true }); return; }
       if (bytes.length > LIMITS.radioBytes) { setState('idle'); say(WORDS.tooLong, { error: true }); return; }
-      const res = await app.sendClip({ audio: toBase64(bytes), type: kind, ms: Math.max(300, Math.min(15500, ms)) });
+      if (side !== R.side) { setState('idle'); say(WORDS.notSent, { error: true }); return; }
+      const res = await app.sendClip({ audio: toBase64(bytes), type: kind, ms: Math.max(300, Math.min(15500, ms)), side: side || undefined });
       if (R.dead) return;
       setState('idle');
       if (res && res.error) {
@@ -565,8 +642,13 @@ export function createRadio({
     }
   }
 
-  function dropStream(stream) {
+  function dropOwn(stream) {
     try { for (const t of stream.getTracks()) t.stop(); } catch { /* fine */ }
+  }
+  // v1.2 PAGE-RADIO: the camera's stream (shared) is only let go of, never stopped
+  function dropStream(stream) {
+    if (stream && stream === R.stream && R.shared) return;
+    dropOwn(stream);
   }
 
   function letGoOfMic() {
@@ -577,7 +659,7 @@ export function createRadio({
     R.holding = false;
     clearTimer(R.autoTimer);
     clearTimer(R.tickTimer);
-    if (R.stream) { dropStream(R.stream); R.stream = null; }
+    if (R.stream) { dropStream(R.stream); R.stream = null; R.shared = false; }
     if (R.state === 'recording' || R.state === 'asking') setState('idle');
   }
 
@@ -628,6 +710,7 @@ export function createRadio({
     const t = setTimer(() => {
       R.retries.delete(t);
       if (R.dead || !R.on) return;
+      if (quietNow()) { keep(clip, false); return; } // v1.2 PAGE-RADIO
       const at = R.queue.findIndex((c) => c.n > clip.n);
       if (at < 0) R.queue.push(clip); else R.queue.splice(at, 0, clip);
       pump();
@@ -757,21 +840,177 @@ export function createRadio({
         R.on = false;
         stopPlayback();
         letGoOfMic();
+        dropHeld(); // v1.2 PAGE-RADIO
         paint();
       }
       return;
     }
     if (!R.on) { R.on = true; paint(); }
+    // v1.2 PAGE-RADIO: the side (a caught hider who joins the hunters switches channels here)
+    const side = sideOf(view.radio);
+    if (side !== R.side) {
+      const had = R.side;
+      R.side = side;
+      if (had) { stopPlayback(); letGoOfMic(); }
+      dropHeld();
+      ev.emit('side', side);
+      paint();
+      paintQuiet();
+    }
+    // v1.2 end PAGE-RADIO
     R.meId = view.me ? view.me.id : R.meId;
     const last = Number(view.radio.last);
     if (Number.isInteger(last) && last > R.last) R.last = last;
     for (const c of view.radio.clips) if (c && Number.isInteger(c.n) && c.n > R.last) R.last = c.n;
     const fresh = clipsToPlay(view, seen, R.meId);
     if (fresh.length) {
+      // v1.2 PAGE-RADIO: Quiet: each new message waits (one short buzz each)
+      if (quietNow()) { for (const c of fresh) keep(c, true); return; }
       R.queue.push(...fresh);
       pump();
     }
   }
+
+  // ---- v1.2 PAGE-RADIO: Quiet and the messages waiting ----
+
+  const quietNow = () => R.quiet && R.side === 'hiders';
+  const quietButtons = new Set();
+  const heldLists = new Set();
+
+  function keep(clip, buzz) {
+    const name = nameOf(clip.from);
+    R.held = addHeld(R.held, { n: clip.n, from: clip.from, name, ms: num(clip.ms) || 0, clock: num(clip.clock) || 0, clip });
+    if (buzz) {
+      try { alerts && typeof alerts.buzz === 'function' && alerts.buzz(BUZZ_MS); } catch { /* ignore */ }
+      say(heldWords(name, clip.ms));
+    }
+    heldChanged();
+  }
+
+  function dropHeld() {
+    if (!R.held.length) return;
+    R.held = [];
+    heldChanged();
+  }
+
+  function heldChanged() {
+    ev.emit('held', R.held.map(({ clip, ...x }) => x));
+    paintQuiet();
+  }
+
+  function setQuiet(on) {
+    const next = !!on;
+    if (next === R.quiet) return;
+    R.quiet = next;
+    saveQuiet(store, next);
+    if (next && R.side === 'hiders') {
+      // Quiet now: the message playing stops and waits with the rest (stealth can't wait for the end of it).
+      const back = [];
+      if (R.current) back.push(R.current.clip);
+      back.push(...R.queue);
+      R.queue = [];
+      if (R.current) {
+        clearTimer(R.current.timer);
+        const a = audio.el;
+        if (a) { a.onended = null; a.onerror = null; try { a.pause(); } catch { /* fine */ } }
+        R.current = null;
+        R.token += 1;
+        talking(null);
+      }
+      for (const c of back) keep(c, false);
+    } else if (!next) {
+      // Quiet off: everything that waited plays, in order, and the list empties.
+      const list = R.held.map((x) => x.clip);
+      R.held = [];
+      R.queue.push(...list);
+      heldChanged();
+      pump();
+    }
+    ev.emit('quiet', next);
+    paintQuiet();
+  }
+
+  // One by hand (from a tap): first in line, with Quiet still on.
+  function playHeld(n) {
+    const i = R.held.findIndex((x) => x.n === n);
+    if (i < 0) return false;
+    unlock();
+    const [x] = R.held.splice(i, 1);
+    R.queue.unshift(x.clip);
+    heldChanged();
+    pump();
+    return true;
+  }
+
+  function crossedSpeaker(size) {
+    const svg = icon('speaker', size, 'radio-quiet-off');
+    try {
+      while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+      const NS = 'http://www.w3.org/2000/svg';
+      const d = (doc || globalThis.document);
+      const x = d.createElementNS(NS, 'path');
+      x.setAttribute('d', 'M16 9l5 6M21 9l-5 6');
+      svg.appendChild(x);
+    } catch { /* the plain speaker */ }
+    return svg;
+  }
+
+  function quietButton() {
+    const badge = h('span.tray-badge.radio-quiet-badge', { hidden: true, 'aria-hidden': 'true' });
+    const btn = h('button.tray-sq.radio-quiet', { type: 'button', role: 'switch', 'aria-checked': 'false', 'aria-label': 'Quiet' },
+      h('span.radio-quiet-icon', icon('speaker', 24, 'radio-quiet-on'), crossedSpeaker(24)),
+      h('span.radio-quiet-word', 'Quiet'),
+      badge);
+    btn.addEventListener('click', () => { unlock(); setQuiet(!R.quiet); });
+    const b = { btn, badge, seen: false };
+    quietButtons.add(b);
+    paintQuiet();
+    return btn;
+  }
+
+  function heldList() {
+    const hint = h('p.radio-held-hint', WORDS.earbuds);
+    const state = h('p.radio-held-state');
+    const list = h('ul.radio-held-list', { role: 'list', 'aria-label': 'Messages waiting' });
+    const el = h('section.radio-held', { 'aria-label': "Hiders' walkie-talkie" },
+      h('div.radio-held-head', icon('mic', 18), h('strong', "Hiders' walkie-talkie")), state, list, hint);
+    const b = { el, state, list, key: '', seen: false };
+    heldLists.add(b);
+    paintQuiet();
+    return el;
+  }
+
+  function paintQuiet() {
+    const on = quietNow();
+    const n = R.held.length;
+    for (const b of [...quietButtons]) {
+      if (b.btn.isConnected) b.seen = true;
+      else if (b.seen) { quietButtons.delete(b); continue; }
+      b.btn.setAttribute('aria-checked', R.quiet ? 'true' : 'false');
+      b.btn.setAttribute('aria-label', n ? `Quiet, ${n} ${n === 1 ? 'message' : 'messages'} waiting` : 'Quiet');
+      b.btn.dataset.on = R.quiet ? 'true' : 'false';
+      text(b.badge, n ? String(n) : '');
+      b.badge.hidden = !n;
+    }
+    for (const b of [...heldLists]) {
+      if (b.el.isConnected) b.seen = true;
+      else if (b.seen) { heldLists.delete(b); continue; }
+      cls(b.el, 'quiet', on);
+      const words = on ? WORDS.quietOn : WORDS.quietOff;
+      if (b.state.textContent !== words) text(b.state, words);
+      const key = R.held.map((x) => `${x.n}:${x.name}`).join(',');
+      if (key === b.key) continue;
+      b.key = key;
+      b.list.hidden = !n;
+      b.list.replaceChildren(...R.held.map((x) => {
+        const words2 = heldWords(x.name, x.ms);
+        const play = h('button.btn.small.radio-held-play', { type: 'button', 'aria-label': `Play: ${words2}` }, icon('play', 16), h('span', 'Play'));
+        play.addEventListener('click', () => playHeld(x.n));
+        return h('li.radio-held-row', h('span.radio-held-time', fmtClock(x.clock)), h('span.radio-held-words', words2), play);
+      }));
+    }
+  }
+  // v1.2 end PAGE-RADIO
 
   function unlock() {
     try { alerts && alerts.unlockBeep && alerts.unlockBeep(); } catch { /* ignore */ }
@@ -790,6 +1029,8 @@ export function createRadio({
     R.on = false;
     R.last = 0;
     seen.clear();
+    R.side = null;  // v1.2 PAGE-RADIO
+    dropHeld();     // v1.2 PAGE-RADIO
     clearTimer(R.noteTimer);
     R.note = '';
     if (R.state === 'sending') setState('idle');
@@ -801,6 +1042,8 @@ export function createRadio({
     R.dead = true;
     try { if (offTap) offTap(); } catch { /* fine */ }
     buttons.clear();
+    quietButtons.clear(); // v1.2 PAGE-RADIO
+    heldLists.clear();    // v1.2 PAGE-RADIO
     ev.clear();
   }
 
@@ -829,6 +1072,15 @@ export function createRadio({
     get last() { return R.last; },
     get queued() { return R.queue.length; },
     get unlocked() { return audio.unlocked; },
+    // v1.2 PAGE-RADIO
+    get side() { return R.side; },
+    get quiet() { return R.quiet; },
+    get held() { return R.held.map(({ clip, ...x }) => x); },
+    setQuiet,
+    playHeld,
+    quietButton,
+    heldList,
+    // v1.2 end PAGE-RADIO
   };
 }
 
@@ -897,7 +1149,7 @@ export function createReplayRadio({
 
   function start(clip) {
     const token = ++Q.token;
-    const name = nameOf(clip.from);
+    const name = nameOf(clip.from) || someone(clip.side); // v1.2 PAGE-RADIO: 'A hider' for a hiders' clip
     Q.current = { clip, token, name, playing: false, timer: null };
     done.add(clip.n);
     changed();
@@ -992,7 +1244,12 @@ export function createReplayRadio({
       return snap;
     },
     busy: () => !!Q.current,
-    talking: () => (Q.current ? { n: Q.current.clip.n, from: Q.current.clip.from, name: Q.current.name, clock: Q.current.clip.clock } : null),
+    // v1.2 PAGE-RADIO: side and the caption's words ("Ava (hiders) is talking" when both teams talked)
+    talking: () => (Q.current ? {
+      n: Q.current.clip.n, from: Q.current.clip.from, name: Q.current.name, clock: Q.current.clip.clock,
+      side: sideOf(Q.current.clip),
+      words: replayTalkingWords(Q.current.name, sideOf(Q.current.clip), Q.clips.some((c) => c.side === 'hiders')),
+    } : null),
     playNow(clip) {
       cancel();
       Q.paused = false;
@@ -1058,23 +1315,27 @@ export function replayRadioUi({ onSwitch = () => {}, onPlay = () => {} } = {}) {
   let key = '';
 
   function set(clips, nameOf = () => 'A hunter', saved = true) {
-    const k = `${saved ? 1 : 0}|${clips.map((c) => `${c.n}:${c.from}:${c.clock}`).join(',')}`;
+    const k = `${saved ? 1 : 0}|${clips.map((c) => `${c.n}:${c.from}:${c.clock}:${c.side || ''}`).join(',')}`;
     if (k === key) return;
     key = k;
+    const both = clips.some((c) => c.side === 'hiders'); // v1.2 PAGE-RADIO
     switchRow.hidden = !clips.length;
     text(title, clips.length ? `Walkie-talkie (${clips.length})` : 'Walkie-talkie');
     note.hidden = !!saved;
     text(note, saved ? '' : NOT_SAVED);
     card.hidden = !clips.length && !!saved;
     rows = clips.map((c) => {
-      const name = nameOf(c.from) || 'A hunter';
+      const name = nameOf(c.from) || someone(c.side); // v1.2 PAGE-RADIO
       const line = clipLine(c, name);
       const state = h('span.over-radio-state');
-      const btn = h('button.btn.small.over-radio-play', { type: 'button', 'aria-label': `Play ${line}` }, icon('play', 16), h('span', 'Play'));
+      // v1.2 PAGE-RADIO: both teams' clips: each row says whose walkie-talkie
+      const side = sideOf(c);
+      const tag = both ? h(`span.over-radio-side.${side}`, sideLabel(side)) : null;
+      const btn = h('button.btn.small.over-radio-play', { type: 'button', 'aria-label': `Play ${line}${both ? `, ${sideLabel(side)}` : ''}` }, icon('play', 16), h('span', 'Play'));
       btn.addEventListener('click', () => onPlay(c));
-      const li = h('li.over-radio-row',
+      const li = h(`li.over-radio-row${both ? `.side-${side}` : ''}`,
         h('span.over-radio-icon', { 'aria-hidden': 'true' }, icon('mic', 18)),
-        h('div.over-radio-text', h('span.over-radio-time', fmtClock(c.clock)), h('span.over-radio-who', `${name}, ${Math.max(1, Math.round(c.ms / 1000))} s`), state),
+        h('div.over-radio-text', tag, h('span.over-radio-time', fmtClock(c.clock)), h('span.over-radio-who', `${name}, ${Math.max(1, Math.round(c.ms / 1000))} s`), state),
         btn);
       return { n: c.n, li, state };
     });

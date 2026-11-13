@@ -21,7 +21,9 @@ import { createMap, fmtAgo } from '../map.js';
 import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, schedule, fmtClock, fmtDistance } from '../../shared/rules.js';
 import { distanceM, isPoint } from '../../shared/geo.js';
 import { openChat, renderLines, quickFor, sendChat } from './chat.js';
-import { mountDrive, pickMeUp, driverCard } from './drive.js'; // v1.1 PAGE-DRIVER
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js'; // v1.2 PAGE-CAM
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -476,6 +478,19 @@ export function linesFor(view, c, cd, { connection = 'ok', location = 'ok', mode
   return out;
 }
 
+// v1.2 PAGE-MAP: the few words on the HUD's status line beside the hiders still in ("Radar live 0:41"). Pure.
+export function hudNote(view, cd, mode = modeOf(view)) {
+  if (!view || view.phase !== 'live') return '';
+  if (view.paused) return 'Paused';
+  const radar = view.radar;
+  if (radar && cd && cd.radar !== null && cd.radar !== undefined) {
+    return radar.state === 'live' ? `Radar live ${fmtClock(cd.radar)}` : `Radar in ${fmtClock(cd.radar)}`;
+  }
+  if (mode === 'hider' && cd && cd.sprint > 0) return `Sprint ${fmtClock(cd.sprint)}`;
+  if (view.timing && view.timing.closing) return view.timing.shrinking ? 'Ring shrinking' : 'Closing in';
+  return '';
+}
+
 // What an event does on this phone: { moment, banner: [text, kind], buzz, beep, chat }. Pure.
 export function effectOf(e, view) {
   const none = { moment: null, banner: null, buzz: null, beep: null, chat: false };
@@ -676,19 +691,38 @@ export function mount(root, app) {
 
   // ---- the HUD ----
 
+  // v1.2 PAGE-MAP: a slim bar over the big map.
+  //   row 1 (44px): team dot + side word | time left | next ping | slot (S.hudSlot) | SOS | menu
+  //   row 2 (22px): the hiders still in (small faces) and a short status ("Radar live 0:41"); the ping's 3px bar
   const teamSide = h('span.g-team-side');
-  const teamName = h('span.g-team-name');
-  const teamPill = h('div.g-team', h('span.g-team-dot', { 'aria-hidden': 'true' }), teamSide,
-    h('span.g-team-sep', { 'aria-hidden': 'true' }, '·'), teamName);
+  const teamName = h('span.g-team-name.sr-only');
+  // Under 390px the pill has no room for the side word: a role icon stands for it (target, eye, car, a cross).
+  const teamIcon = h('span.g-team-icon', { 'aria-hidden': 'true' });
+  const teamPill = h('div.g-team', h('span.g-team-dot', { 'aria-hidden': 'true' }), teamIcon, teamSide,
+    h('span.sr-only', ', '), teamName);
   const leftNum = h('span.g-left-num');
   const leftBox = h('div.g-left', h('span.label.g-left-label', 'Left'), leftNum);
   const sosBtn = h('button.g-sos', { type: 'button', 'aria-label': 'SOS: pause the game and get help', onclick: () => askSos() },
     icon('sos', 18), h('span', { 'aria-hidden': 'true' }, 'SOS'));
   const moreBtn = h('button.g-more', { type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'dialog', onclick: () => openMenu() }, icon('menu', 22));
-  const topBar = h('div.g-topbar', teamPill, leftBox, sosBtn, moreBtn);
+  const pingLabel = h('span.label.g-ping-label');
+  const pingNum = h('span.g-ping-num');
+  const pingText = h('div.g-ping-text', pingLabel, pingNum);
+  const pingBox = h('div.g-ping', pingText);
+  S.hudSlot = h('span.g-hud-slot'); // v1.2: PAGE-CAM's REC dot goes here
+  // v1.2 PAGE-CAM: the REC dot, or "Tap to start your camera" (a filmed player only)
+  const camParts = gameCamParts({ app });
+  S.hudSlot.appendChild(camParts.hud);
+  // v1.2 end PAGE-CAM
+  const topBar = h('div.g-topbar', teamPill, leftBox, pingBox, S.hudSlot, sosBtn, moreBtn);
+  const hidersLabel = h('span.g-hiders-label');
+  const hidersFaces = h('div.g-hfaces');
+  const hidersBox = h('div.g-hiders', { role: 'img' }, hidersFaces, hidersLabel);
+  const hudNoteEl = h('span.g-hudnote');
+  const hudLineBox = h('div.g-hudline', hidersBox, hudNoteEl);
   // v1.1 PAGE-WATCH: "N watching" (an eye and the number) beside your team, when anyone watches
   const watchChip = h('span.g-watching', { hidden: true, role: 'img' }, icon('eye', 14), h('span.g-watching-n'));
-  teamPill.after(watchChip);
+  hudLineBox.append(watchChip); // v1.2 PAGE-MAP: on the status line
   function paintWatching(view) {
     const n = Number(view && view.watching) || 0;
     watchChip.hidden = !(n > 0);
@@ -696,17 +730,9 @@ export function mount(root, app) {
     watchChip.setAttribute('aria-label', `${n} watching`);
   }
   // v1.1 end PAGE-WATCH
-
-  const pingLabel = h('span.label.g-ping-label');
-  const pingNum = h('span.g-ping-num');
-  const pingText = h('div.g-ping-text', pingLabel, pingNum);
-  const hidersLabel = h('span.label.g-hiders-label');
-  const hidersFaces = h('div.g-hfaces');
-  const hidersBox = h('div.g-hiders', { role: 'img' }, hidersLabel, hidersFaces);
   const barFill = h('div.g-bar-fill');
   const bar = h('div.g-bar', { 'aria-hidden': 'true' }, barFill);
-  const pingBox = h('div.g-ping', pingText, hidersBox);
-  const hud = h('header.g-hud', topBar, pingBox, bar);
+  const hud = h('header.g-hud', topBar, hudLineBox, bar);
 
   // ---- the map and what floats over it ----
 
@@ -720,10 +746,13 @@ export function mount(root, app) {
   const headLine = h('p.g-head-line', "Don't peek. The hunt starts when this hits zero.");
   const headCard = h('div.g-head', { hidden: true },
     h('div.g-head-card', headKicker, headTitle, headNum, h('div.g-bar.g-head-bar', { 'aria-hidden': 'true' }, headFill), headLine));
-  const meBtn = h('button.g-mapbtn', { type: 'button', 'aria-label': 'Show where I am', onclick: () => centerOnMe() }, icon('locate', 22));
-  const ringBtn = h('button.g-mapbtn.g-ringbtn', { type: 'button', 'aria-label': 'Show the whole ring', onclick: () => fitRing(true) }, icon('circle', 22));
-  const pocketBtn = h('button.g-mapbtn', { type: 'button', 'aria-label': pocketWords().label, onclick: () => pocketOn() }, icon('moon', 22));
-  const mapBtns = h('div.g-mapbtns', meBtn, ringBtn, pocketBtn);
+  // v1.2 PAGE-MAP: round buttons on the map: Centre on me, Fit everyone, Pocket mode, and + / - on the plain map.
+  const meBtn = h('button.g-mapbtn.map-btn.g-mebtn', { type: 'button', 'aria-label': 'Centre on me', onclick: () => centerOnMe() }, icon('locate', 22));
+  const ringBtn = h('button.g-mapbtn.map-btn.g-fitbtn', { type: 'button', 'aria-label': 'Fit everyone: the ring and every mark', onclick: () => fitEveryone() }, icon('fit', 22));
+  const pocketBtn = h('button.g-mapbtn.map-btn.g-pocketbtn', { type: 'button', 'aria-label': pocketWords().label, onclick: () => pocketOn() }, icon('moon', 22));
+  const zoomInBtn = h('button.g-mapbtn.map-btn.g-zoombtn', { type: 'button', 'aria-label': 'Zoom in', hidden: true, onclick: () => { if (map) map.zoomBy(1); } }, icon('plus', 22));
+  const zoomOutBtn = h('button.g-mapbtn.map-btn.g-zoombtn', { type: 'button', 'aria-label': 'Zoom out', hidden: true, onclick: () => { if (map) map.zoomBy(-1); } }, icon('minus', 22));
+  const mapBtns = h('div.g-mapbtns', meBtn, ringBtn, pocketBtn, zoomInBtn, zoomOutBtn);
   // Once per phone, a hider's first game: pocket mode instead of locking the phone (which stops sharing your spot).
   const tipClose = h('button.g-tip-close', { type: 'button', 'aria-label': 'Got it, hide this tip', onclick: () => tipDone(true) }, icon('close', 18));
   const tip = h('div.g-tip', { hidden: true, role: 'note' },
@@ -741,9 +770,11 @@ export function mount(root, app) {
     if (focusMoon || had) { try { pocketBtn.focus({ preventScroll: true }); } catch { /* ignore */ } }
   }
 
-  // ---- the panel ----
+  // ---- the panel: v1.2 PAGE-MAP's bottom tray (a main row, and more rows while it's open) ----
 
-  const panel = h('section.g-panel', { 'aria-label': 'Your moves' });
+  const tray = createTray({ label: 'Your moves', onState: () => { placeBanners(); } });
+  const panel = tray.el;
+  panel.classList.add('g-panel');
   let P = {}; // the current panel's parts
 
   // ---- the SOS screen ----
@@ -764,22 +795,58 @@ export function mount(root, app) {
   root.classList.add('g-root');
   // v1.1 PAGE-RADIO: the walkie-talkie readies its sound from every real tap itself (alerts.onTap: a touch's
   // pointerdown isn't a tap to an iPhone).
-  fill(root, hud, mapWrap, panel, sosLayer);
+  fill(root, mapWrap, hud, panel, sosLayer); // v1.2 PAGE-MAP: the map under everything, edge to edge
 
   // News banners go under the HUD on this screen, so the time left, the next ping and SOS are never covered
   // (game.css reads --g-hud-bottom). On the SOS screen they go back to the top.
+  // v1.2 PAGE-MAP: the map fills the screen under the HUD and the tray: --g-tray-top (px from the top) and
+  // --g-tray-h say where the tray starts, the map is told what they hide (setInsets), and the map's buttons sit in
+  // the gap between them (a row along the tray's top when the gap is small).
   const rootStyle = document.documentElement.style;
+  const setVar = (k, v) => { if (rootStyle.getPropertyValue(k) !== v) rootStyle.setProperty(k, v); };
   function placeBanners() {
     if (S.dead) return;
+    const vh = globalThis.innerHeight || 0;
     const bottom = S.sosShown ? 0 : Math.max(0, Math.round(hud.getBoundingClientRect().bottom));
-    const v = `${bottom}px`;
-    if (rootStyle.getPropertyValue('--g-hud-bottom') !== v) rootStyle.setProperty('--g-hud-bottom', v);
+    const trayTop = S.sosShown ? vh : Math.round(tray.el.getBoundingClientRect().top) || vh;
+    setVar('--g-hud-bottom', `${bottom}px`);
+    setVar('--g-tray-top', `${trayTop}px`);
+    setVar('--g-tray-h', `${Math.max(0, vh - trayTop)}px`);
+    const at = placeMapButtons(bottom, trayTop, vh);
+    // The map's buttons sit over the map: Fit everyone and Centre on me keep clear of them, and so do the map's
+    // credits and scale bar (insets).
+    if (map) { try { map.setInsets({ top: bottom, ...mapButtonInsets(at, vh, trayTop) }); } catch { /* ignore */ } }
+  }
+  function placeMapButtons(hudBottom, trayTop, vh) {
+    const shown = [...mapBtns.children].filter((b) => !b.hidden).length;
+    const at = { ...mapButtonsPlace({ hudBottom, trayTop, height: vh, count: shown }), shown };
+    if (mapBtns.dataset.mode !== at.mode) mapBtns.dataset.mode = at.mode;
+    const top = at.mode === 'column' ? `${at.top}px` : '';
+    const bot = at.mode === 'row' ? `${at.bottom}px` : '';
+    if (mapBtns.style.top !== top) mapBtns.style.top = top;
+    if (mapBtns.style.bottom !== bot) mapBtns.style.bottom = bot;
+    // v1.2 integration: a row of map buttons along the tray's top lifts the lines that float there ("Sam is
+    // talking", "Mia sent a message (2 s)") above it, so they never cover the buttons.
+    const lift = at.mode === 'row' ? Math.max(0, Math.round(trayTop - mapBtns.getBoundingClientRect().top)) : 0;
+    setVar('--g-btnrow-lift', `${lift}px`);
+    // v1.2 end integration
+    // The pocket tip points at the moon (and waits while there's no room beside the buttons).
+    cls(tip, 'no-room', at.mode === 'row');
+    if (!tip.hidden) {
+      const r = pocketBtn.getBoundingClientRect();
+      const b = at.mode === 'column' ? `${Math.round(vh - r.bottom)}px` : `${Math.round(vh - r.top + 10)}px`;
+      if (tip.style.bottom !== b) tip.style.bottom = b;
+      tip.dataset.mode = at.mode;
+    }
+    return at;
   }
   let hudWatch = null;
   try {
     hudWatch = new ResizeObserver(() => placeBanners());
     hudWatch.observe(hud);
+    hudWatch.observe(tray.el);
   } catch { /* an old browser: the next update places them */ }
+  offs.push(listen(window, 'resize', () => placeBanners()));
 
   let map = null;
   try {
@@ -787,6 +854,19 @@ export function mount(root, app) {
   } catch (e) {
     console.error(e);
     map = null;
+  }
+  // v1.2 PAGE-MAP: + and - only on the plain map (the street map pinches).
+  function paintZoom() {
+    if (S.dead) return;
+    const plainMap = !!map && S.mapFinal && map.mode() === 'plain';
+    zoomInBtn.hidden = !plainMap;
+    zoomOutBtn.hidden = !plainMap;
+    placeBanners();
+  }
+  if (map) {
+    // (While the street map loads, the plain map shows for a moment: + and - wait for the final choice.)
+    map.ready.then(() => { S.mapFinal = true; paintZoom(); });
+    offs.push(map.onMode(() => { S.mapFinal = true; paintZoom(); }));
   }
 
   // ---- the panel per side ----
@@ -818,9 +898,65 @@ export function mount(root, app) {
     return { name, btn, state };
   }
 
+  // A chip in the tray's main row that stands for the role: a tap opens the tray.
+  function trayChip(cls2, iconName) {
+    const ic = h('span.tray-chip-icon', icon(iconName, 22));
+    const title = h('strong.tray-chip-title');
+    const sub = h('span.tray-chip-sub');
+    const btn = h(`button.tray-chip.${cls2}`, { type: 'button', 'aria-controls': tray.more.id, onclick: () => tray.set(tray.state === 'open' ? 'tucked' : 'open') },
+      ic, h('span.tray-chip-words', title, sub));
+    return { btn, ic, title, sub, iconName };
+  }
+
+  // v1.2 PAGE-MAP: what goes in the tray, per role ('hunter' | 'hider' | 'out' | 'driver').
+  // Each part: { el, main: true (the 56px main row) | false (the more rows), order, grow (stretches in the main row) }.
+  // Main rows: hunter = Tag, walkie, Record this, chat; hider = status chip, walkie, Quiet, chat; out = "You're out"
+  // chip, chat; parked driver = pickups chip, walkie, chat. PAGE-RADIO and PAGE-CAM add theirs below, marked.
+  function trayParts(role, view) {
+    const parts = [];
+    if (role === 'hunter') {
+      parts.push({ el: P.tagBtn, main: true, grow: true, order: 10 });
+      parts.push({ el: P.drive.el, main: false, order: 10 });
+      parts.push({ el: P.powers, main: false, order: 20 });
+    } else if (role === 'driver') {
+      parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
+      parts.push({ el: P.drive.el, main: false, order: 10 });
+    } else if (role === 'hider') {
+      parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
+      parts.push({ el: P.status, main: false, order: 5 });
+      parts.push({ el: P.powers, main: false, order: 20 });
+    } else {
+      parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
+      parts.push({ el: P.out, main: false, order: 5 });
+    }
+    // v1.1 PAGE-RADIO: the walkie-talkie (hold to talk; its line says "Sam is talking"); v1.2: a square in the main row
+    if ((role === 'hunter' || role === 'driver') && app.radio) {
+      try { parts.push({ el: app.radio.button(), main: true, order: 20 }); } catch (e) { console.error(e); }
+    }
+    // v1.1 end PAGE-RADIO
+    // v1.2 PAGE-RADIO: the hiders' walkie-talkie (with "Walkie-talkie for hiders too"): hold to talk and Quiet in
+    // the main row, the messages Quiet held (and the earbuds hint) in the more rows. A caught hider who joins the
+    // hunters gets the hunters' button above (the panel is built again for the new role).
+    if (role === 'hider' && app.radio && view && (view.radio || (view.settings && view.settings.radioHiders))) {
+      try {
+        parts.push({ el: app.radio.button(), main: true, order: 20 });
+        parts.push({ el: app.radio.quietButton(), main: true, order: 30 });
+        parts.push({ el: app.radio.heldList(), main: false, order: 7 });
+      } catch (e) { console.error(e); }
+    }
+    // v1.2 end PAGE-RADIO
+    // v1.2 PAGE-CAM: Record this (main row for hunters, in the more rows for the rest)
+    { const rp = camParts.recordPart(role); if (rp) parts.push(rp); }
+    // v1.2 end PAGE-CAM
+    parts.push({ el: P.chatBtn, main: true, order: 90 });
+    // The last chat lines and the quick buttons.
+    parts.push({ el: P.talk, main: false, order: 80 });
+    return parts;
+  }
+
   function buildPanel(mode, view) {
     P = { mode, tiles: [], chat: chatPreview() };
-    const parts = [];
+    const driver = mode === 'hunter' && !!(view && view.me && view.me.driver);
     if (mode === 'hunter') {
       P.tagText = h('span.g-tag-text', 'I tagged someone');
       P.tagNote = h('span.g-tag-note', { hidden: true });
@@ -828,35 +964,35 @@ export function mount(root, app) {
         icon('target', 22), h('span.g-tag-words', P.tagText, P.tagNote));
       P.powers = h('div.g-powers');
       // v1.1 PAGE-DRIVER: the driver never tags and has no powers (their card instead); others get Pick me up
-      P.drive = view && view.me && view.me.driver ? driverCard(app) : pickMeUp(app);
-      if (view && view.me && view.me.driver) parts.push(P.drive.el);
-      else parts.push(P.tagBtn, P.drive.el, P.powers);
+      P.drive = driver ? driverCard(app) : pickMeUp(app);
+      if (driver) P.chip = trayChip('g-pickups', 'car');
       // v1.1 end PAGE-DRIVER
-      // v1.1 PAGE-RADIO: the walkie-talkie (hold to talk; its line says "Sam is talking")
-      if (app.radio) { try { parts.push(app.radio.button()); } catch (e) { console.error(e); } }
-      // v1.1 end PAGE-RADIO
     } else if (mode === 'hider') {
       P.statusIcon = h('span.g-status-icon');
       P.statusTitle = h('strong.g-status-title');
       P.statusLine = h('span.g-status-line');
       P.gotTagged = h('button.g-gottag', { type: 'button', onclick: () => openGotTagged() }, 'I got tagged');
       P.status = h('div.g-status', P.statusIcon, P.statusTitle, P.gotTagged, P.statusLine);
-      parts.push(P.status);
       P.powers = h('div.g-powers');
-      parts.push(P.powers);
+      P.chip = trayChip('g-hstat', 'check');
     } else {
       P.outLine = h('p.g-out-line');
       P.outHiders = h('div.g-out-hiders');
       P.outLabel = h('span.label.g-out-label');
       P.out = h('div.g-out', h('div.g-out-head', icon('flag', 22), h('strong.g-out-title', "You're out")), P.outLine, P.outLabel, P.outHiders);
-      parts.push(P.out);
+      P.chip = trayChip('g-outchip', 'flag');
+      text(P.chip.title, "You're out");
     }
-    // The last chat lines and the quick buttons (one row on short screens: see game.css).
+    P.chatBadge = h('span.tray-badge', { hidden: true, 'aria-hidden': 'true' });
+    P.chatBtn = h('button.tray-sq.g-chatbtn', { type: 'button', 'aria-label': 'Chat', onclick: () => openChatSheet() }, icon('chat', 24), P.chatBadge);
     const quick = quickRow(view);
-    parts.push(h(`div.g-talk${quick ? '.has-quick' : ''}`, P.chat.btn, quick));
-    fill(panel, parts);
+    P.talk = h(`div.g-talk${quick ? '.has-quick' : ''}`, P.chat.btn, quick);
+    const { main, more } = splitParts(trayParts(driver ? 'driver' : mode, view));
+    tray.setMain(main.map((p) => ({ el: p.el, grow: !!p.grow })));
+    tray.setMore(more.map((p) => p.el));
     panel.dataset.mode = mode;
     P.tileKey = '';
+    placeBanners();
   }
 
   function paintPowers(view, cd, head) {
@@ -901,6 +1037,13 @@ export function mount(root, app) {
     text(c.badge, S.unread ? badgeText : '');
     c.badge.hidden = !S.unread;
     text(c.unread, S.unread ? `${S.unread} new ${S.unread === 1 ? 'message' : 'messages'}. ` : '');
+    // v1.2 PAGE-MAP: the tray's chat square
+    if (P.chatBadge) {
+      text(P.chatBadge, S.unread ? badgeText : '');
+      P.chatBadge.hidden = !S.unread;
+      const label = S.unread ? `Chat, ${S.unread} new` : 'Chat';
+      if (P.chatBtn.getAttribute('aria-label') !== label) P.chatBtn.setAttribute('aria-label', label);
+    }
   }
 
   // ---- painting (on every view and every tick) ----
@@ -913,14 +1056,14 @@ export function mount(root, app) {
     const row = hidersRow(view);
     const free = row.filter((r) => !r.caught);
     const key = row.map((r) => `${r.id}:${r.caught ? 1 : 0}:${faceSrc(r.id) ? 1 : 0}`).join('|');
-    text(hidersLabel, head ? `${free.length} hiding` : `${free.length} left`);
+    text(hidersLabel, `${free.length} ${free.length === 1 ? 'hider' : 'hiders'} ${head ? 'hiding' : 'left'}`);
     if (hidersBox.dataset.key === key) return;
     hidersBox.dataset.key = key;
     const shown = row.slice(0, MOST_FACES);
     const more = row.length - shown.length;
     fill(hidersFaces,
       shown.map((r) => h(`span.g-hface${r.caught ? '.caught' : ''}`,
-        face({ name: r.name, src: faceSrc(r.id), team: r.caught ? 'out' : 'hider', size: 28 }))),
+        face({ name: r.name, src: faceSrc(r.id), team: r.caught ? 'out' : 'hider', size: 18 }))),
       more > 0 ? h('span.g-hmore', `+${more}`) : null);
     const caught = row.filter((r) => r.caught).map((r) => r.name);
     hidersBox.setAttribute('aria-label',
@@ -966,6 +1109,18 @@ export function mount(root, app) {
     }
   }
 
+  // v1.2 PAGE-MAP: a tray chip's words, icon and tone.
+  function paintChip(chip, title, sub, iconName, tone) {
+    if (!chip) return;
+    text(chip.title, title);
+    text(chip.sub, sub || '');
+    if (chip.iconName !== iconName) { chip.iconName = iconName; fill(chip.ic, icon(iconName, 22)); }
+    if (chip.btn.dataset.tone !== tone) chip.btn.dataset.tone = tone;
+    const label = `${title}${sub ? `. ${sub}` : ''}. ${tray.state === 'open' ? 'Show less' : 'Show more'}`;
+    if (chip.btn.getAttribute('aria-label') !== label) chip.btn.setAttribute('aria-label', label);
+    chip.btn.setAttribute('aria-expanded', tray.state === 'open' ? 'true' : 'false');
+  }
+
   function paint() {
     const view = S.view;
     if (!view || S.dead) return;
@@ -977,6 +1132,10 @@ export function mount(root, app) {
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
+    {
+      const roleIcon = view.me && view.me.driver && mode === 'hunter' ? 'car' : ({ hunter: 'target', hider: 'eye', out: 'close' }[mode] || 'circle');
+      if (teamIcon.dataset.icon !== roleIcon) { teamIcon.dataset.icon = roleIcon; fill(teamIcon, icon(roleIcon, 16)); }
+    }
     text(teamName, view.me && view.me.name ? view.me.name : '');
     text(leftNum, cd.left === null ? '--:--' : fmtClock(cd.left));
     setHidden(sosBtn, !live || view.paused);
@@ -985,6 +1144,7 @@ export function mount(root, app) {
     const pi = pingInfo(view, cd, mode);
     const hunterHead = head && mode === 'hunter';
     setHidden(pingText, pi.kind === 'none' || hunterHead);
+    setHidden(pingBox, pi.kind === 'none' || hunterHead); // v1.2 PAGE-MAP
     setHidden(bar, pi.kind === 'none' || hunterHead);
     text(pingLabel, pi.label);
     text(pingNum, pi.ms === null ? '--:--' : fmtClock(pi.ms));
@@ -1013,6 +1173,7 @@ export function mount(root, app) {
     }
 
     paintHiders(view, head);
+    text(hudNoteEl, hudNote(view, cd, mode)); // v1.2 PAGE-MAP
 
     // Head start card (hunters).
     setHidden(headCard, !hunterHead);
@@ -1038,6 +1199,13 @@ export function mount(root, app) {
       setHidden(P.tagNote, canTag);
       text(P.tagNote, view.paused ? 'Game paused' : head ? 'After the head start' : '');
       paintPowers(view, cd, head);
+      // v1.2 PAGE-MAP: the parked driver's chip
+      if (P.chip && view.me && view.me.driver) {
+        const n = pickupLines(view).length;
+        const parked = !!(view.drive && view.drive.parked);
+        paintChip(P.chip, n ? `${n} ${n === 1 ? 'pickup' : 'pickups'}` : parked ? 'Parked' : 'Driving',
+          n ? 'Tap to see who' : parked ? 'Hiders near the car show live' : '', 'car', n ? 'warn' : 'info');
+      }
     } else if (P.mode === 'hider') {
       const st = hiderStatus(view, c, cd, { stale: S.stale });
       if (P.status.dataset.tone !== st.tone) P.status.dataset.tone = st.tone;
@@ -1047,6 +1215,7 @@ export function mount(root, app) {
       }
       text(P.statusTitle, st.title);
       text(P.statusLine, st.line);
+      paintChip(P.chip, st.title, st.tone === 'ok' ? '' : st.line.length <= 34 ? st.line : '', st.icon, st.tone); // v1.2 PAGE-MAP
       if (head || view.paused) P.gotTagged.setAttribute('aria-disabled', 'true');
       else P.gotTagged.removeAttribute('aria-disabled');
       paintPowers(view, cd, head);
@@ -1057,6 +1226,7 @@ export function mount(root, app) {
       if (me.status === 'caught') line = by ? `${by} caught you.` : 'You were caught.';
       else line = "You're not on a team right now.";
       text(P.outLine, `${line} You can still chat with everyone.`);
+      paintChip(P.chip, "You're out", by ? `${by} caught you` : '', 'flag', 'info'); // v1.2 PAGE-MAP
       const free = freeHiders(view);
       text(P.outLabel, free.length ? `Still hiding (${free.length})` : 'Nobody is hiding any more');
       const key = free.map((p) => `${p.id}:${faceSrc(p.id) ? 1 : 0}`).join('|');
@@ -1139,6 +1309,13 @@ export function mount(root, app) {
     const v = S.view;
     const ring = v && (v.ringNow || v.ring);
     if (map && ring) map.fit(v.ring || ring, { padding: 28, animate });
+  }
+
+  // v1.2 PAGE-MAP: Fit everyone: the ring and every mark (with its circle).
+  function fitEveryone() {
+    const v = S.view;
+    if (!map || !v) return;
+    if (!map.fitAll({ ring: v.ringNow || v.ring, marks: v.marks || [] })) fitRing(true);
   }
 
   function onMarkTap(mark) {
@@ -1462,6 +1639,9 @@ export function mount(root, app) {
       soundSwitch,
       menuRow('info', 'How to play', '', later(openHelp)),
     ];
+    // v1.2 PAGE-CAM: Stop filming (asks first)
+    { const r = camParts.menuRow(menuRow, later); if (r) rows.push(r); }
+    // v1.2 end PAGE-CAM
     if (me.host) {
       rows.push(menuRow('crown', 'Hand over host', 'Someone else runs the game', later(openHandOver)));
       if (view.phase === 'live') rows.push(menuRow('flag', 'End the game', 'For everyone, right now', later(askEnd), 'danger'));
@@ -1834,6 +2014,7 @@ export function mount(root, app) {
     paint();
     syncDrive(view); // v1.1 PAGE-DRIVER
     paintWatching(view); // v1.1 PAGE-WATCH
+    camParts.update(view, root); // v1.2 PAGE-CAM
     placeBanners();
     if (view.phase === 'over' && S.wasLive) overMoment(view);
   }
@@ -1882,6 +2063,8 @@ export function mount(root, app) {
     clearInterval(timer);
     if (hudWatch) { try { hudWatch.disconnect(); } catch { /* ignore */ } }
     rootStyle.removeProperty('--g-hud-bottom');
+    rootStyle.removeProperty('--g-tray-top'); // v1.2 PAGE-MAP
+    rootStyle.removeProperty('--g-tray-h');
     momentQ.length = 0;
     for (const off of offs.splice(0)) {
       try { off(); } catch { /* ignore */ }
@@ -1892,6 +2075,7 @@ export function mount(root, app) {
     // after an error), it picks the note up.
     if (S.away && !(last && last.phase === 'live' && modeOf(last) === 'hider')) keepAway(null);
     if (S.chat) { try { S.chat.close(); } catch { /* ignore */ } }
+    try { camParts.destroy(); } catch { /* ignore */ } // v1.2 PAGE-CAM
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER

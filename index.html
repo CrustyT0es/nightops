@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org; media-src 'self' blob:; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org; media-src 'self' blob: https://*.supabase.co; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#07090d">
 <meta name="color-scheme" content="dark">
@@ -33,6 +33,9 @@
 <link rel="stylesheet" href="css/watch.css">
 <link rel="stylesheet" href="css/radio.css">
 <!-- v1.1 end PAGE-RADIO -->
+<!-- v1.2 PAGE-CAM: the highlight cam -->
+<link rel="stylesheet" href="css/cam.css">
+<!-- v1.2 end PAGE-CAM -->
 <script src="config.js?v=3"></script>
 <script src="vendor/qrcode.js"></script>
 <script type="module" src="js/main.js"></script>

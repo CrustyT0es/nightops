@@ -162,3 +162,95 @@
 @media (max-width: 360px) {
   .over-radio-sw-hint { display: none; }
 }
+
+/* ---- v1.2 PAGE-RADIO: the hiders' walkie-talkie ---- */
+
+/* A hider's mic is blue (the hunters' is red); recording turns it the hiders' blue. */
+body[data-team='hider'] .radio-icon { color: var(--hider); }
+body[data-team='hider'] .radio[data-state='recording'] .radio-btn { border-color: var(--hider); background: var(--hider); color: var(--on-hider); }
+body[data-team='hider'] .radio[data-state='recording'] .radio-icon { background: var(--on-hider); color: var(--hider); }
+
+/* Quiet: a 56px tray square with a speaker and its word. On: the speaker is crossed out, and the square is lit. */
+.radio-quiet {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  gap: 0;
+  padding: 6px 0 5px;
+  font: inherit;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.radio-quiet-icon { display: grid; place-items: center; color: var(--text-2); }
+.radio-quiet-word { font-size: 11px; font-weight: 700; line-height: 1; color: var(--text-2); letter-spacing: 0.02em; }
+.radio-quiet .radio-quiet-off { display: none; }
+.radio-quiet[aria-checked='true'] { border-color: var(--hider); background: rgba(78, 168, 255, 0.16); }
+.radio-quiet[aria-checked='true'] .radio-quiet-on { display: none; }
+.radio-quiet[aria-checked='true'] .radio-quiet-off { display: block; }
+.radio-quiet[aria-checked='true'] .radio-quiet-icon,
+.radio-quiet[aria-checked='true'] .radio-quiet-word { color: var(--hider); }
+.radio-quiet:focus-visible { outline: 2px solid var(--focus, var(--text)); outline-offset: 2px; }
+.radio-quiet-badge { background: var(--hider); color: var(--on-hider); }
+
+/* The messages Quiet held, in the tray's more rows. */
+.radio-held {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.radio-held-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.radio-held-head .icon { color: var(--hider); flex: none; }
+.radio-held-state, .radio-held-hint { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.35; }
+.radio-held-hint { color: var(--muted); font-size: 13px; }
+.radio-held.quiet { border-color: rgba(78, 168, 255, 0.45); }
+.radio-held.quiet .radio-held-state { color: var(--text); }
+.radio-held-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.radio-held-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  border-top: 1px solid var(--line);
+}
+.radio-held-time { flex: none; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.radio-held-words { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 700; font-size: 15px; }
+.radio-held-play { flex: none; gap: 6px; min-height: 44px; }
+@media (max-width: 300px) {
+  .radio-held-time { display: none; }
+}
+
+/* The lobby's "Walkie-talkie for hiders too" row (the same look as the row above it). */
+.x-rh-label { display: inline-flex; align-items: center; gap: 8px; }
+.x-rh-label .icon { color: var(--hider); flex: none; }
+.x-rh-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+.x-rh-quiet { margin-top: 6px; }
+.x-rh-line {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.x-rh-line.on { border-color: rgba(78, 168, 255, 0.45); color: var(--text); }
+
+/* The replay: both teams' clips, each row says whose walkie-talkie. */
+.over-radio-side { flex: 1 1 100%; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; color: var(--hunter); }
+.over-radio-side.hiders { color: var(--hider); }
+.over-radio-row.side-hiders .over-radio-icon { color: var(--hider); }
+/* The hider's main row holds four (status chip, walkie, Quiet, chat): on a narrow phone the chip drops its icon
+   and its words get a little smaller, so "On Radar!" still reads in full. */
+@media (max-width: 400px) {
+  .tray-main:has(> .radio-quiet) .tray-chip { gap: 0; padding: 0 8px 0 10px; }
+  .tray-main:has(> .radio-quiet) .tray-chip-icon { display: none; }
+  .tray-main:has(> .radio-quiet) .tray-chip-title { font-size: 15px; }
+}
+/* With the held messages the more rows can pass their height and scroll: each part keeps its own height (never
+   squeezed into the next one). */
+.tray-more:has(> .radio-held) { grid-auto-rows: max-content; }
+/* v1.2 end PAGE-RADIO */

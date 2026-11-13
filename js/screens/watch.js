@@ -10,6 +10,8 @@
 import { h, fill, face, text, cls, listen } from '../dom.js';
 import { icon } from '../ui/icons.js';
 import { createMap } from '../map.js';
+import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js'; // v1.2 PAGE-MAP
+import { openSheet } from '../ui/sheet.js'; // v1.2 PAGE-MAP: the menu
 import { MODES, fmtClock } from '../../shared/rules.js';
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
@@ -134,6 +136,9 @@ export function mount(root, app) {
     S.map = null;
     S.ringKey = '';
     S.fitted = false;
+    if (S.offMode) { try { S.offMode(); } catch { /* ignore */ } S.offMode = null; } // v1.2 PAGE-MAP
+    if (S.ro) { try { S.ro.disconnect(); } catch { /* ignore */ } S.ro = null; }
+    S.mapFinal = false;
   }
 
   function newMap(box, interactive) {
@@ -209,6 +214,9 @@ export function mount(root, app) {
 
   // ---- the game, 2 minutes behind ----
 
+  // v1.2 PAGE-MAP: the big map's frame, as on the game screen: the map edge to edge, a slim HUD on top ("2 MIN
+  // BEHIND", the time left as of then, N watching, the menu with Stop watching) and the tray at the bottom (the newest
+  // play-by-play line and Stop watching; open: who's on which side and the play-by-play).
   function buildLive() {
     dropMap();
     const left = h('span.w-left-num.mono');
@@ -217,32 +225,88 @@ export function mount(root, app) {
     const status = h('p.w-status', { role: 'status' });
     const watching = h('span.w-watching', icon('eye', 16), h('span.w-watching-n'));
     const code = h('span.w-hud-code.mono');
+    const menu = h('button.g-more.w-menu', { type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'dialog' }, icon('menu', 22));
+    menu.addEventListener('click', () => openMenu());
     const hud = h('header.w-hud',
-      h('div.w-hud-top',
-        h('div.w-hud-who', h('span.label.w-kicker', icon('eye', 16), h('span', 'Watching')), code),
-        h('div.w-left', leftLabel, left),
-        stopBtn('.w-stop-live')),
-      h('div.w-hud-line', tag, status, watching));
+      h('div.w-hud-top', tag, h('div.w-left', leftLabel, left), watching, menu),
+      h('div.w-hud-line', h('span.w-hud-who', h('span.sr-only', 'Watching game '), code), status));
     const mapBox = h('div.w-map');
-    const fit = h('button.w-mapbtn', { type: 'button', 'aria-label': 'Show the whole ring' }, icon('circle', 22));
-    fit.addEventListener('click', () => fitRing(true));
-    const mapWrap = h('div.w-mapwrap', mapBox, h('div.w-mapbtns', fit));
+    const fit = h('button.w-mapbtn.map-btn', { type: 'button', 'aria-label': 'Fit everyone: the ring and every mark' }, icon('fit', 22));
+    fit.addEventListener('click', () => fitAll(true));
+    const zin = h('button.w-mapbtn.map-btn.w-zoom', { type: 'button', 'aria-label': 'Zoom in', hidden: true }, icon('plus', 22));
+    const zout = h('button.w-mapbtn.map-btn.w-zoom', { type: 'button', 'aria-label': 'Zoom out', hidden: true }, icon('minus', 22));
+    zin.addEventListener('click', () => { if (S.map) S.map.zoomBy(1); });
+    zout.addEventListener('click', () => { if (S.map) S.map.zoomBy(-1); });
+    const btns = h('div.w-mapbtns', fit, zin, zout);
+    const mapWrap = h('div.w-mapwrap', mapBox, btns);
     const hunters = h('span.w-side.hunters');
     const hiders = h('span.w-side.hiders');
     const out = h('span.w-side.out');
     const pbpList = h('ol.w-pbp', { role: 'list', 'aria-label': 'Play-by-play, newest first' });
     const pbpEmpty = h('p.w-hint.w-pbp-empty', 'Nothing has happened yet.');
-    const panel = h('section.w-panel', { 'aria-label': 'The game so far' },
-      h('div.w-sides', hunters, hiders, out),
-      h('h2.label.w-pbp-title', 'Play-by-play'),
-      pbpEmpty,
-      pbpList);
-    fill(root, hud, mapWrap, panel);
+    const tray = createTray({ label: 'The game so far', onState: () => place() });
+    const newestTime = h('span.tray-chip-sub.w-newest-time');
+    const newestText = h('strong.tray-chip-title.w-newest-text');
+    const newest = h('button.tray-chip.w-newest', { type: 'button', 'aria-controls': tray.more.id },
+      h('span.tray-chip-icon', icon('flag', 22)), h('span.tray-chip-words', newestText, newestTime));
+    newest.addEventListener('click', () => tray.toggle());
+    const stopSq = h('button.tray-sq.w-stop-sq', { type: 'button', 'aria-label': 'Stop watching' }, icon('door', 22));
+    stopSq.addEventListener('click', () => { stopSq.disabled = true; try { app.stopWatching(); } catch (e) { console.error(e); } });
+    tray.setMain([{ el: newest, grow: true }, stopSq]);
+    tray.setMore([h('div.w-sides', hunters, hiders, out), h('h2.label.w-pbp-title', 'Play-by-play'), pbpEmpty, pbpList]);
+    tray.el.classList.add('w-panel');
+    fill(root, mapWrap, hud, tray.el);
     root.classList.add('w-live');
-    W = { left, leftLabel, tag, status, watching, code, mapBox, hunters, hiders, out, pbpList, pbpEmpty };
+    W = { left, leftLabel, tag, status, watching, code, mapBox, hunters, hiders, out, pbpList, pbpEmpty, hud, tray, btns, zin, zout, newestText, newestTime };
     S.map = newMap(mapBox, true);
+    if (S.map) {
+      S.map.ready.then(() => { S.mapFinal = true; paintZoom(); });
+      S.offMode = S.map.onMode(() => { S.mapFinal = true; paintZoom(); });
+    }
+    try {
+      S.ro = new ResizeObserver(() => place());
+      S.ro.observe(hud);
+      S.ro.observe(tray.el);
+    } catch { /* the next update places it */ }
     S.pbpKey = '';
     S.built = 'live';
+    place();
+  }
+
+  function paintZoom() {
+    if (S.dead || S.built !== 'live') return;
+    const plainMap = !!S.map && S.mapFinal && S.map.mode() === 'plain';
+    W.zin.hidden = !plainMap;
+    W.zout.hidden = !plainMap;
+    place();
+  }
+
+  // The map shows under the bars; its buttons sit between them.
+  function place() {
+    if (S.dead || S.built !== 'live' || !W.hud) return;
+    const vh = globalThis.innerHeight || 0;
+    const top = Math.round(W.hud.getBoundingClientRect().bottom);
+    const trayTop = Math.round(W.tray.el.getBoundingClientRect().top) || vh;
+    root.style.setProperty('--w-hud-bottom', `${top}px`);
+    // (Banners sit under this HUD: watch.css reads it from the page's root.)
+    try { document.documentElement.style.setProperty('--w-hud-bottom-page', `${top}px`); } catch { /* no document */ }
+    root.style.setProperty('--w-tray-h', `${Math.max(0, vh - trayTop)}px`);
+    const shown = [...W.btns.children].filter((b) => !b.hidden).length;
+    const at = mapButtonsPlace({ hudBottom: top, trayTop, height: vh, count: shown });
+    W.btns.dataset.mode = at.mode;
+    W.btns.style.top = at.mode === 'column' ? `${at.top}px` : '';
+    W.btns.style.bottom = at.mode === 'row' ? `${at.bottom}px` : '';
+    // Fit everyone keeps clear of the buttons; the map's credits sit above a row of them.
+    if (S.map) { try { S.map.setInsets({ top, ...mapButtonInsets({ ...at, shown }, vh, trayTop) }); } catch { /* ignore */ } }
+  }
+
+  function openMenu() {
+    let sheet = null;
+    const row = h('button.g-menu-row.danger', { type: 'button' },
+      h('span.g-menu-icon', icon('door', 22)),
+      h('span.g-menu-text', h('span.g-menu-title', 'Stop watching'), h('span.g-menu-line', 'Back to the start')));
+    row.addEventListener('click', () => { if (sheet) sheet.close(); try { app.stopWatching(); } catch (e) { console.error(e); } });
+    sheet = openSheet({ title: 'Menu', body: h('div.g-menu', row), className: 'g-sheet' });
   }
 
   function fitRing(animate = false) {
@@ -251,6 +315,14 @@ export function mount(root, app) {
     if (S.map && ring) {
       try { S.map.fit(ring, { padding: 28, animate }); } catch (e) { console.error(e); }
     }
+  }
+
+  function fitAll(animate = true) {
+    const v = S.view;
+    if (!S.map || !v) return;
+    try {
+      if (!S.map.fitAll({ ring: v.ringNow || v.ring, marks: mapMarks(v.marks), animate })) fitRing(animate);
+    } catch (e) { console.error(e); }
   }
 
   function paintClock() {
@@ -287,10 +359,6 @@ export function mount(root, app) {
       try {
         S.map.setMarks(mapMarks(v.marks), { faces: app.faces, players: v.players, meId: null, paused: !!v.paused });
       } catch (e) { console.error(e); }
-      if (!S.fitted && (v.ring || v.ringNow)) {
-        S.fitted = true;
-        fitRing(false);
-      }
     }
 
     const rows = pbpRows(v.events);
@@ -303,6 +371,15 @@ export function mount(root, app) {
         h('span.w-pbp-time.mono', r.clock === null ? '' : fmtClock(r.clock)),
         h('span.w-pbp-text', r.text))));
       W.pbpEmpty.hidden = rows.length > 0;
+      // v1.2 PAGE-MAP: the tray's main row shows the newest line
+      text(W.newestText, rows.length ? rows[0].text : 'Nothing has happened yet.');
+      text(W.newestTime, rows.length && rows[0].clock !== null ? fmtClock(rows[0].clock) : '');
+    }
+    // (The first fit waits for the tray's words, so it lands in what shows between the bars.)
+    if (S.map && !S.fitted && (v.ring || v.ringNow)) {
+      S.fitted = true;
+      place();
+      fitAll(false);
     }
   }
 
@@ -326,7 +403,7 @@ export function mount(root, app) {
   }
 
   offs.push(app.on('faces', () => { if (S.view && !S.dead) update(S.view); }));
-  offs.push(listen(window, 'resize', () => { if (S.map && S.map.resize) S.map.resize(); }));
+  offs.push(listen(window, 'resize', () => { if (S.map && S.map.resize) S.map.resize(); place(); }));
   const timer = setInterval(paintClock, TICK_MS);
 
   if (app.view) update(app.view);
@@ -339,6 +416,8 @@ export function mount(root, app) {
       S.dead = true;
       clearInterval(timer);
       for (const off of offs.splice(0)) { try { off(); } catch { /* ignore */ } }
+      if (S.ro) { try { S.ro.disconnect(); } catch { /* ignore */ } } // v1.2 PAGE-MAP
+      if (S.offMode) { try { S.offMode(); } catch { /* ignore */ } }
       dropMap();
       root.classList.remove('w-root', 'w-live');
     },
