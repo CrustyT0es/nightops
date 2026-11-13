@@ -21,6 +21,7 @@ import { createMap, fmtAgo } from '../map.js';
 import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, schedule, fmtClock, fmtDistance } from '../../shared/rules.js';
 import { distanceM, isPoint } from '../../shared/geo.js';
 import { openChat, renderLines, quickFor, sendChat } from './chat.js';
+import { mountDrive, pickMeUp, driverCard } from './drive.js'; // v1.1 PAGE-DRIVER
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -685,6 +686,16 @@ export function mount(root, app) {
     icon('sos', 18), h('span', { 'aria-hidden': 'true' }, 'SOS'));
   const moreBtn = h('button.g-more', { type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'dialog', onclick: () => openMenu() }, icon('menu', 22));
   const topBar = h('div.g-topbar', teamPill, leftBox, sosBtn, moreBtn);
+  // v1.1 PAGE-WATCH: "N watching" (an eye and the number) beside your team, when anyone watches
+  const watchChip = h('span.g-watching', { hidden: true, role: 'img' }, icon('eye', 14), h('span.g-watching-n'));
+  teamPill.after(watchChip);
+  function paintWatching(view) {
+    const n = Number(view && view.watching) || 0;
+    watchChip.hidden = !(n > 0);
+    text(watchChip.querySelector('.g-watching-n'), String(n));
+    watchChip.setAttribute('aria-label', `${n} watching`);
+  }
+  // v1.1 end PAGE-WATCH
 
   const pingLabel = h('span.label.g-ping-label');
   const pingNum = h('span.g-ping-num');
@@ -751,6 +762,8 @@ export function mount(root, app) {
       sosResume, sosNote));
 
   root.classList.add('g-root');
+  // v1.1 PAGE-RADIO: the walkie-talkie readies its sound from every real tap itself (alerts.onTap: a touch's
+  // pointerdown isn't a tap to an iPhone).
   fill(root, hud, mapWrap, panel, sosLayer);
 
   // News banners go under the HUD on this screen, so the time left, the next ping and SOS are never covered
@@ -813,9 +826,15 @@ export function mount(root, app) {
       P.tagNote = h('span.g-tag-note', { hidden: true });
       P.tagBtn = h('button.btn.primary.wide.g-tag', { type: 'button', onclick: () => openTagSheet() },
         icon('target', 22), h('span.g-tag-words', P.tagText, P.tagNote));
-      parts.push(P.tagBtn);
       P.powers = h('div.g-powers');
-      parts.push(P.powers);
+      // v1.1 PAGE-DRIVER: the driver never tags and has no powers (their card instead); others get Pick me up
+      P.drive = view && view.me && view.me.driver ? driverCard(app) : pickMeUp(app);
+      if (view && view.me && view.me.driver) parts.push(P.drive.el);
+      else parts.push(P.tagBtn, P.drive.el, P.powers);
+      // v1.1 end PAGE-DRIVER
+      // v1.1 PAGE-RADIO: the walkie-talkie (hold to talk; its line says "Sam is talking")
+      if (app.radio) { try { parts.push(app.radio.button()); } catch (e) { console.error(e); } }
+      // v1.1 end PAGE-RADIO
     } else if (mode === 'hider') {
       P.statusIcon = h('span.g-status-icon');
       P.statusTitle = h('strong.g-status-title');
@@ -957,7 +976,7 @@ export function mount(root, app) {
     const live = view.phase === 'live';
 
     // Top bar.
-    text(teamSide, teamWord(mode));
+    text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
     text(teamName, view.me && view.me.name ? view.me.name : '');
     text(leftNum, cd.left === null ? '--:--' : fmtClock(cd.left));
     setHidden(sosBtn, !live || view.paused);
@@ -1127,6 +1146,7 @@ export function mount(root, app) {
     if (!view || S.mode !== 'hunter' || !mark) return;
     const p = playerOf(view, mark.id);
     if (!p || p.team !== 'hider' || p.status !== 'in') return;
+    if (view.me && view.me.driver) { banner("The driver can't tag. Ask another hunter.", 'info'); return; } // v1.1 PAGE-DRIVER
     const cd = countdowns(view, gclock.read());
     if (inHeadStart(view, cd) || view.paused) {
       banner(view.paused ? 'The game is paused.' : 'Tags count once the head start is over.', 'info');
@@ -1256,7 +1276,7 @@ export function mount(root, app) {
     const cd = countdowns(view, gclock.read());
     if (view.paused) { banner('The game is paused.', 'info'); return; }
     if (inHeadStart(view, cd)) { banner('Catches count once the head start is over.', 'info'); return; }
-    const hunters = activeHunters(view).filter((p) => p.id !== view.me.id);
+    const hunters = activeHunters(view).filter((p) => p.id !== view.me.id && !p.driver); // v1.1 PAGE-DRIVER: never the driver
     let sheet = null;
     const send = async (by) => {
       if (!sheet || isBusy(sheet)) return;
@@ -1812,9 +1832,25 @@ export function mount(root, app) {
     syncSos(view);
     syncPending(view);
     paint();
+    syncDrive(view); // v1.1 PAGE-DRIVER
+    paintWatching(view); // v1.1 PAGE-WATCH
     placeBanners();
     if (view.phase === 'over' && S.wasLive) overMoment(view);
   }
+
+  // v1.1 PAGE-DRIVER: the Driving layer for the driver (it shows itself while not parked), and the panel's part
+  function syncDrive(view) {
+    if (P.drive) { try { P.drive.update(view); } catch (e) { console.error(e); } }
+    const driving = !!(view.me && view.me.driver && view.phase === 'live');
+    if (driving && !S.drive) {
+      try { S.drive = mountDrive(root, app, { onSos: () => askSos(), onMenu: () => openMenu() }); } catch (e) { console.error(e); }
+    } else if (!driving && S.drive) {
+      try { S.drive.destroy(); } catch { /* ignore */ }
+      S.drive = null;
+    }
+    if (S.drive) { try { S.drive.update(view); } catch (e) { console.error(e); } }
+  }
+  // v1.1 end PAGE-DRIVER
 
   offs.push(app.on('event', onEvent));
   offs.push(app.on('connection', () => { if (S.view) paint(); }));
@@ -1858,6 +1894,7 @@ export function mount(root, app) {
     if (S.chat) { try { S.chat.close(); } catch { /* ignore */ } }
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
+    if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER
     if (map) { try { map.destroy(); } catch { /* ignore */ } }
     map = null;
     root.classList.remove('g-root', 'g-sos-on');

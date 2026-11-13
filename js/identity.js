@@ -6,6 +6,9 @@ import { cleanName as engineName } from '../shared/engine.js';
 
 export const ME_KEY = 'nightops-me';
 export const GAME_KEY = 'nightops-game';
+// v1.1 PAGE-WATCH: the game this phone watches ({code, id, secret} of a spectator)
+export const WATCH_KEY = 'nightops-watch';
+// v1.1 end PAGE-WATCH
 
 const ID = /^[0-9a-f]{12}$/i;
 const SECRET = /^[0-9a-f]{32}$/i;
@@ -112,7 +115,24 @@ export function createIdentity(getStorage = () => globalThis.localStorage) {
     remove(GAME_KEY);
   }
 
-  return { loadMe, saveMe, loadGame, saveGame, clearGame };
+  // v1.1 PAGE-WATCH: a spectator's id and secret, kept like a player's
+  function loadWatch() {
+    return cleanGame(readJson(WATCH_KEY));
+  }
+
+  function saveWatch(w) {
+    const value = cleanGame(w);
+    if (!value) return null;
+    write(WATCH_KEY, JSON.stringify(value));
+    return value;
+  }
+
+  function clearWatch() {
+    remove(WATCH_KEY);
+  }
+  // v1.1 end PAGE-WATCH
+
+  return { loadMe, saveMe, loadGame, saveGame, clearGame, loadWatch, saveWatch, clearWatch };
 }
 
 const shared = createIdentity();
@@ -121,3 +141,8 @@ export const saveMe = shared.saveMe;
 export const loadGame = shared.loadGame;
 export const saveGame = shared.saveGame;
 export const clearGame = shared.clearGame;
+// v1.1 PAGE-WATCH
+export const loadWatch = shared.loadWatch;
+export const saveWatch = shared.saveWatch;
+export const clearWatch = shared.clearWatch;
+// v1.1 end PAGE-WATCH

@@ -357,3 +357,23 @@ button.nmark-hit:active .face { transform: scale(0.94); }
   .nmark.pulse .nmark-face::after, .nmark.k-sos .nmark-face::after { animation: none; transform: scale(1.35); opacity: 0.6; }
   .narea, .nmark-body { transition: none; }
 }
+
+/* v1.1 PAGE-DRIVER: the driver's car badge (every hunter sees it) and hiders near the parked car (the driver only) */
+.nmark.k-near { z-index: 5; }
+.nmark-car {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--driver);
+  color: var(--on-driver);
+  pointer-events: none;
+}
+.nmark-car .icon { width: 13px; height: 13px; stroke-width: 2.4; }
+.nmark.me .nmark-car { right: 2px; bottom: 2px; }
+/* v1.1 end PAGE-DRIVER */

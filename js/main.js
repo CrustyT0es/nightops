@@ -23,6 +23,24 @@ function inviteCode() {
   }
 }
 
+// v1.1 PAGE-WATCH: ?watch=CODE (or #watch=CODE) opens "Watch game CODE"; taken out of the address like ?code=.
+function watchCode() {
+  try {
+    const url = new URL(globalThis.location.href);
+    const code = normalizeCode(url.searchParams.get('watch') || '') ||
+      normalizeCode(/(?:^|[#&])watch=([^&]+)/.exec(url.hash.slice(1))?.[1] || '');
+    if (url.searchParams.has('watch') || /(?:^|[#&])watch=/.test(url.hash.slice(1))) {
+      url.searchParams.delete('watch');
+      const hash = url.hash.replace(/(^#|&)watch=[^&]*/, '').replace(/^#&/, '#');
+      history.replaceState(history.state, '', `${url.pathname}${url.search}${hash === '#' ? '' : hash}`);
+    }
+    return code;
+  } catch {
+    return '';
+  }
+}
+// v1.1 end PAGE-WATCH
+
 function boot() {
   const root = document.getElementById('app');
   const config = globalThis.NIGHTOPS || {};
@@ -30,7 +48,7 @@ function boot() {
   const app = new App({ api, identity, location: createLocation(), alerts, root });
   // For the end-to-end tests and for poking around in the browser console.
   globalThis.nightops = app;
-  app.start({ code: inviteCode() });
+  app.start({ code: inviteCode(), watch: watchCode() }); // v1.1 PAGE-WATCH: watch
   return app;
 }
 

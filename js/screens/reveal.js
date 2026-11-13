@@ -4,6 +4,7 @@
 import { h, fill, face, text } from '../dom.js';
 import { fmtClock } from '../../shared/rules.js';
 import { icon } from '../ui/icons.js';
+import { driverReveal } from './drive.js'; // v1.1 PAGE-DRIVER
 
 const NS = 'http://www.w3.org/2000/svg';
 const TAP_GUARD_MS = 700;   // a second tap on Start mustn't skip the reveal straight away
@@ -40,7 +41,13 @@ function scope() {
 
 // What the reveal says, from the view: { side, title, sub, line, keep, mates, matesLabel, alone }.
 // keep: locking the phone or switching apps stops sharing your spot (the page can't send it from the background).
+// v1.1 PAGE-DRIVER: the driver's own words (and "Jake drives the car" for the other hunters)
 export function revealWords(view) {
+  return driverReveal(plainRevealWords(view), view);
+}
+// v1.1 end PAGE-DRIVER
+
+function plainRevealWords(view) {
   const me = (view && view.me) || {};
   const s = (view && view.settings) || {};
   const players = (view && view.players) || [];

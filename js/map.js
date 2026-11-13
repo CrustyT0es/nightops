@@ -252,9 +252,10 @@ const KINDS = {
   ping: { team: 'hider', area: 'ping', age: true },
   seen: { team: 'hider', area: 'seen', age: true },
   sos: { team: 'hunter', sos: true },
+  near: { team: 'hider', pulse: true, chip: 'Near car', chipKind: 'live' }, // v1.1 PAGE-DRIVER: the parked driver's
   other: { team: null },
 };
-const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping']);
+const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping', 'near']); // v1.1 PAGE-DRIVER: + near
 
 export function validRing(r) {
   if (!r || typeof r !== 'object') return null;
@@ -1342,6 +1343,7 @@ export function createMap(container, { interactive = true } = {}) {
     let what = '';
     if (kind === 'ping') what = `pinged ${fmtAgo(age)}${mark.r > 0 ? `, within ${fmtDistance(mark.r)}` : ', exact spot'}`;
     else if (kind === 'radar') what = 'live on Radar';
+    else if (kind === 'near') what = 'live, near the car'; // v1.1 PAGE-DRIVER
     else if (kind === 'exposure') what = 'exact spot from Exposure';
     else if (kind === 'outside') what = 'outside the ring, live';
     else if (kind === 'offline') what = `offline, last seen ${fmtAgo(age)}`;
@@ -1365,7 +1367,8 @@ export function createMap(container, { interactive = true } = {}) {
       exact: !!K.exact,
       pulse: !!K.pulse,
       tappable,
-      aria: `${name || 'Someone'}: ${what}`,
+      aria: `${name || 'Someone'}: ${what}${mark.driver ? ', driving the car' : ''}`, // v1.1 PAGE-DRIVER: the car
+      driver: !!mark.driver, // v1.1 PAGE-DRIVER
     };
   }
 
@@ -1437,11 +1440,16 @@ export function createMap(container, { interactive = true } = {}) {
     if (desc.pulse) cls.push('pulse');
     if (desc.stale) cls.push('stale');
     if (desc.tappable) cls.push('tappable');
+    if (desc.driver) cls.push('is-driver'); // v1.1 PAGE-DRIVER
     if (!rec.shown) cls.push('unplaced');
     if (rec.leaving) cls.push('leaving');
     const className = cls.join(' ');
     if (rec.el.className !== className) rec.el.className = className;
     setFace(rec, desc, faceSrc(opts.faces, mark.id));
+    // v1.1 PAGE-DRIVER: a car badge on the driver's face
+    if (desc.driver && !rec.carEl) { rec.carEl = h('span.nmark-car', icon('car', 14)); rec.faceBox.after(rec.carEl); }
+    if (rec.carEl) rec.carEl.hidden = !desc.driver;
+    // v1.1 end PAGE-DRIVER
     text(rec.tagEl, desc.tag);
     show(rec.tagEl, !!desc.tag);
     text(rec.chipEl, desc.chip);

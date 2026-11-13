@@ -7,6 +7,11 @@ export const LIMITS = {
   chat: 200,        // letters in a chat message
   faceBytes: 16000, // a selfie's data: URL (a real 160 px selfie is 5-10 KB; server/schema.sql allows 20000)
   ringCorners: 20,
+  // v1.1
+  watchers: 20,             // spectators in one game (not counted in players)
+  radioClips: 400,          // walkie-talkie clips in one round
+  radioBytes: 48000,        // one clip's audio, decoded (15 s at 24 kbps = 45 KB)
+  radioGameBytes: 12000000, // all of a round's clips together
 };
 
 export const TIMING = {
@@ -26,6 +31,20 @@ export const TIMING = {
   TRAIL_EVERY_MS: 10000,       // one route point per player this often (for the replay)
   SYNC_MS: 3000,               // the page asks for news this often
   CLOSING_RADIUS: 0.5,         // ping circles shrink to this share in the closing minutes
+  // v1.1: spectators, the driver, the walkie-talkie
+  SPECTATOR_DELAY_MS: 120000,  // spectators see the game this far behind (game clock)
+  SPECTATOR_SPOT_MS: 60000,    // a spectator's dot: the newest route point within this before the delayed clock
+  WATCH_SYNC_MS: 5000,         // a spectator's page asks for news this often
+  WATCH_SEEN_EVERY_MS: 30000,  // a spectator's lastSeen is saved at most this often
+  WATCH_IDLE_MS: 90000,        // a spectator not seen this long isn't counted (and goes first when full)
+  PARK_KMH: 5,                 // the driver is parked under this speed...
+  PARK_MS: 5000,               // ...held for this long...
+  PARK_FRESH_MS: 20000,        // ...on a fix no older than this
+  DRIVER_NEAR_M: 150,          // parked: free hiders this close show live, only to the driver
+  RADIO_MAX_MS: 15000,         // a clip sends itself at this length
+  RADIO_MIN_MS: 400,           // shorter holds are dropped (the page); the server refuses under 300 ms
+  RADIO_GAP_MS: 2000,          // at most one clip per player this often
+  RADIO_STALE_MS: 60000,       // the page plays a new clip by itself only if it's no older than this
 };
 
 export const MODES = {
@@ -58,7 +77,21 @@ export const DEFAULTS = Object.freeze({
   caught: 'join',          // caught hiders 'join' the hunters, or are 'out' (they watch)
   powers: Object.freeze({ jammer: true, decoy: true, sprint: true, radar: true, exposure: true }),
   custom: Object.freeze([]), // settings the host changed by hand (recommendations leave them alone)
+  // v1.1 extras: never in `custom`, presets or recommendations
+  driver: false,           // one hunter drives and gives rides
+  spectators: true,        // friends may watch, 2 minutes behind
+  radioSave: true,         // the hunters' walkie-talkie is kept for the replay
 });
+
+// The three v1.1 switches (booleans; never counted as "changed by hand").
+export const EXTRA_KEYS = Object.freeze(['driver', 'spectators', 'radioSave']);
+
+// The lobby's "Extras" card, in this order.
+export const EXTRAS_UI = [
+  { key: 'driver', label: 'Driver', hint: 'One hunter drives a car and gives the others rides. The driver never tags.' },
+  { key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game 2 minutes behind. They never see chats.' },
+  { key: 'radioSave', label: 'Save the walkie-talkie for the replay', hint: "The hunters' walkie-talkie is saved for the end-of-game replay." },
+];
 
 export const PRESETS = {
   quick: { label: 'Quick', line: '20 min, pings every 3', settings: { durationMin: 20, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1 } },
@@ -122,6 +155,7 @@ export function cleanSettings(input, base = DEFAULTS) {
     if (key in input && list.includes(input[key])) out[key] = input[key];
   }
   if ('shrink' in input && typeof input.shrink === 'boolean') out.shrink = input.shrink;
+  for (const key of EXTRA_KEYS) if (key in input && typeof input[key] === 'boolean') out[key] = input[key];
   if (input.powers && typeof input.powers === 'object') {
     for (const p of Object.keys(POWERS)) {
       if (typeof input.powers[p] === 'boolean') out.powers[p] = input.powers[p];
@@ -130,12 +164,17 @@ export function cleanSettings(input, base = DEFAULTS) {
   if (Array.isArray(input.custom)) {
     // An own key, not `in`: 'toString' or 'constructor' are "in" every object.
     const own = (k) => Object.prototype.hasOwnProperty.call(DEFAULTS, k);
-    out.custom = [...new Set(input.custom.filter((k) => typeof k === 'string' && own(k) && k !== 'custom'))];
+    out.custom = [...new Set(input.custom.filter((k) => typeof k === 'string' && own(k) && k !== 'custom' && !EXTRA_KEYS.includes(k)))];
   }
   return fixUp(out);
 }
 
 function fixUp(s) {
+  // (Older stored settings lack the v1.1 switches: they get the defaults.)
+  for (const key of EXTRA_KEYS) if (typeof s[key] !== 'boolean') s[key] = DEFAULTS[key];
+  if (Array.isArray(s.custom)) s.custom = s.custom.filter((k) => !EXTRA_KEYS.includes(k));
+  // Infection starts with one hunter: no driver.
+  if (s.mode === 'infection') s.driver = false;
   if (s.closingMin >= s.durationMin) s.closingMin = Math.max(0, Math.floor((s.durationMin - 5) / 5) * 5);
   // Closing in means faster pings: never slower than the usual ones.
   if (s.closingPingEveryMin > s.pingEveryMin) s.closingPingEveryMin = Math.max(1, s.pingEveryMin);
@@ -148,6 +187,16 @@ export function huntersFor(settings, n) {
   if (settings.mode === 'infection') return 1;
   const want = settings.hunters > 0 ? settings.hunters : Math.round(n / 3);
   return Math.max(1, Math.min(n - 1, want));
+}
+
+// '' when a driver is possible, else the sentence saying why not. `pickedHunters`: players the host picked
+// as hunters by hand; the game starts with all of them, topped up to huntersFor (as cmdStart does).
+export function driverProblem(settings, playersIn, pickedHunters = 0) {
+  if (settings && settings.mode === 'infection') return 'Infection starts with one hunter, so there is no driver.';
+  if (!(playersIn >= 3)) return 'A driver needs at least 3 players.';
+  const picked = Number.isFinite(pickedHunters) ? Math.max(0, Math.min(playersIn - 1, Math.floor(pickedHunters))) : 0;
+  if (Math.max(huntersFor(settings, playersIn), picked) < 2) return 'A driver needs 2 or more hunters. Add a hunter first.';
+  return '';
 }
 
 export function ringSize(ring) {

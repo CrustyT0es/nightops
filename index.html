@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org; media-src 'self' blob:; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#07090d">
 <meta name="color-scheme" content="dark">
@@ -28,7 +28,12 @@
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/over.css">
 <link rel="stylesheet" href="css/map.css">
-<script src="config.js?v=2"></script>
+<!-- v1.1 PAGE-RADIO: the driver's, the spectator's and the walkie-talkie's styles -->
+<link rel="stylesheet" href="css/drive.css">
+<link rel="stylesheet" href="css/watch.css">
+<link rel="stylesheet" href="css/radio.css">
+<!-- v1.1 end PAGE-RADIO -->
+<script src="config.js?v=3"></script>
 <script src="vendor/qrcode.js"></script>
 <script type="module" src="js/main.js"></script>
 </head>

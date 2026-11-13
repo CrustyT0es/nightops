@@ -1,0 +1,245 @@
+/* Night Ops: the driver (v1.1, PAGE-DRIVER). js/screens/drive.js: the Driving layer over the game screen, a
+   hunter's "Pick me up", the parked driver's card in the panel; js/screens/extras/driver.js: the lobby's row.
+   The Driving layer is read at a glance from a phone holder: words >= 28px, the time >= 48px, buttons >= 64px,
+   one colour (the driver's gold) and nothing that moves. */
+
+/* ---- the Driving layer ---- */
+
+.drive-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30; /* over the map and panel; under sheets (40), the SOS screen (50), banners and moments */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--text);
+}
+.drive-layer[hidden] { display: none; }
+
+.drive-top {
+  display: grid;
+  gap: 4px;
+  padding: max(10px, calc(var(--safe-top) + 6px)) max(16px, calc(var(--safe-right, 0px) + 12px)) 10px max(16px, calc(var(--safe-left, 0px) + 12px));
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.drive-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.drive-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--driver);
+}
+.drive-time { display: flex; align-items: baseline; gap: 10px; }
+.drive-time .label { font-size: 13px; }
+.drive-left {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 64px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.drive-top-btns { flex: none; display: flex; gap: 8px; }
+.drive-voice, .drive-sos, .drive-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 15px;
+}
+.drive-voice { color: var(--driver); border-color: var(--driver); }
+.drive-voice.off { color: var(--muted); border-color: var(--line-2); }
+.drive-voice[aria-disabled='true'] { opacity: 0.55; }
+.drive-sos { color: var(--hunter); border-color: rgba(255, 90, 90, 0.55); font-family: var(--mono); letter-spacing: 0.06em; }
+.drive-menu { padding: 0; }
+.drive-voice:active, .drive-sos:active, .drive-menu:active { background: var(--raised); }
+
+.drive-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px max(16px, calc(var(--safe-right, 0px) + 12px)) 16px max(16px, calc(var(--safe-left, 0px) + 12px));
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.drive-tap, .drive-talking {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.drive-tap { border: 1px dashed var(--driver); color: var(--driver); background: rgba(255, 194, 74, 0.07); }
+.drive-talking { background: var(--raised); color: var(--text); border: 1px solid var(--line-2); font-size: 28px; }
+.drive-talking::before {
+  content: '';
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--hunter);
+  box-shadow: 0 0 10px var(--hunter);
+}
+.drive-tap[hidden], .drive-talking[hidden] { display: none; }
+
+.drive-sec-title { margin: 0 0 8px; font-size: 13px; }
+.drive-hiders-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.drive-hider {
+  padding: 12px 14px;
+  border-left: 4px solid var(--hider);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.drive-hider strong { font-weight: 700; color: var(--hider); }
+.drive-hider.live { background: rgba(78, 168, 255, 0.12); }
+.drive-hider.none { border-left-color: var(--line-2); color: var(--text-2); }
+
+.drive-pickups[hidden] { display: none; }
+.drive-pk-list { display: grid; gap: 12px; }
+.drive-pk {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--driver);
+  border-radius: var(--radius);
+  background: rgba(255, 194, 74, 0.08);
+}
+.drive-pk-text { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.drive-pk-btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.drive-pk-btn.big { min-height: 64px; padding: 0 12px; font-size: 20px; white-space: nowrap; }
+.drive-pk .btn.primary { background: var(--driver); color: var(--on-driver); }
+.drive-pk-btn[aria-disabled='true'] { opacity: 0.5; }
+
+.drive-foot {
+  display: grid;
+  gap: 10px;
+  padding: 12px max(16px, calc(var(--safe-right, 0px) + 12px)) max(14px, calc(var(--safe-bottom) + 10px)) max(16px, calc(var(--safe-left, 0px) + 12px));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.drive-radio { display: grid; }
+.drive-park {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  text-align: center;
+}
+
+@media (max-width: 360px) {
+  .drive-left { font-size: 52px; }
+  .drive-kicker { letter-spacing: 0.06em; }
+  .drive-tap { font-size: 18px; padding: 10px 12px; }
+  .drive-pk-btn.big { font-size: 18px; }
+  .drive-voice-word { display: none; }
+  .drive-voice, .drive-sos, .drive-menu { min-width: 48px; min-height: 48px; padding: 0 10px; }
+}
+@media (max-height: 640px) {
+  .drive-left { font-size: 52px; }
+  .drive-body { gap: 14px; padding-top: 12px; }
+}
+
+/* ---- a hunter's Pick me up (the game panel) ---- */
+
+.drive-ask-row { display: flex; align-items: stretch; gap: 8px; }
+.drive-ask-row[hidden] { display: none; }
+.drive-ask { flex: 1 1 auto; min-height: 48px; gap: 10px; color: var(--driver); border-color: rgba(255, 194, 74, 0.55); justify-content: flex-start; }
+.drive-ask .icon { flex: none; }
+.drive-ask-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-ask.waiting { color: var(--text); background: rgba(255, 194, 74, 0.1); }
+.drive-ask[aria-disabled='true'] { opacity: 0.6; }
+.drive-ask-cancel { flex: none; }
+.drive-ask-cancel[hidden] { display: none; }
+
+/* ---- the parked driver's card (the game panel) ---- */
+
+.drive-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--driver);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.drive-card[hidden] { display: none; }
+.drive-card-head { display: flex; align-items: center; gap: 10px; }
+.drive-card-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--driver);
+  color: var(--on-driver);
+}
+.drive-card-words { display: grid; gap: 1px; min-width: 0; }
+.drive-card-title { font-size: 16px; }
+.drive-card-line { color: var(--text-2); font-size: 14px; line-height: 1.3; }
+.drive-card .drive-pk-list { gap: 8px; }
+.drive-card .drive-pk { padding: 8px 10px; gap: 6px; }
+.drive-card .drive-pk-text { font-size: 16px; }
+.drive-card .drive-pk-btns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.drive-card .drive-pk-btns > :only-child { grid-column: 1 / -1; }
+.drive-card .drive-pk-btn { min-height: 44px; padding: 0 10px; font-size: 15px; }
+@media (max-height: 720px) {
+  .drive-card-line { display: none; }
+}
+
+/* ---- the lobby's Driver row ---- */
+
+.drive-x-block { border-bottom: 1px solid var(--line); }
+.drive-x-block .drive-x { border-bottom: 0; }
+.drive-x .lobby-set-label { display: inline-flex; align-items: center; gap: 8px; }
+.drive-x .lobby-set-label .icon { color: var(--driver); }
+.drive-x .switch[aria-disabled='true'] { opacity: 0.45; }
+.drive-x-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.drive-x-problem .icon { flex: none; color: var(--warn); margin-top: 1px; }
+.drive-x-problem[hidden], .drive-x-who[hidden] { display: none; }
+.drive-x-who { display: grid; gap: 8px; padding: 0 0 14px; }
+.drive-x-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.drive-x-chips[hidden] { display: none; }
+.drive-x-chip { max-width: 100%; }
+.drive-x-chip[aria-checked='true'] { background: var(--driver); color: var(--on-driver); border-color: transparent; }
+.drive-x-who-note { margin: 0; font-size: 13px; }

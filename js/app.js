@@ -38,8 +38,9 @@ import { closeSheets } from './ui/sheet.js';
 import { backButton } from './ui/back.js';
 import { ApiError, toApiError, WORDS } from './api.js';
 import { cleanName, cleanFace } from './identity.js';
+import { createRadio, fromBase64 } from './radio.js'; // v1.1 PAGE-RADIO
 
-export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over'];
+export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 export const EVENT_CAP = 400;
 export const HELD_CAP = 100;       // events kept for a screen that is still loading
 export const BACKOFF_MS = [1000, 2000, 5000, 10000];
@@ -97,6 +98,9 @@ export function backoffDelay(failures) {
 // null = no opinion (no view).
 export function chooseScreen({ view, current = null, revealed = false } = {}) {
   if (!view || typeof view !== 'object') return null;
+  // v1.1 PAGE-WATCH: a spectator's view: the watch screen, and the normal end screen (never reveal, ring or game)
+  if (view.watcher) return watchScreenFor(view);
+  // v1.1 end PAGE-WATCH
   if (view.phase === 'lobby') return current === 'ring' && view.me && view.me.host ? 'ring' : 'lobby';
   if (view.phase === 'live') {
     if (current === 'reveal') return 'reveal';
@@ -105,6 +109,34 @@ export function chooseScreen({ view, current = null, revealed = false } = {}) {
   if (view.phase === 'over') return 'over';
   return null;
 }
+
+// v1.1 PAGE-WATCH: spectators (pure helpers, tested in Node)
+const WATCH_GONE = new Set(['gone', 'no_game', 'bad_secret', 'bad_player', 'no_player', 'unknown_game', 'not_found',
+  'kicked', 'no_watch', 'no_watcher']);
+
+// The screen for a spectator's view: 'watch' in the lobby and the game, 'over' at the end.
+export function watchScreenFor(view) {
+  if (!view || typeof view !== 'object') return null;
+  if (view.phase === 'over') return 'over';
+  if (view.phase === 'lobby' || view.phase === 'live') return 'watch';
+  return null;
+}
+
+// Errors that mean this phone no longer watches that game (removed, watching turned off, the game gone).
+export function isWatchGone(err) {
+  if (!err) return false;
+  if (WATCH_GONE.has(err.code)) return true;
+  return !!err.fromServer && (err.status === 403 || err.status === 404);
+}
+
+export function watchLostWords(err) {
+  if (err && err.code === 'kicked') return 'The host stopped you watching this game.';
+  if (err && err.code === 'no_watch') return "This game doesn't allow watching any more.";
+  if (err && (err.code === 'no_game' || err.status === 404)) return 'That game is over or was closed.';
+  if (err && err.fromServer && err.message) return err.message;
+  return "You're no longer watching that game.";
+}
+// v1.1 end PAGE-WATCH
 
 // The side whose news this phone gets: your team's, but only while you're still in (a hider who was caught and
 // sits out gets neither side's news, like the server's canSee).
@@ -247,6 +279,7 @@ export class App {
     syncMs = TIMING.SYNC_MS,
     autoScreen = true,
     back = backButton,
+    radio = createRadio, // v1.1 PAGE-RADIO: makes app.radio (null = no walkie-talkie)
   } = {}) {
     this.api = api;
     this.back = back;
@@ -298,7 +331,29 @@ export class App {
     this._stopped = false;
     this._wasLive = false;
     this._held = [];   // events for a screen that is still loading (given to it once it's there)
+    // v1.1 PAGE-WATCH: the game this phone watches as a spectator ({ code, id, secret }), and how often it asks
+    this.watchGame = null;
+    this.watchMs = TIMING.WATCH_SYNC_MS;
+    // v1.1 end PAGE-WATCH
+    // v1.1 PAGE-RADIO: the walkie-talkie (null when this browser can't record or play), and the clips fetched
+    // (n -> Promise of { url, ... }; their blob: URLs let go of on a new round or leaving)
+    this._clips = new Map();
+    this._clipUrls = [];
+    this.radio = null;
+    try {
+      this.radio = typeof radio === 'function' ? radio({ app: this, alerts, doc, win }) || null : null;
+    } catch (e) {
+      console.error(e);
+      this.radio = null;
+    }
+    // v1.1 end PAGE-RADIO
   }
+
+  // v1.1 PAGE-WATCH: true while this phone is a spectator (app.game is null then)
+  get watching() {
+    return !!this.watchGame && !this.game;
+  }
+  // v1.1 end PAGE-WATCH
 
   // ---- who you are ----
 
@@ -342,13 +397,16 @@ export class App {
   // ---- starting and stopping ----
 
   // start({ code }): code = the ?code= from an invite link.
-  start({ code = '' } = {}) {
+  start({ code = '', watch = '' } = {}) {
     if (this._started) return;
     this._started = true;
     this._stopped = false;
     this._listen();
     const link = normalizeCode(code);
     this.linkCode = link;
+    // v1.1 PAGE-WATCH: a ?watch= link, or a game this phone was watching (a reload)
+    if (!link && this._startWatching(normalizeCode(watch))) return;
+    // v1.1 end PAGE-WATCH
     let saved = null;
     try { saved = this.identity.loadGame(); } catch { saved = null; }
     if (saved && (!link || link === saved.code)) {
@@ -400,6 +458,29 @@ export class App {
     add(this.win, 'pageshow', (e) => {
       if (e && e.persisted && this.game) this.syncNow();
     });
+    // v1.1 PAGE-WATCH: the same for a spectator's loop
+    add(this.doc, 'visibilitychange', () => {
+      if (!this.watching) return;
+      if (this._hidden()) {
+        clearTimeout(this._timer);
+        this._timer = null;
+      } else {
+        this.syncNow();
+      }
+    });
+    add(this.win, 'online', () => {
+      if (!this.watching) return;
+      this._failures = 0;
+      this._setConnection('reconnecting');
+      this.syncNow();
+    });
+    add(this.win, 'offline', () => {
+      if (this.watching) this._setConnection('offline');
+    });
+    add(this.win, 'pageshow', (e) => {
+      if (e && e.persisted && this.watching) this.syncNow();
+    });
+    // v1.1 end PAGE-WATCH
   }
 
   _hidden() {
@@ -480,6 +561,7 @@ export class App {
   }
 
   leave() {
+    if (this.watching) return this.stopWatching(); // v1.1 PAGE-WATCH: Leave on a spectator's screens
     const game = this.game || this.savedGame;
     if (game) this._sendLeave(game);
     this._exit();
@@ -516,6 +598,7 @@ export class App {
     if (!saved || !view || typeof view !== 'object') return false;
     this._clearSeen();
     this._resetGameState();
+    this._dropWatch(); // v1.1 PAGE-WATCH: playing ends watching
     this.game = saved;
     this.savedGame = null;
     // What happened before you joined (who joined before you) isn't news: only what comes after is.
@@ -549,6 +632,7 @@ export class App {
     this._facesRetryAt = 0;
     this._failures = 0;
     this._held = [];
+    this._radioReset(); // v1.1 PAGE-RADIO: the walkie-talkie stops, its clips go
     this._setConnection('ok');
     if (this._locOn && this.location) {
       this._locOn = false;
@@ -581,6 +665,12 @@ export class App {
   // ---- talking to the server ----
 
   _post(action, extra, opts) {
+    // v1.1 PAGE-WATCH: a spectator sends `watcher` instead of `player` (wsync, faces, clip)
+    if (this.watching) {
+      const w = this.watchGame;
+      return this.api.post(action, { code: w.code, watcher: { id: w.id, secret: w.secret }, ...extra }, opts);
+    }
+    // v1.1 end PAGE-WATCH
     const g = this.game;
     return this.api.post(action, { code: g.code, player: { id: g.id, secret: g.secret }, ...extra }, opts);
   }
@@ -604,6 +694,7 @@ export class App {
   }
 
   syncNow() {
+    if (this.watching) return this._watchSync(); // v1.1 PAGE-WATCH
     if (!this.game) return Promise.resolve(null);
     if (this._syncing) {
       this._again = true;
@@ -613,6 +704,7 @@ export class App {
     this._timer = null;
     const game = this.game;
     const body = { since: this._since };
+    body.radioSince = this._radioSince(); // v1.1 PAGE-RADIO
     const pos = this._posToSend();
     if (pos) body.pos = pos;
     this._syncing = this._post('sync', body, { timeoutMs: 9000 })
@@ -643,6 +735,17 @@ export class App {
   _schedule(delay) {
     clearTimeout(this._timer);
     this._timer = null;
+    // v1.1 PAGE-WATCH: a spectator asks every watchMs
+    if (this.watching) {
+      if (this._hidden() || this._stopped || (this._syncing && delay === undefined)) return;
+      const wait = delay !== undefined ? delay : (this._failures ? backoffDelay(this._failures) : this.watchMs);
+      this._timer = setTimeout(() => {
+        this._timer = null;
+        this.syncNow();
+      }, wait);
+      return;
+    }
+    // v1.1 end PAGE-WATCH
     if (!this.game || this._hidden() || this._stopped) return;
     if (this._syncing && delay === undefined) return; // its own finish schedules the next one
     const ms = delay !== undefined ? delay : (this._failures ? backoffDelay(this._failures) : this.syncMs);
@@ -689,6 +792,7 @@ export class App {
     }
     const game = this.game;
     const body = { cmd, since: this._since };
+    body.radioSince = this._radioSince(); // v1.1 PAGE-RADIO
     const pos = this._posToSend();
     if (pos) body.pos = pos;
     try {
@@ -762,6 +866,339 @@ export class App {
     }
   }
 
+  // v1.1 PAGE-RADIO: the walkie-talkie --------------------------------------------------------------------
+
+  _radioSince() {
+    const n = this.radio ? Number(this.radio.last) : 0;
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  }
+
+  _radioReset() {
+    try { if (this.radio) this.radio.stop(); } catch (e) { console.error(e); }
+    if (!this._clips) return;
+    this._clips.clear();
+    const U = (this.win && this.win.URL) || globalThis.URL;
+    for (const url of this._clipUrls.splice(0)) {
+      try { U.revokeObjectURL(url); } catch { /* ignore */ }
+    }
+  }
+
+  // One clip's audio by its number (players and spectators; the server decides who may hear it), as a blob: URL
+  // kept until the round changes. -> Promise<{ url, type, ms, from, clock } | null>
+  clip(n) {
+    if (!Number.isInteger(n) || n < 1 || (!this.game && !this.watching)) return Promise.resolve(null);
+    if (this._clips.has(n)) return this._clips.get(n);
+    const clips = this._clips;
+    const p = this._post('clip', { n }, { timeoutMs: 20000 })
+      .then((res) => {
+        const c = res && res.clip;
+        if (!c || typeof c.audio !== 'string' || !c.audio) return null;
+        const B = (this.win && this.win.Blob) || globalThis.Blob;
+        const U = (this.win && this.win.URL) || globalThis.URL;
+        const url = U.createObjectURL(new B([fromBase64(c.audio)], { type: String(c.type || 'audio/mp4') }));
+        if (clips === this._clips && this._clips.get(n) === p) this._clipUrls.push(url);
+        else { try { U.revokeObjectURL(url); } catch { /* ignore */ } return null; }
+        return { url, type: c.type, ms: c.ms, from: c.from, clock: c.clock, n };
+      })
+      .catch((e) => {
+        const err = toApiError(e);
+        // Not kept (404): asked once. Anything else (no signal): asked again next time.
+        if (err.code !== 'no_clip' && this._clips.get(n) === p) this._clips.delete(n);
+        return null;
+      });
+    this._clips.set(n, p);
+    return p;
+  }
+
+  // Send a recorded clip ({ audio: base64, type, ms }). -> Promise<{ n, clock } | ApiError>
+  async sendClip({ audio, type, ms } = {}) {
+    if (!this.game) return new ApiError({ code: 'not_in_game', message: "You're not in a game right now." });
+    const game = this.game;
+    const body = { audio, type, ms, since: this._since, radioSince: this._radioSince() };
+    const pos = this._posToSend();
+    if (pos) body.pos = pos;
+    try {
+      const res = await this._post('radio', body, { timeoutMs: 20000 });
+      if (game !== this.game) return new ApiError({ code: 'not_in_game', message: "You're not in this game any more." });
+      this._ok();
+      this._take(res && res.view);
+      return res && res.clip ? res.clip : {};
+    } catch (e) {
+      const err = toApiError(e);
+      if (game === this.game && isGone(err, 'radio')) this.syncNow();
+      this.emit('error', err);
+      return err;
+    }
+  }
+  // v1.1 end PAGE-RADIO ----------------------------------------------------------------------------------
+
+  // v1.1 PAGE-WATCH: spectators -------------------------------------------------------------------------
+  // A spectator has their own id and secret (identity's 'nightops-watch'), never plays and never sends a
+  // position. Their loop posts wsync every watchMs; the views come 2 minutes behind (the server decides).
+
+  // The link that opens "Watch game CODE" (one tap).
+  watchLink(code = (this.game && this.game.code) || (this.watchGame && this.watchGame.code)) {
+    if (!code) return '';
+    try {
+      const here = new URL(globalThis.location.href);
+      return `${here.origin}${here.pathname}?watch=${encodeURIComponent(code)}`;
+    } catch {
+      return `?watch=${encodeURIComponent(code)}`;
+    }
+  }
+
+  // Start watching a game with the saved name (opts.name to change it). -> Promise<view|ApiError>
+  watch(code, opts = {}) {
+    const c = normalizeCode(code);
+    if (!c) {
+      return Promise.resolve(this._fail(new ApiError({
+        code: 'bad_code',
+        message: 'Game codes have 6 letters and numbers, like WYKUSX.',
+      }), opts));
+    }
+    if (this.watching && this.watchGame.code === c) return this.syncNow().then(() => this.view);
+    if (this._busy) return this._busy;
+    this._busy = this._watch(c, opts).finally(() => { this._busy = null; });
+    return this._busy;
+  }
+
+  async _watch(c, opts) {
+    const me = this._meFrom(opts);
+    if (!me.name) return this._fail(new ApiError({ code: 'name', message: 'Type your name first.' }), opts);
+    try {
+      const res = await this.api.post('watch', { code: c, name: me.name }, { timeoutMs: 20000 });
+      const w = {
+        code: String(res?.code || res?.view?.code || c).toUpperCase(),
+        id: res?.watcher?.id,
+        secret: res?.watcher?.secret,
+      };
+      if (!this._enterWatch(w, res && res.view)) throw new ApiError({ code: 'bad_answer', message: WORDS.bad_answer });
+      return this.view;
+    } catch (e) {
+      return this._fail(toApiError(e), opts);
+    }
+  }
+
+  // Stop watching (the server is told, best effort) and go home. -> Promise<true>
+  stopWatching() {
+    const w = this.watchGame;
+    if (w) this._sendWleave(w);
+    this._endWatch();
+    this.go('home', {});
+    return Promise.resolve(true);
+  }
+
+  _sendWleave(w) {
+    try {
+      this.api.post('wleave', { code: w.code, watcher: { id: w.id, secret: w.secret } },
+        { timeoutMs: 8000, keepalive: true }).catch(() => {});
+    } catch { /* best effort */ }
+  }
+
+  _loadWatch() {
+    try { return this.identity && typeof this.identity.loadWatch === 'function' ? this.identity.loadWatch() : null; } catch { return null; }
+  }
+
+  // From start(): true when this phone goes on watching (or shows the link's "Watch game" screen).
+  _startWatching(link) {
+    const saved = this._loadWatch();
+    if (!link && !saved) return false;
+    let game = null;
+    try { game = this.identity.loadGame(); } catch { game = null; }
+    // A watch link to the game this phone plays in: just play.
+    if (link && game && game.code === link) return false;
+    if (saved && (!link || link === saved.code)) {
+      this.savedGame = game || null;
+      this._resetGameState();
+      this.watchGame = saved;
+      this._lastEmitted = null; // what's already there is history
+      this._showLoading();
+      this.syncNow();
+      return true;
+    }
+    if (link) {
+      this.savedGame = game || null;
+      this.go('home', { watch: link });
+      return true;
+    }
+    return false;
+  }
+
+  _enterWatch(w, view) {
+    let saved = null;
+    try { saved = this.identity.saveWatch(w); } catch { saved = null; }
+    if (!saved || !view || typeof view !== 'object') return false;
+    // A game this phone plays in stays saved (Home offers to go back to it), but isn't shown.
+    if (this.game) {
+      this.savedGame = this.game;
+      this.game = null;
+    }
+    this._resetGameState();
+    this.watchGame = saved;
+    this._lastEmitted = null;
+    this._takeWatch(view);
+    this._schedule();
+    return true;
+  }
+
+  _endWatch() {
+    try { this.identity.clearWatch(); } catch { /* ignore */ }
+    try { if (this.radio && typeof this.radio.stop === 'function') this.radio.stop(); } catch { /* ignore */ }
+    this._resetGameState();
+    this.watchGame = null;
+    this._renderNet();
+    if (this.doc && this.doc.body) {
+      this.doc.body.dataset.team = 'none';
+      delete this.doc.body.dataset.phase;
+      delete this.doc.body.dataset.watching;
+    }
+  }
+
+  // Joining or creating a game ends watching (from _enter).
+  _dropWatch() {
+    const w = this.watchGame || this._loadWatch();
+    if (!w) return;
+    this._sendWleave(w);
+    try { this.identity.clearWatch(); } catch { /* ignore */ }
+    this.watchGame = null;
+    if (this.doc && this.doc.body) delete this.doc.body.dataset.watching;
+  }
+
+  _watchSync() {
+    if (this._syncing) {
+      this._again = true;
+      return this._syncing;
+    }
+    clearTimeout(this._timer);
+    this._timer = null;
+    const w = this.watchGame;
+    this._syncing = this._post('wsync', { since: this._since }, { timeoutMs: 9000 })
+      .then((res) => {
+        if (w !== this.watchGame) return null;
+        this._ok();
+        this._takeWatch(res && res.view);
+        return this.view;
+      })
+      .catch((e) => {
+        if (w !== this.watchGame) return null;
+        const err = toApiError(e);
+        if (isWatchGone(err)) {
+          this._endWatch();
+          this.go('home', {});
+          this.banner(watchLostWords(err), 'warn', 7000);
+          this.emit('error', err);
+          return null;
+        }
+        this._failures += 1;
+        this._setConnection(err.offline && !this._online() ? 'offline' : 'reconnecting');
+        if (this._failures === 1) this.emit('error', err);
+        return null;
+      })
+      .finally(() => {
+        this._syncing = null;
+        if (this._again && this.watching && !this._stopped) {
+          this._again = false;
+          this.syncNow();
+        } else {
+          this._again = false;
+          this._schedule();
+        }
+      });
+    return this._syncing;
+  }
+
+  // A spectator's view: like _take, without anything of a player's (no location, no reveal, no Back guard).
+  // `since` follows view.lastEventId (the server goes through chats and one-player news without sending them).
+  _takeWatch(view) {
+    if (!view || typeof view !== 'object' || !this.watchGame || !view.watcher) return;
+    if (view.code && String(view.code).toUpperCase() !== this.watchGame.code) return;
+    const prev = this.view;
+    const fresher = isFresher(view, prev);
+    const incoming = Array.isArray(view.events) ? view.events.filter(isEvent) : [];
+    let refetch = false;
+    if (fresher && this._newRound(prev, view, incoming)) {
+      const recounted = Number.isFinite(view.lastEventId) && view.lastEventId < this._since;
+      if (recounted) this._lastEmitted = 0;
+      this.events = [];
+      this._since = 0;
+      refetch = !incoming.some((e) => e.kind === 'again');
+    }
+    this.events = mergeEvents(this.events, incoming);
+    if (!refetch) {
+      this._since = Math.max(this._since, maxId(incoming), Number.isFinite(view.lastEventId) ? view.lastEventId : 0);
+    }
+    if (this._lastEmitted === null) this._lastEmitted = maxId(this.events);
+    const fresh = eventsAfter(this.events, this._lastEmitted);
+    if (fresh.length) this._lastEmitted = fresh[fresh.length - 1].id;
+
+    if (fresher) {
+      view.events = this.events;
+      if (view.phase === 'over' && !view.summary && prev && prev.phase === 'over' && prev.summary
+        && prev.overId === view.overId) view.summary = prev.summary;
+      this.view = view;
+      this.viewAt = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+      if (this.doc && this.doc.body) {
+        this.doc.body.dataset.team = 'none';
+        this.doc.body.dataset.phase = String(view.phase || '');
+        this.doc.body.dataset.watching = '1';
+      }
+      this._watchFaces();
+      if (this.autoScreen) {
+        const want = chooseScreen({ view, current: this.screen });
+        if (want && want !== this.screen) this.go(want);
+        else this._safeUpdate();
+      } else {
+        this._safeUpdate();
+      }
+      this.emit('view', this.view);
+    } else if (this.view) {
+      this.view.events = this.events;
+    }
+    for (const e of fresh) this._deliver(e);
+    if (refetch) {
+      if (this._syncing) this._again = true;
+      else this._schedule(0);
+    }
+  }
+
+  // Faces for a spectator (the same answer a player gets).
+  _watchFaces() {
+    const v = this.view;
+    const w = this.watchGame;
+    if (!v || !w || !Array.isArray(v.players)) return;
+    const want = [];
+    const versions = new Map();
+    for (const p of v.players) {
+      if (!p || typeof p.id !== 'string') continue;
+      const fv = Number(p.faceV) || 0;
+      if (!fv || this._faceVs.get(p.id) === fv) continue;
+      want.push(p.id);
+      versions.set(p.id, fv);
+    }
+    if (!want.length || this._facesBusy || Date.now() < this._facesRetryAt) return;
+    this._facesBusy = true;
+    this._post('faces', { ids: want }, { timeoutMs: 15000 })
+      .then((res) => {
+        if (w !== this.watchGame) return;
+        const got = (res && res.faces && typeof res.faces === 'object') ? res.faces : {};
+        let any = false;
+        for (const id of want) {
+          if (isFaceUrl(got[id])) {
+            this.faces.set(id, got[id]);
+            any = true;
+          }
+          this._faceVs.set(id, versions.get(id));
+        }
+        if (any) {
+          this._safeUpdate();
+          this.emit('faces', this.faces);
+        }
+      })
+      .catch(() => { if (w === this.watchGame) this._facesRetryAt = Date.now() + FACE_RETRY_MS; })
+      .finally(() => { this._facesBusy = false; });
+  }
+  // v1.1 end PAGE-WATCH ---------------------------------------------------------------------------------
+
   // ---- views and events ----
 
   _take(view) {
@@ -781,6 +1218,7 @@ export class App {
       // What came with this view is the whole round only when it starts at the Play again; else fetch it all.
       refetch = !incoming.some((e) => e.kind === 'again');
       try { this.store.remove(REVEALED_KEY); } catch { /* ignore */ }
+      this._radioReset(); // v1.1 PAGE-RADIO: a new round's clips count from 1 again
     }
     // The side you're no longer on (a hider who joined the hunters, or was caught and sits out): its news goes.
     const was = sideNow(prev);
@@ -809,6 +1247,9 @@ export class App {
       this.view = view;
       // When it came (performance.now()): a screen shown later starts its clock from here, not from then.
       this.viewAt = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+      // v1.1 PAGE-RADIO: new walkie-talkie clips (live hunters only; anyone else's radio stops)
+      try { if (this.radio) this.radio.take(view); } catch (e) { console.error(e); }
+      // v1.1 end PAGE-RADIO
     } else if (this.view) {
       this.view.events = this.events;
     }
@@ -900,6 +1341,12 @@ export class App {
     this._wasLive = live;
     if (!this.location) return;
     const want = !!v && v.phase === 'live' && !!v.me && v.me.status === 'in';
+    // v1.1 PAGE-DRIVER: the driver's phone keeps its fixes fresh (parked is decided on a fix under 20 s old).
+    try {
+      if (typeof this.location.setFast === 'function') this.location.setFast(want && !!v.me.driver);
+    } catch (e) {
+      console.error(e);
+    }
     try {
       if (want && !this._locOn) {
         this._locOn = true;
@@ -1167,7 +1614,7 @@ export class App {
       this._net = h('div.net-line', { role: 'status', 'aria-live': 'polite', hidden: true });
       this.doc.body.appendChild(this._net);
     }
-    const show = !!this.game && this.connection !== 'ok';
+    const show = (!!this.game || this.watching) && this.connection !== 'ok'; // v1.1 PAGE-WATCH: spectators too
     const words = this.connection === 'offline' ? "Offline. Reconnecting when you're back online." : 'Reconnecting...';
     if (show) {
       if (this._net.textContent !== words) this._net.textContent = words;

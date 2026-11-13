@@ -14,6 +14,7 @@ import { h, fill } from '../js/dom.js';
 import { fmtClock } from '../shared/rules.js';
 import { ringCenter } from '../shared/geo.js';
 import { fixture, faceFor, tickView, ALL } from './fixtures.js';
+import { silentWav, toBase64 } from '../js/radio.js'; // v1.1 PAGE-RADIO
 
 const params = Object.fromEntries(new URLSearchParams(location.search));
 const screen = (params.screen || 'home').toLowerCase().replace(/[^a-z-]/g, '') || 'home';
@@ -65,6 +66,31 @@ const api = {
     switch (action) {
       case 'sync':
         return { ok: true, view: snapshot(body.since) };
+      // v1.1 PAGE-WATCH: a spectator's actions
+      case 'wsync':
+        return { ok: true, view: snapshot(body.since) };
+      case 'wleave':
+        say('wleave', body.watcher && body.watcher.id);
+        return { ok: true };
+      case 'watch': {
+        say('watch', { code: body.code, name: body.name });
+        fx = fixture({ screen: 'watch', state: 'lobby' });
+        current = fx.view;
+        return { ok: true, code: fx.watch.code, watcher: { id: fx.watch.id, secret: fx.watch.secret }, view: snapshot(0) };
+      }
+      // v1.1 end PAGE-WATCH
+      // v1.1 PAGE-RADIO: the walkie-talkie: a sent clip is logged; any clip is a short silent sound
+      case 'radio':
+        say('radio', { type: body.type, ms: body.ms, letters: String(body.audio || '').length });
+        return { ok: true, view: snapshot(body.since), clip: { n: 99, clock: current ? current.clock : 0 } };
+      case 'clip': {
+        say('clip', body.n);
+        const c = (current && current.summary && Array.isArray(current.summary.radio) ? current.summary.radio : [])
+          .concat(current && current.radio ? current.radio.clips : []).find((x) => x.n === body.n);
+        const wav = silentWav(Math.min(15000, (c && c.ms) || 1500));
+        return { ok: true, clip: { n: body.n, from: c ? c.from : '', clock: c ? c.clock : 0, ms: c ? c.ms : 1500, type: 'audio/wav', audio: toBase64(wav) } };
+      }
+      // v1.1 end PAGE-RADIO
       case 'cmd':
         onCmd(body.cmd);
         return { ok: true, view: snapshot(body.since) };
@@ -168,6 +194,7 @@ const identity = createIdentity(() => ({
 }));
 if (fx.me) identity.saveMe(fx.me);
 if (fx.game) identity.saveGame(fx.game);
+if (fx.watch) identity.saveWatch(fx.watch); // v1.1 PAGE-WATCH
 
 const app = new App({
   api,
@@ -180,6 +207,7 @@ const app = new App({
   syncMs: ticking ? 1000 : 3600000,
   autoScreen: false,
 });
+app.watchMs = ticking ? 1000 : 3600000; // v1.1 PAGE-WATCH
 
 if (ticking) {
   setInterval(() => {
@@ -206,7 +234,8 @@ window.__preview = {
 
 if (screen === 'home' || !fx.game) {
   app.start({ code: params.code || '' });
-  if (screen !== 'home') app.go(screen);
+  // a spectator's game over is the normal end screen (app.js watchScreen)
+  if (screen !== 'home') app.go(screen === 'watch' && params.state === 'over' ? 'over' : screen);
 } else {
   app.start({});
   app.syncNow().then(() => app.go(screen));

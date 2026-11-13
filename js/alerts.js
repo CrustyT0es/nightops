@@ -126,12 +126,20 @@ const TONES = {
   sos: [[988, 0, 0.12], [988, 0.18, 0.12], [988, 0.36, 0.12]],
   win: [[523, 0, 0.1], [659, 0.11, 0.1], [784, 0.22, 0.1], [1047, 0.33, 0.25]],
   chat: [[1180, 0, 0.05]],
+  // v1.1 PAGE-RADIO: before a walkie-talkie clip (played even with sound off)
+  radio: [[1046, 0, 0.06], [1568, 0.08, 0.08]],
+  // v1.1 end PAGE-RADIO
 };
 
 export function beep(kind = 'info') {
+  // v1.1 PAGE-RADIO: the walkie-talkie's beep plays with sound off too (the clip after it does)
+  const radioBeep = kind === 'radio' && !soundOn();
+  if (!radioBeep) {
+  // v1.1 end PAGE-RADIO
   if (!soundOn()) return false;
   armTaps();
   setSession(true);
+  } // v1.1 PAGE-RADIO end of the radio beep's skip
   const c = audio();
   if (!c) return false;
   try {
@@ -155,6 +163,28 @@ export function beep(kind = 'info') {
     return false;
   }
 }
+
+// v1.1 PAGE-RADIO: from a tap (the walkie-talkie's button or the game screen's first tap): readies the sound for
+// the walkie-talkie's beep, also with sound off (iPhones only start audio from a tap).
+export function unlockBeep() {
+  const c = audio();
+  if (!c) return false;
+  try {
+    if (c.state === 'suspended' || c.state === 'interrupted') c.resume().catch(() => {});
+    if (unlocked !== c) {
+      const b = c.createBuffer(1, 1, 22050);
+      const src = c.createBufferSource();
+      src.buffer = b;
+      src.connect(c.destination);
+      src.start(0);
+      unlocked = c;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+// v1.1 end PAGE-RADIO
 
 // ---- wake lock ---------------------------------------------------------------------------------------
 
@@ -308,6 +338,37 @@ export function onAwake(fn) {
 
 // ---- taps ----------------------------------------------------------------------------------------------
 
+// v1.1: anything that needs a real tap to work (the walkie-talkie's <audio>, the driver's voice) listens here.
+// Touch counts on its touchend/pointerup (a pointerdown isn't a tap to an iPhone), a mouse on its click.
+const tapFns = new Set();
+export function onTap(fn) {
+  if (typeof fn !== 'function') return () => {};
+  tapFns.add(fn);
+  armTaps();
+  return () => tapFns.delete(fn);
+}
+
+// The driver's voice: iPhones only speak once a speechSynthesis.speak() came from a tap. The first tap anywhere
+// on the page (the lobby, the reveal...) says nothing, silently, so the voice works later without one.
+let speechPrimed = false;
+export function speechReady() { return speechPrimed; }
+export function primeSpeech(win = globalThis.window) {
+  if (speechPrimed) return true;
+  try {
+    const synth = win && win.speechSynthesis;
+    const Utter = win && win.SpeechSynthesisUtterance;
+    if (!synth || typeof synth.speak !== 'function' || typeof Utter !== 'function') return false;
+    const u = new Utter(' ');
+    u.volume = 0;
+    synth.speak(u);
+    speechPrimed = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+export function _resetSpeech() { speechPrimed = false; }
+
 let tapsArmed = false;
 function armTaps() {
   if (tapsArmed || typeof document === 'undefined' || !document.addEventListener) return;
@@ -318,6 +379,10 @@ function armTaps() {
     if (e.type === 'keydown' && (e.key === 'Escape' || e.repeat)) return;
     try { wakeSound(); } catch { /* ignore */ }
     try { tapAwake(); } catch { /* ignore */ }
+    try { primeSpeech(); } catch { /* ignore */ }
+    for (const fn of [...tapFns]) {
+      try { fn(e); } catch (err) { console.error(err); }
+    }
   };
   // Capture on the document, so it runs before anything that stops a touch (pocket mode swallows them all).
   for (const type of ['touchend', 'pointerup', 'click', 'keydown']) {

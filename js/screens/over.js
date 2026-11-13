@@ -16,8 +16,13 @@ import { openSheet } from '../ui/sheet.js';
 import { createMap, cleanRoute, routeAt, toBounds } from '../map.js';
 import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js';
 import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js';
+import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js'; // v1.1 PAGE-RADIO
 
-export const SPEEDS = [10, 30, 60];
+// v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
+// clip scheduler (js/radio.js)
+export const SPEEDS = [1, 10, 30, 60];
+export { clipPlan };
+// v1.1 end PAGE-RADIO
 export const CAPTION_MS = 90000;    // the replay's caption shows an event for this long (game time) after it
 export const WATCH_LEAD_S = 20;     // Watch starts the replay this long before the close call
 const MOST_WINNER_FACES = 8;
@@ -62,8 +67,12 @@ function powerName(key) {
   return s ? s[0].toUpperCase() + s.slice(1) : '';
 }
 
-function fromSummary(p, nameOf) {
+function fromSummary(p, nameOf, driverId = null) {
   const catches = nonNeg(p.catches);
+  // v1.1 PAGE-DRIVER: the driver's row says how far they drove and how many pickups (never "0 m covered":
+  // their moves count as driving, not walking).
+  const driver = p.driver === true || (!!driverId && p.id === driverId);
+  const walked = nonNeg(p.distanceM);
   return {
     id: p.id,
     name: nameOf(p.id),
@@ -74,8 +83,11 @@ function fromSummary(p, nameOf) {
     caughtAt: nonNeg(p.caughtAt),
     survivedMs: nonNeg(p.survivedMs),
     catches: catches === null ? null : Math.round(catches),
-    distanceM: nonNeg(p.distanceM),
+    distanceM: driver && !walked ? null : walked,
     powers: [...new Set(arr(p.powers).filter((x) => typeof x === 'string' && x))].slice(0, 8),
+    driver,
+    drivenM: driver ? nonNeg(p.drivenM) : null,
+    pickups: driver && nonNeg(p.pickups) !== null ? Math.round(p.pickups) : null,
     partial: false,
   };
 }
@@ -93,6 +105,9 @@ function fromView(p, nameOf) {
     catches: null,
     distanceM: null,
     powers: [],
+    driver: p.driver === true,
+    drivenM: null,
+    pickups: null,
     partial: true,
   };
 }
@@ -111,12 +126,22 @@ export function overFacts(view) {
   for (const p of sumPlayers) { const n = clean(p.name, 40); if (n) names.set(p.id, n); }
   const nameOf = (id) => names.get(id) || 'Someone';
 
+  // v1.1 PAGE-DRIVER: summary.driver { id, drivenM, pickups } fills in a row that lacks them.
+  const sumDriver = sum && isObj(sum.driver) && isId(sum.driver.id) ? sum.driver : null;
   const seen = new Set();
   const once = (p) => (seen.has(p.id) ? false : (seen.add(p.id), true));
   const rows = sumPlayers.length
-    ? sumPlayers.filter(once).map((p) => fromSummary(p, nameOf))
+    ? sumPlayers.filter(once).map((p) => fromSummary(p, nameOf, sumDriver ? sumDriver.id : null))
     : viewPlayers.filter((p) => p.status !== 'kicked').filter(once).map((p) => fromView(p, nameOf));
   const byId = new Map(rows.map((r) => [r.id, r]));
+  if (sumDriver && byId.has(sumDriver.id)) {
+    const r = byId.get(sumDriver.id);
+    if (!r.partial) {
+      if (r.drivenM === null && nonNeg(sumDriver.drivenM) !== null) r.drivenM = nonNeg(sumDriver.drivenM);
+      if (r.pickups === null && nonNeg(sumDriver.pickups) !== null) r.pickups = Math.round(sumDriver.pickups);
+    }
+  }
+  const driverRow = rows.find((r) => r.driver) || null;
 
   const reason = [sum && sum.reason, res && res.reason].find((r) => typeof r === 'string' && REASONS[r]) || null;
   const winnerList = sum && Array.isArray(sum.winners) ? sum.winners : res && Array.isArray(res.winners) ? res.winners : [];
@@ -257,6 +282,7 @@ export function overFacts(view) {
     ringNow: v.ringNow || null,
     marks: arr(v.marks).filter((m) => isObj(m) && isPoint(m.p)),
     partial: !sum,
+    driver: driverRow ? { id: driverRow.id, drivenM: driverRow.drivenM, pickups: driverRow.pickups } : null,
   };
 }
 
@@ -264,7 +290,7 @@ export function overFacts(view) {
 export function playerLines(row, facts) {
   const nameOf = facts && typeof facts.nameOf === 'function' ? facts.nameOf : () => 'Someone';
   const started = row.startTeam || (row.partial ? row.team : null);
-  const sideWord = started === 'hunter' ? 'Hunter' : started === 'hider' ? 'Hider' : '';
+  const sideWord = row.driver ? 'Driver' : started === 'hunter' ? 'Hunter' : started === 'hider' ? 'Hider' : '';
   let status = '';
   if (row.caughtAt !== null) {
     // (No hunter: the ring caught them, the only catch without one.)
@@ -278,10 +304,12 @@ export function playerLines(row, facts) {
     status = 'Never caught';
   }
   const stats = [];
-  if (row.catches !== null && (row.catches > 0 || started === 'hunter')) {
+  if (row.catches !== null && (row.catches > 0 || (started === 'hunter' && !row.driver))) {
     stats.push(plural(row.catches, 'catch', 'catches'));
   }
   if (row.distanceM !== null) stats.push(`${fmtDistance(row.distanceM)} covered`);
+  if (row.driver && row.drivenM !== null && row.drivenM !== undefined) stats.push(`${fmtDistance(row.drivenM)} driven`);
+  if (row.driver && row.pickups !== null && row.pickups !== undefined) stats.push(plural(row.pickups, 'pickup', 'pickups'));
   const powers = row.powers.map((key) => ({ key, name: powerName(key), icon: POWER_ICON[key] || 'sprint' })).filter((p) => p.name);
   return {
     sideWord,
@@ -456,8 +484,8 @@ export function mount(root, app) {
   const clockBox = h('div.over-clock', { 'aria-hidden': 'true' }, clockNow, clockEnd, clockPhase);
   const speedBtns = SPEEDS.map((n) => h('button', {
     type: 'button', role: 'radio', 'aria-checked': 'false', tabindex: '-1', 'data-speed': String(n),
-    'aria-label': `${n} times as fast`,
-  }, `${n}x`));
+    'aria-label': n === 1 ? 'Real time' : `${n} times as fast`, // v1.1 PAGE-RADIO: Real time
+  }, n === 1 ? 'Real time' : `${n}x`)); // v1.1 PAGE-RADIO
   const speedSeg = h('div.seg.over-speed', { role: 'radiogroup', 'aria-label': 'Replay speed' }, speedBtns);
   const controls = h('div.over-controls', playBtn, clockBox, speedSeg);
   const ticks = h('div.over-ticks', { 'aria-hidden': 'true' });
@@ -502,6 +530,34 @@ export function mount(root, app) {
   const body = h('div.over-body', hero, replay, calls, board, pbp);
   const page = h('div.over', body, foot);
   fill(root, page);
+  // v1.1 PAGE-WATCH: a spectator gets Stop watching in place of Leave (app.leave() stops watching) and no chat;
+  // their view has no `me`, so no "you" lines show.
+  if (app && app.watching) {
+    fill(leaveBtn, icon('door', 20), h('span', 'Stop watching'));
+    chatBtn.hidden = true;
+    page.classList.add('over-watching');
+  }
+  // v1.1 end PAGE-WATCH
+  // v1.1 PAGE-RADIO: the walkie-talkie in the replay. Clips play when the replay crosses their start, at real time;
+  // the list under the replay plays each by hand.
+  const RR = createReplayRadio({
+    app,
+    getClock: () => R.clock,
+    nameOf: (id) => (S.facts ? S.facts.nameOf(id) : 'A hunter'),
+    onChange: () => { if (!S.dead) { radioUi.paint(RR); captionKey = ''; drawCaption(); } },
+  });
+  const radioUi = replayRadioUi({
+    onSwitch: (on) => { RR.enabled = on; },
+    onPlay: (clip) => {
+      RR.unlock();
+      if (hasReplay()) jumpTo(clip.clock / 1000);
+      RR.playNow(clip);
+      if (hasReplay()) play();
+    },
+  });
+  replay.insertBefore(radioUi.switchRow, legend);
+  replay.after(radioUi.card);
+  // v1.1 end PAGE-RADIO
 
   // ---- drawing the info parts ----
 
@@ -721,7 +777,12 @@ export function mount(root, app) {
 
   function drawCaption() {
     const f = S.facts;
+    if (!f) return;
     const ms = R.clock * 1000;
+    // v1.1 PAGE-RADIO: "Sam is talking" while a clip plays
+    const talk = RR.talking();
+    if (talk) { fillCaption(fmtClock(talk.clock), `${talk.name} is talking`, 'radio'); return; }
+    // v1.1 end PAGE-RADIO
     const w = R.watching;
     if (w && ms >= (w.clock - WATCH_LEAD_S * 1000) - 1 && ms <= w.clock + 25000) {
       fillCaption(fmtClock(w.clock), w.text, 'watch');
@@ -803,6 +864,7 @@ export function mount(root, app) {
     if (!SPEEDS.includes(n)) return;
     R.speed = n;
     R.speedSet = true;
+    RR.cancel(); // v1.1 PAGE-RADIO: a speed tap stops the clip
     paintSpeed();
     if (focus) speedBtns.find((b) => Number(b.dataset.speed) === n)?.focus();
   }
@@ -812,9 +874,15 @@ export function mount(root, app) {
     if (S.dead || !R.playing) return;
     const dt = Math.min(FRAME_CAP_MS, Math.max(0, now - R.last));
     R.last = now;
-    R.clock = Math.min(R.end, R.clock + (dt / 1000) * R.speed);
+    // v1.1 PAGE-RADIO: real time while a clip plays; a clip starting pulls the replay back to its start; the end
+    // waits for the last clip
+    const fromS = R.clock;
+    R.clock = Math.min(R.end, R.clock + (dt / 1000) * (RR.busy() ? 1 : R.speed));
+    const snap = RR.advance(fromS, R.clock, true);
+    if (snap !== null && snap < R.clock) R.clock = snap;
     drawReplay();
-    if (R.clock >= R.end) {
+    if (R.clock >= R.end && !RR.busy()) {
+    // v1.1 end PAGE-RADIO
       stop();
       return;
     }
@@ -823,7 +891,8 @@ export function mount(root, app) {
 
   function play() {
     if (!hasReplay() || S.dead) return;
-    if (R.clock >= R.end - 0.5) R.clock = 0;
+    if (R.clock >= R.end - 0.5) { R.clock = 0; RR.cancel(); } // v1.1 PAGE-RADIO: from the start again
+    RR.unlock(); RR.resume(); // v1.1 PAGE-RADIO (Play is a tap)
     R.playing = true;
     R.last = performance.now();
     if (!R.raf) R.raf = requestAnimationFrame(frame);
@@ -832,6 +901,7 @@ export function mount(root, app) {
   }
 
   function stop() {
+    RR.pause(); // v1.1 PAGE-RADIO
     R.playing = false;
     if (R.raf) cancelAnimationFrame(R.raf);
     R.raf = 0;
@@ -841,6 +911,7 @@ export function mount(root, app) {
   function jumpTo(s, { show = false, keepWatch = false } = {}) {
     if (!hasReplay()) return;
     R.clock = Math.max(0, Math.min(R.end, s));
+    RR.cancel(); // v1.1 PAGE-RADIO: a jump stops the clip
     if (!keepWatch) { R.watching = null; markWatching(); }
     R.last = performance.now();
     drawReplay();
@@ -896,7 +967,7 @@ export function mount(root, app) {
     // Everything else on the screen sleeps while the replay fills it.
     if (on) {
       R.inerted = [];
-      for (const el of [hero, calls, board, pbp, foot]) {
+      for (const el of [hero, calls, board, pbp, foot, radioUi.card]) { // v1.1 PAGE-RADIO: radioUi.card
         if (el.inert) continue;
         el.inert = true;
         R.inerted.push(el);
@@ -1056,6 +1127,14 @@ export function mount(root, app) {
     const rsig = routesSig(f);
     const changed = sig !== S.sig;
     S.facts = f;
+    // v1.1 PAGE-RADIO: the clips (summary.radio) and whether the walkie-talkie was saved
+    try {
+      const clips = replayClips(view.summary);
+      RR.setClips(clips);
+      radioUi.set(clips, f.nameOf, !(view.summary && view.summary.radioSaved === false));
+      radioUi.paint(RR);
+    } catch (e) { console.error(e); }
+    // v1.1 end PAGE-RADIO
     if (rsig !== S.routesSig) {
       S.routesSig = rsig;
       setupReplay(f);
@@ -1087,6 +1166,7 @@ export function mount(root, app) {
     try { document.documentElement.classList.remove('over-full-on'); } catch { /* ignore */ }
     if (S.chat && typeof S.chat.close === 'function') { try { S.chat.close(); } catch { /* ignore */ } }
     S.chat = null;
+    try { RR.destroy(); } catch { /* ignore */ } // v1.1 PAGE-RADIO
     dropMap();
   }
 

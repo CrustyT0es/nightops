@@ -255,6 +255,11 @@ export function mount(root, app, args = {}) {
   const createError = h('p#home-create-error.home-error', { role: 'alert' });
   createBtn.setAttribute('aria-describedby', 'home-create-error');
   if (fromLink) createBtn.classList.remove('primary'); // the link's Join is the main thing here
+  // v1.1 PAGE-WATCH: a ?watch= link's code (its Watch button is the main thing then)
+  const watchCode = codeFrom((args && args.watch) || '');
+  const fromWatch = watchCode.length === 6;
+  if (fromWatch) createBtn.classList.remove('primary');
+  // v1.1 end PAGE-WATCH
 
   function cleanCodeBox() {
     const before = codeInput.value;
@@ -356,6 +361,103 @@ export function mount(root, app, args = {}) {
   createBtn.addEventListener('click', () => create());
   joinBtn.addEventListener('click', () => join());
 
+  // v1.1 PAGE-WATCH: watching a game (a spectator: 2 minutes behind, never plays) --------------------------
+  // -> Promise<string> the words to show when it didn't work ('' when it did)
+  async function startWatching(code) {
+    if (S.busy) return '';
+    const opts = who();
+    if (!opts) return '';
+    S.busy = 'watch';
+    let res;
+    try {
+      res = await app.watch(code, { ...opts, quiet: true });
+    } catch (e) {
+      res = { error: { message: e && e.message } };
+    }
+    if (S.destroyed) return '';
+    S.busy = null;
+    if (!res || !res.error) return '';
+    const c = res.code || res.error.code;
+    if (res.offline) return 'No connection. Check your signal and try again.';
+    if (c === 'no_game' || c === 'not_found' || c === 'unknown_game' || res.status === 404) {
+      return `No game found with the code ${code}. Check the letters with the host.`;
+    }
+    return res.message || res.error.message || "That didn't work. Try again.";
+  }
+
+  let watchCard = null;
+  if (fromWatch) {
+    const watchBtn = h('button.btn.primary.wide.home-watch-btn', { type: 'button' }, icon('eye', 22), h('span', `Watch game ${watchCode}`));
+    const watchError = h('p#home-watch-error.home-error', { role: 'alert' });
+    watchBtn.setAttribute('aria-describedby', 'home-watch-error');
+    watchBtn.addEventListener('click', async () => {
+      text(watchError, '');
+      watchBtn.disabled = true;
+      fill(watchBtn, icon('eye', 22), h('span', 'Opening...'));
+      const msg = await startWatching(watchCode);
+      if (S.destroyed) return;
+      watchBtn.disabled = false;
+      fill(watchBtn, icon('eye', 22), h('span', `Watch game ${watchCode}`));
+      text(watchError, msg);
+    });
+    watchCard = h('section.home-card.home-watch', { 'aria-label': 'Watch this game' },
+      h('span.label', 'Watch a game'),
+      watchBtn,
+      h('p.home-hint', "You see the game 2 minutes behind, from the side. You don't play and you don't see the chats."),
+      watchError);
+  }
+
+  // "Watch a game" with a code: a sheet.
+  function watchSheet() {
+    const box = h('input#home-watch-code.field.home-code', {
+      type: 'text', inputmode: 'text', autocomplete: 'off', autocapitalize: 'characters', autocorrect: 'off',
+      spellcheck: 'false', enterkeyhint: 'go', placeholder: 'ABC123', 'aria-describedby': 'home-watch-sheet-hint home-watch-sheet-error',
+      value: codeFrom(codeInput.value),
+    });
+    const err = h('p#home-watch-sheet-error.home-error', { role: 'alert' });
+    box.addEventListener('input', () => {
+      const v = codeFrom(box.value);
+      if (v !== box.value) box.value = v;
+      text(err, '');
+      box.setAttribute('aria-invalid', 'false');
+    });
+    let sheet = null;
+    const go = async (close) => {
+      const code = codeFrom(box.value);
+      box.value = code;
+      if (code.length !== 6) {
+        box.setAttribute('aria-invalid', 'true');
+        text(err, code ? 'Game codes have 6 letters and numbers.' : 'Type the game code first.');
+        box.focus();
+        return;
+      }
+      if (!known && !typedName()) {
+        close();
+        showNameError('Type your name first.');
+        return;
+      }
+      const msg = await startWatching(code);
+      if (msg) {
+        text(err, msg);
+        return;
+      }
+      close();
+    };
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); if (sheet) go(sheet.close); }
+    });
+    sheet = openSheet({
+      title: 'Watch a game',
+      body: h('div.home-watch-sheet',
+        h('label.home-field-label', { for: 'home-watch-code' }, 'Game code'),
+        box,
+        h('p#home-watch-sheet-hint.home-hint', "You see the game 2 minutes behind. You don't play and you don't see the chats."),
+        err),
+      actions: [{ label: 'Watch', kind: 'primary', keepOpen: true, onClick: (close) => go(close) }],
+    });
+  }
+  // v1.1 end PAGE-WATCH ---------------------------------------------------------------------------------
+
   const joinBox = h('section.home-card.home-join', { 'aria-labelledby': 'home-code-label' },
     h('label#home-code-label.home-field-label', { for: 'home-code' }, fromLink ? 'Join this game' : 'Join a game'),
     h('div.home-join-row', codeInput, joinBtn),
@@ -387,6 +489,10 @@ export function mount(root, app, args = {}) {
 
   const howBtn = h('button.btn.ghost.home-how-btn', { type: 'button' }, icon('info', 20), 'How to play');
   howBtn.addEventListener('click', () => howToPlay());
+  // v1.1 PAGE-WATCH: "Watch a game"
+  const watchOpenBtn = h('button.btn.ghost.home-watch-open', { type: 'button' }, icon('eye', 20), 'Watch a game');
+  watchOpenBtn.addEventListener('click', () => watchSheet());
+  // v1.1 end PAGE-WATCH
 
   const order = fromLink ? [joinBox, h('p.home-or', h('span', 'or')), createBox] : [createBox, h('p.home-or', h('span', 'or')), joinBox];
 
@@ -398,9 +504,10 @@ export function mount(root, app, args = {}) {
         h('p.home-line', 'Manhunt in the dark with your friends. Hiders hide, hunters follow the pings on the map.')),
       savedCard,
       youCard,
+      watchCard, // v1.1 PAGE-WATCH
       order,
       h('footer.home-foot',
-        howBtn,
+        h('div.home-foot-btns', howBtn, watchOpenBtn), // v1.1 PAGE-WATCH: Watch a game beside How to play
         h('p.home-note', icon('pin', 18), h('span', 'Night Ops uses your location while a game is on, so the map works. Your phone asks when the game starts.')))));
 
   drawFace();

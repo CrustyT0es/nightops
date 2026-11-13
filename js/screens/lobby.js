@@ -15,6 +15,20 @@ import {
   huntersFor, ringSize, recommend, fmtDistance,
 } from '../../shared/rules.js';
 
+// v1.1 PAGE-WATCH: the Extras card's three rows (each its builder's module), loaded so that one that's missing
+// or broken only leaves its row out, never the lobby.
+const EXTRA_ROWS = ['driver', 'watch', 'radio'];
+let extraMakers = null;
+function loadExtraRows() {
+  if (!extraMakers) {
+    extraMakers = Promise.all(EXTRA_ROWS.map((name) => import(`./extras/${name}.js`)
+      .then((m) => (m && typeof m.extraRow === 'function' ? m.extraRow : null))
+      .catch((e) => { console.error(e); return null; })));
+  }
+  return extraMakers;
+}
+// v1.1 end PAGE-WATCH
+
 const STEP_WAIT_MS = 350;   // stepper taps are sent once the host stops tapping for this long
 // The icon for each power, as the game screen and the end screen draw it (there is no 'exposure' icon).
 const POWER_ICON = { radar: 'radar', exposure: 'eye', jammer: 'jammer', decoy: 'decoy', sprint: 'sprint' };
@@ -832,6 +846,40 @@ export function mount(root, app) {
     };
   }
 
+  // v1.1 PAGE-WATCH: the Extras card (Driver, Spectators, Save the walkie-talkie), after the powers card.
+  // Each row: extraRow({ app, host, setSetting, cmd }) -> { el, update(view) }; update gets the view with the
+  // host's pending picks on top.
+  function buildExtras(host) {
+    const rows = [];
+    const extras = card('Extras');
+    extras.classList.add('lobby-extras');
+    let last = null;
+    const ctx = { app, host, setSetting: (key, value) => setSetting(key, value), cmd: (c) => app.cmd(c) };
+    loadExtraRows().then((makers) => {
+      if (S.destroyed || (S.w && S.w.extras && S.w.extras.el !== extras)) return; // built again since
+      for (const make of makers) {
+        if (!make) continue;
+        try {
+          const row = make(ctx);
+          if (!row || !row.el) continue;
+          rows.push(row);
+          extras.appendChild(row.el);
+          if (last) row.update(last);
+        } catch (e) { console.error(e); }
+      }
+    });
+    return {
+      el: extras,
+      update(v) {
+        last = { ...v, settings: settingsNow() };
+        for (const row of rows) {
+          try { row.update(last); } catch (e) { console.error(e); }
+        }
+      },
+    };
+  }
+  // v1.1 end PAGE-WATCH
+
   // -- powers --
 
   function buildPowers(host) {
@@ -956,13 +1004,14 @@ export function mount(root, app) {
       ring: buildRing(host),
       time: buildTime(host),
       powers: buildPowers(host),
+      extras: buildExtras(host), // v1.1 PAGE-WATCH
       foot: buildFoot(host),
     };
     S.w = w;
     S.host = host;
     fill(root, h('div.lobby', { 'data-role': host ? 'host' : 'guest' },
       buildTop(),
-      h('div.lobby-body', w.code.el, w.players.el, w.mode.el, w.ring.el, w.time.el, w.powers.el),
+      h('div.lobby-body', w.code.el, w.players.el, w.mode.el, w.ring.el, w.time.el, w.powers.el, w.extras.el), // v1.1 PAGE-WATCH: extras
       w.foot.el));
   }
 
@@ -1005,7 +1054,7 @@ export function mount(root, app) {
         if (wasHost !== null && host) banner("You're the host now. You can change the settings and start.", 'good', 4500);
       }
       const w = S.w;
-      for (const part of [w.code, w.players, w.mode, w.ring, w.time, w.powers, w.foot]) {
+      for (const part of [w.code, w.players, w.mode, w.ring, w.time, w.powers, w.extras, w.foot]) { // v1.1 PAGE-WATCH: extras
         try { part.update(v); } catch (e) { console.error(e); }
       }
     });

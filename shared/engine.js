@@ -7,7 +7,7 @@ import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf,
 } from './geo.js';
 import {
-  LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS,
+  LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
 } from './rules.js';
 
@@ -36,6 +36,18 @@ const DECOY_TRIES = 12;        // a Decoy's spot: this many tries 200-400 m away
 const DECOY_SAMPLES = 20;      // ...then this many points anywhere in the ring
 const RETAG_MS = 30000;        // a hunter can't tag the same hider again this soon after a "no"
 const PICKS = ['auto', 'hunter', 'hider'];
+// v1.1
+const DRIVE_SPEED_MAX = 45;    // m/s: the driver's moves faster than this are GPS jumps
+const MOTION_GAP_MS = 30000;   // a speed is worked out from two fixes at most this far apart
+const PARK_SPOT_M = 15;        // a parked phone's fixes stay this close to where it stopped (GPS jitter)
+const HOST_LOG_KEPT = 30;
+const PICKUPS_KEPT = 100;
+const REMOVED_WATCHERS_KEPT = 60;
+const WATCH_JOINS_MOST = LIMITS.watchers * 3;
+const RADIO_VIEW_MOST = 20;    // clips in one view at most
+const RADIO_TYPES = ['audio/mp4', 'audio/webm'];
+const RADIO_MS_MIN = 300;
+const RADIO_MS_MAX = 15500;
 const SIDE_WORDS = new Set(['all', 'hunters', 'hiders']);
 
 // ---------------------------------------------------------------------------------------------------------
@@ -68,6 +80,14 @@ const ERRORS = {
   bad_target: "That player can't be picked for that.",
   name: `Pick a name, 1 to ${LIMITS.name} letters.`,
   face: "That picture didn't work. Try another one.",
+  // v1.1
+  driver: "The driver can't do that.",
+  no_driver: 'A driver needs 2 or more hunters. Add a hunter or turn the driver off.',
+  no_watch: "This game doesn't allow watching.",
+  watch_full: `${LIMITS.watchers} people are watching already.`,
+  radio_full: 'The walkie-talkie is full for this game.',
+  bad_audio: "That recording didn't work. Try again.",
+  no_clip: "That clip isn't kept.",
 };
 
 // A sentence for an error code (any unknown code gets a general one).
@@ -242,7 +262,34 @@ function randOf(rand, s, now) {
 }
 
 function freshStats() {
-  return { catches: 0, powers: [], distanceM: 0 };
+  return { catches: 0, powers: [], distanceM: 0, drivenM: 0, pickups: 0 };
+}
+
+function freshRadio() {
+  return { next: 1, bytes: 0, lastAt: {}, clips: [] };
+}
+
+// Settings with the v1.1 switches filled in (an older stored state has none).
+function extrasOf(settings) {
+  const out = { ...(settings || {}) };
+  for (const k of EXTRA_KEYS) if (typeof out[k] !== 'boolean') out[k] = DEFAULTS[k];
+  return out;
+}
+
+// The driver of this round who is still in, or null.
+function driverOf(s) {
+  if (!s || !s.driver || s.driver.left || (s.phase !== 'live' && s.phase !== 'over')) return null;
+  const d = playerOf(s, s.driver.id);
+  return d && d.status === 'in' && d.team === 'hunter' ? d : null;
+}
+
+// This round's driver id (also once they left), or null.
+function driverIdOf(s) {
+  return s && s.driver && typeof s.driver.id === 'string' && (s.phase === 'live' || s.phase === 'over') ? s.driver.id : null;
+}
+
+function isDriver(s, p) {
+  return !!p && driverIdOf(s) === p.id;
 }
 
 function freshTeam() {
@@ -257,6 +304,7 @@ function newPlayer({ id, name, secretHash, now }) {
     caughtBy: null, caughtAt: null, turnedAt: null,
     powers: {}, sprintFrom: null, sprintUntil: null, outsideSince: null,
     stats: freshStats(),
+    driverAt: null,
     // internal (never in a view)
     turnedEvent: null,   // first event id this player sees as a hunter (after being caught)
     leftAt: null,        // clock when they left or were removed
@@ -273,6 +321,7 @@ function resetForGame(p) {
   p.powers = {}; p.sprintFrom = null; p.sprintUntil = null; p.outsideSince = null; p.outsideShown = false;
   p.noFixTold = false;
   p.stats = freshStats(); p.track = null;
+  p.driverAt = null;
 }
 
 // Fill in internal fields a stored state may lack (older or hand-made states), on a copy we own.
@@ -297,6 +346,25 @@ function fillIn(s) {
     if (typeof p.noFixTold !== 'boolean') p.noFixTold = false;
   }
   if (s.overEventId === undefined) s.overEventId = null;
+  // v1.1
+  if (!Array.isArray(s.hostLog)) s.hostLog = [];
+  if (s.settings && typeof s.settings === 'object') s.settings = extrasOf(s.settings);
+  if (s.driverPick === undefined) s.driverPick = null;
+  if (s.driver === undefined) s.driver = null;
+  if (!Array.isArray(s.pickups)) s.pickups = [];
+  if (!Number.isFinite(s.nextPickupId)) s.nextPickupId = s.pickups.length + 1;
+  if (!s.watchers || typeof s.watchers !== 'object' || Array.isArray(s.watchers)) s.watchers = {};
+  if (!Number.isFinite(s.watchJoins)) s.watchJoins = 0;
+  if (!Array.isArray(s.removedWatchers)) s.removedWatchers = [];
+  if (!s.radio || typeof s.radio !== 'object' || !Array.isArray(s.radio.clips)) s.radio = freshRadio();
+  if (!Number.isFinite(s.radio.next)) s.radio.next = s.radio.clips.length + 1;
+  if (!Number.isFinite(s.radio.bytes)) s.radio.bytes = 0;
+  if (!s.radio.lastAt || typeof s.radio.lastAt !== 'object') s.radio.lastAt = {};
+  for (const p of Object.values(s.players)) {
+    if (!Number.isFinite(p.stats.drivenM)) p.stats.drivenM = 0;
+    if (!Number.isFinite(p.stats.pickups)) p.stats.pickups = 0;
+    if (p.driverAt === undefined) p.driverAt = null;
+  }
   return s;
 }
 
@@ -305,8 +373,12 @@ function epochOf(s, clock) {
   return s.startedAt + s.pausedMs + clock;
 }
 
+// Event ids follow the server's clock (the ms it happened, or the next free number): a player who only sees
+// some events can't count the ones in between (a gap only says time went by, which `at` says anyway).
 function emit(s, t, kind, to, text, data, from) {
-  const e = { id: s.nextEventId++, at: t.at, clock: t.clock, kind, to, text };
+  const id = Math.max(s.nextEventId, Number.isFinite(t.now) ? Math.floor(t.now) : 0);
+  s.nextEventId = id + 1;
+  const e = { id, at: t.at, clock: t.clock, kind, to, text };
   if (from) e.from = from;
   if (data) e.data = data;
   s.events.push(e);
@@ -360,6 +432,15 @@ export function newGame({ code, hostId, hostName, secretHash, now }) {
     endClock: null,                          // the clock when the game ended
     overEventId: null,                       // the 'over' event's id: a phone past it has the summary already
     nextCatchId: 1,                          // never reset, so an old tag id never matches a new tag
+    // v1.1
+    driverPick: null,                        // lobby: the host's choice of driver (null = pick for me)
+    driver: null,                            // live/over: { id, left }
+    pickups: [],
+    nextPickupId: 1,
+    watchers: {},                            // spectators (kept across rounds)
+    watchJoins: 0,
+    removedWatchers: [],
+    radio: freshRadio(),
   };
 }
 
@@ -456,10 +537,12 @@ function winnersOf(s, reason) {
 }
 
 function mvpOf(s, reason, winners) {
+  const driverId = driverIdOf(s);
   if (reason !== 'caught' && winners.length) {
     let best = null;
     for (const id of winners) {
       const p = s.players[id];
+      if (id === driverId) continue;
       if (!best || p.stats.distanceM > best.stats.distanceM) best = p;
     }
     return best ? best.id : null;
@@ -475,7 +558,7 @@ function mvpOf(s, reason, winners) {
   let best = null;
   for (const p of ordered(s)) {
     const n = count[p.id] || 0;
-    if (!n || p.status === 'kicked') continue;
+    if (!n || p.status === 'kicked' || p.id === driverId) continue;
     if (!best || n > count[best] || (n === count[best] && reached[p.id] < reached[best])) best = p.id;
   }
   return best;
@@ -505,6 +588,7 @@ function endGame(s, reason, t) {
   }
   s.catches = s.catches.filter((c) => c.state !== 'pending');
   s.endClock = t.clock;
+  endPickups(s, () => true, t);
   s.phase = 'over';
   s.radar = null;
   const winners = winnersOf(s, reason);
@@ -528,6 +612,16 @@ function endGame(s, reason, t) {
   s.summary = summarize(s, []);
 }
 
+// Open pickups that should end (the game ended, the driver went, the asker left) become 'ended'.
+function endPickups(s, which, t) {
+  for (const k of s.pickups || []) {
+    if ((k.state === 'open' || k.state === 'coming') && which(k)) {
+      k.state = 'ended';
+      k.endedAt = t.clock;
+    }
+  }
+}
+
 function checkEnd(s, t) {
   if (s.phase === 'live' && freeHiders(s).length === 0) endGame(s, 'caught', t);
 }
@@ -539,10 +633,29 @@ function resumeGame(s, t, byId) {
   emit(s, t, 'resume', 'all', 'Game back on.', { by: byId || null });
 }
 
+// Host changes during a round, so a spectator's delayed view names the host as it was then (hostAt).
+function logHost(s, to, t) {
+  if (s.phase !== 'live') return;
+  if (!Array.isArray(s.hostLog)) s.hostLog = [];
+  s.hostLog.push({ from: s.hostId, to, clock: t.clock });
+  if (s.hostLog.length > HOST_LOG_KEPT) s.hostLog.splice(0, s.hostLog.length - HOST_LOG_KEPT);
+}
+
+function hostAt(s, T) {
+  let id = s.hostId;
+  const log = Array.isArray(s.hostLog) ? s.hostLog : [];
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (!(log[i].clock > T)) break;
+    id = log[i].from;
+  }
+  return id;
+}
+
 function passHost(s, t) {
   const rest = ordered(s).filter((p) => p.id !== s.hostId);
   const next = rest.find((p) => p.status === 'in') || rest.find(active);
   if (!next) return;
+  logHost(s, next.id, t);
   s.hostId = next.id;
   emit(s, t, 'host', 'all', `${next.name} is the host now.`, { id: next.id });
 }
@@ -563,11 +676,27 @@ function removePlayer(s, p, status, t) {
   else emit(s, t, 'leave', 'all', `${p.name} left the game.`, { id: p.id });
   if (s.phase === 'live') note(s, { kind: 'leave', clock: t.clock, id: p.id, text: `${p.name} left the game.` });
   if (s.hostId === p.id) passHost(s, t);
+  if (s.phase === 'lobby' && s.driverPick === p.id) s.driverPick = null;
+  if (s.phase === 'live') {
+    endPickups(s, (k) => k.by === p.id, t);
+    if (s.driver && s.driver.id === p.id && !s.driver.left) {
+      s.driver.left = true;
+      endPickups(s, () => true, t);
+      const text = status === 'kicked' ? `${p.name} was removed, so nobody is driving now.`
+        : `${p.name} left, so nobody is driving now.`;
+      emit(s, t, 'driver', 'all', text, { id: p.id });
+    }
+  }
   if (s.phase !== 'live') return;
   if (s.pausedAt !== null && (!s.sos || s.sos.by === p.id)) resumeGame(s, t, null);
   if (wasFree) checkEnd(s, t);
-  if (s.phase === 'live' && wasHunter && !Object.values(s.players).some(isHunter)) {
-    emit(s, t, 'info', 'all', 'No hunters left. The host can end the game.');
+  if (s.phase === 'live' && wasHunter) {
+    const hunters = Object.values(s.players).filter(isHunter);
+    if (!hunters.length) {
+      emit(s, t, 'info', 'all', 'No hunters left. The host can end the game.');
+    } else if (hunters.every((x) => isDriver(s, x))) {
+      emit(s, t, 'info', 'all', 'Only the driver is left on the hunters\' side, and the driver never tags. The host can end the game.');
+    }
   }
 }
 
@@ -897,7 +1026,9 @@ export function onPosition(state, playerId, pos, { now } = {}) {
     changed = true;
   }
 
-  // Distance walked: only clear moves (bigger than the jitter and the fix's accuracy), never jumps.
+  // Distance walked: only clear moves (bigger than the jitter and the fix's accuracy), never jumps. The
+  // driver's moves are distance driven instead (never walking: the MVP is picked by walking).
+  const driving = isDriver(s, p) && s.phase === 'live';
   if (acc <= ACC_MAX_M) {
     if (!p.track || !isPoint(p.track.p)) {
       p.track = { p: point, at };
@@ -906,7 +1037,11 @@ export function onPosition(state, playerId, pos, { now } = {}) {
       const d = distanceM(p.track.p, point);
       if (d >= Math.max(STEP_M, acc)) {
         const dt = Math.max(1, (at - p.track.at) / 1000);
-        if (d / dt <= SPEED_MAX) p.stats.distanceM = Math.round((p.stats.distanceM + d) * 10) / 10;
+        if (driving) {
+          if (d / dt <= DRIVE_SPEED_MAX) p.stats.drivenM = Math.round(((p.stats.drivenM || 0) + d) * 10) / 10;
+        } else if (d / dt <= SPEED_MAX) {
+          p.stats.distanceM = Math.round((p.stats.distanceM + d) * 10) / 10;
+        }
         p.track = { p: point, at };
         changed = true;
       }
@@ -977,10 +1112,14 @@ function cmdSettings(s, actor, cmd) {
   const next = cleanSettings(patch, s.settings);
   if (!Array.isArray(patch.custom)) {
     const custom = new Set(next.custom);
-    for (const k of Object.keys(patch)) if (has(DEFAULTS, k) && k !== 'custom') custom.add(k);
+    for (const k of Object.keys(patch)) if (has(DEFAULTS, k) && k !== 'custom' && !EXTRA_KEYS.includes(k)) custom.add(k);
     next.custom = [...custom];
   }
   s.settings = next;
+  // Spectators switched off: everyone watching is let go (their page is told).
+  if (!next.spectators) {
+    for (const wid of Object.keys(s.watchers || {})) dropWatcher(s, wid, 'off');
+  }
   return null;
 }
 
@@ -1016,11 +1155,25 @@ function cmdPick(s, actor, cmd) {
   if (!target || target.status !== 'in') return err('gone');
   if (!PICKS.includes(cmd.pick)) return err('bad_cmd');
   target.pick = cmd.pick;
+  if (s.driverPick === target.id && cmd.pick !== 'hunter') s.driverPick = null;
   return null;
 }
 
 function cmdShuffle(s) {
   for (const p of Object.values(s.players)) p.pick = 'auto';
+  s.driverPick = null;
+  return null;
+}
+
+function cmdDriver(s, actor, cmd) {
+  if (cmd.playerId === null || cmd.playerId === undefined) {
+    s.driverPick = null;
+    return null;
+  }
+  const target = playerOf(s, cmd.playerId);
+  if (!target || target.status !== 'in') return err('bad_target');
+  s.driverPick = target.id;
+  target.pick = 'hunter';
   return null;
 }
 
@@ -1036,6 +1189,7 @@ function cmdHost(s, actor, cmd, t) {
   const target = playerOf(s, cmd.playerId);
   if (!target || !active(target)) return err('gone');
   if (target.id === actor.id) return err('bad_target', "You're the host already.");
+  logHost(s, target.id, t);
   s.hostId = target.id;
   emit(s, t, 'host', 'all', `${target.name} is the host now.`, { id: target.id });
   return null;
@@ -1063,6 +1217,15 @@ function cmdStart(s, actor, cmd, t) {
   hiders.push(...autos.slice(need));
   if (!hunters.length) return err('no_hunters');
   if (!hiders.length) return err('no_hiders');
+  let driver = null;
+  if (s.settings.driver && s.settings.mode !== 'infection') {
+    if (hunters.length < 2) return err('no_driver');
+    driver = hunters.find((p) => p.id === s.driverPick) || null;
+    if (!driver) {
+      const list = ordered(s).filter((p) => hunters.includes(p));
+      driver = list[Math.min(list.length - 1, Math.floor(t.rand() * list.length))];
+    }
+  }
 
   for (const p of Object.values(s.players)) resetForGame(p);
   const hiderPowers = HIDER_POWERS.filter((k) => s.settings.powers[k]);
@@ -1088,11 +1251,22 @@ function cmdStart(s, actor, cmd, t) {
   s.log = [];
   s.endClock = null;
   s.overEventId = null;
+  s.hostLog = [];
+  s.driver = driver ? { id: driver.id, left: false } : null;
+  s.pickups = [];
+  s.nextPickupId = 1;
+  s.radio = freshRadio();
+  s.watchJoins = 0;
   const headStartMs = schedule(s.settings).headStartMs;
   const t0 = { now: t.now, clock: 0, at: t.now };
   const text = `Game on! Hiders have ${fmtClock(headStartMs)} to hide.`;
   emit(s, t0, 'start', 'all', text, { headStartMs });
   note(s, { kind: 'start', clock: 0, text: `Game on: ${hunters.length} ${hunters.length === 1 ? 'hunter' : 'hunters'}, ${hiders.length} ${hiders.length === 1 ? 'hider' : 'hiders'}.` });
+  if (driver) {
+    driver.driverAt = 0;
+    emit(s, t0, 'driver', 'all', `${driver.name} is driving.`, { id: driver.id });
+    note(s, { kind: 'driver', clock: 0, id: driver.id, text: `${driver.name} is driving.` });
+  }
   return null;
 }
 
@@ -1135,6 +1309,7 @@ function cmdPower(s, actor, cmd, t) {
     return null;
   }
   if (actor.team !== 'hunter') return err('not_your_turn', 'Only hunters can use that.');
+  if (isDriver(s, actor)) return err('driver', "The driver can't use powers.");
   if (s.team[power] !== 'ready') return err('used', `${name} is used up.`);
   const last = s.team.lastPowerAt;
   if (last !== null && t.clock - last < TIMING.HUNTER_POWER_GAP_MS) {
@@ -1182,6 +1357,7 @@ function cmdPower(s, actor, cmd, t) {
 }
 
 function cmdTag(s, actor, cmd, t) {
+  if (isDriver(s, actor)) return err('driver', "The driver can't tag. Ask another hunter.");
   const wait = inHunt(s, t, 'Tags count');
   if (wait) return wait;
   if (!isHunter(actor)) return err('not_your_turn', 'Only hunters can tag.');
@@ -1249,6 +1425,7 @@ function cmdTagged(s, actor, cmd, t) {
     if (!hunter || hunter.team !== 'hunter' || hunter.status === 'kicked' || hunter.id === hider.id) {
       return err('bad_target', 'Pick the hunter who caught you.');
     }
+    if (isDriver(s, hunter)) return err('driver', "The driver can't tag. Pick the hunter who caught you.");
     hunterId = hunter.id;
   }
   const record = { id: `c${s.nextCatchId++}`, hunter: hunterId, hider: hider.id, at: t.clock, how, state: 'done' };
@@ -1324,7 +1501,68 @@ function cmdAgain(s, actor, cmd, t) {
   s.log = [];
   s.endClock = null;
   s.overEventId = null;
+  s.driverPick = null;
+  s.driver = null;
+  s.pickups = [];
+  s.nextPickupId = 1;
+  s.radio = freshRadio();
+  s.watchJoins = 0;
   emit(s, { now: t.now, clock: 0, at: t.now }, 'again', 'all', 'New round! Back to the lobby.');
+  return null;
+}
+
+// Pickups: a hunter asks the driver for a ride; the driver says "On my way" and "Picked up".
+function cmdPickup(s, actor, cmd, t) {
+  const what = cmd.do;
+  if (what === 'ask') {
+    if (s.pausedAt !== null) return err('paused');
+    if (!isHunter(actor) || isDriver(s, actor)) return err('not_your_turn', 'Only hunters can ask the driver for a pickup.');
+    const driver = driverOf(s);
+    if (!driver) return err('no_driver', 'Nobody is driving.');
+    const pos = posOf(t.positions, actor.id);
+    if (!pos || ageOf(pos, t.now) > TIMING.OFFLINE_MS) return err('bad_cmd', 'A pickup needs your location.');
+    if (s.pickups.some((k) => k.by === actor.id && (k.state === 'open' || k.state === 'coming'))) {
+      return err('used', 'You already asked for a pickup.');
+    }
+    const k = { id: `k${s.nextPickupId++}`, by: actor.id, p: pos.p, at: t.clock, state: 'open', comingAt: null, doneAt: null };
+    s.pickups.push(k);
+    if (s.pickups.length > PICKUPS_KEPT) s.pickups.splice(0, s.pickups.length - PICKUPS_KEPT);
+    emit(s, t, 'pickup', 'hunters', `${actor.name} asked ${driver.name} for a pickup.`, { pickupId: k.id, by: actor.id, state: 'open' });
+    return null;
+  }
+  if (what !== 'coming' && what !== 'done' && what !== 'cancel') return err('bad_cmd');
+  const k = typeof cmd.pickupId === 'string' ? s.pickups.find((x) => x.id === cmd.pickupId) : null;
+  const openNow = !!k && (k.state === 'open' || k.state === 'coming');
+  if (what === 'cancel') {
+    if (k && k.by !== actor.id) return err('not_your_turn', 'Only the hunter who asked can cancel it.');
+    if (!openNow) return err('bad_target', 'That pickup is over.');
+    k.state = 'cancelled';
+    const driver = driverOf(s);
+    if (driver) emit(s, t, 'pickup', driver.id, `${actor.name} doesn't need a pickup any more.`, { pickupId: k.id, by: actor.id, state: 'cancelled' });
+    return null;
+  }
+  if (!isDriver(s, actor) || !driverOf(s)) return err('not_your_turn', 'Only the driver can do that.');
+  if (what === 'coming') {
+    if (!k || k.state !== 'open') return err('bad_target', 'That pickup is over.');
+    k.state = 'coming';
+    k.comingAt = t.clock;
+    emit(s, t, 'pickup', k.by, `${actor.name} is coming.`, { pickupId: k.id, state: 'coming' });
+    return null;
+  }
+  if (!openNow) return err('bad_target', 'That pickup is over.');
+  k.state = 'done';
+  k.doneAt = t.clock;
+  actor.stats.pickups = (actor.stats.pickups || 0) + 1;
+  const asker = playerOf(s, k.by);
+  const text = `${actor.name} picked up ${asker ? asker.name : 'someone'}.`;
+  emit(s, t, 'pickup', 'hunters', text, { pickupId: k.id, by: k.by, state: 'done' });
+  note(s, { kind: 'pickup', clock: t.clock, id: k.by, text });
+  return null;
+}
+
+function cmdUnwatch(s, actor, cmd) {
+  if (typeof cmd.watcherId !== 'string' || !has(s.watchers, cmd.watcherId)) return err('bad_target', "That person isn't watching.");
+  dropWatcher(s, cmd.watcherId, 'kicked');
   return null;
 }
 
@@ -1357,6 +1595,10 @@ const COMMANDS = {
   end: { host: true, phases: ['live'], run: cmdEnd },
   again: { host: true, phases: ['over'], run: cmdAgain },
   face: { phases: ANY, run: cmdFace },
+  // v1.1
+  driver: { host: true, phases: ['lobby'], run: cmdDriver },
+  pickup: { phases: ['live'], run: cmdPickup },
+  unwatch: { host: true, phases: ANY, run: cmdUnwatch },
 };
 
 function phaseError(phases) {
@@ -1383,6 +1625,362 @@ export function apply(state, actorId, cmd, { now, positions = {}, rand } = {}) {
   if (playerOf(s, actorId)) s.players[actorId].lastSeen = now;
   s.updatedAt = now;
   return { state: s };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// v1.1: motion and parking (the driver), spectators, the walkie-talkie
+
+// A stored fix with its speed (`v`, m/s or null), since when it has been slow (`slowSince`, epoch or null)
+// and where it stopped (`slowAt`, while slow). The handler calls this for every fix it stores; only the
+// driver's are read (isParked). Times are the server's (`got`, when it stored the fix), never the phone's own
+// clock, which a page could set. The phone's speed is believed only while how far it really moved agrees:
+// a slow run lasts only while every fix stays within PARK_SPOT_M of where it began and comes within
+// MOTION_GAP_MS of the one before, so jitter of a still phone keeps it, and a made-up "speed 0" while
+// moving (or after a gap) never does.
+function fixTime(f) {
+  if (!f) return null;
+  if (Number.isFinite(f.got)) return f.got;
+  return Number.isFinite(f.at) ? f.at : null;
+}
+
+export function withMotion(prev, rec) {
+  const out = { ...(rec || {}) };
+  delete out.slowAt;
+  const time = fixTime(out);
+  const before = fixTime(prev);
+  const dt = time !== null && before !== null ? time - before : null;
+  const near = dt !== null && dt > 0 && dt <= MOTION_GAP_MS && isPoint(prev.p) && isPoint(out.p);
+  const moved = near ? distanceM(prev.p, out.p) : null;
+  const worked = near ? moved / (dt / 1000) : null;
+  const said = Number.isFinite(out.speed) && out.speed >= 0 ? out.speed : null;
+  // A real move (past the jitter) faster than parking speed, or a jump: what the phone says doesn't count.
+  const belie = near && moved > PARK_SPOT_M && (worked * 3.6 >= TIMING.PARK_KMH || worked > DRIVE_SPEED_MAX);
+  const v = said !== null && !belie ? said : worked;
+  out.v = v;
+  let slow;
+  if (said !== null && !belie) slow = said * 3.6 < TIMING.PARK_KMH;
+  else slow = near && (moved <= PARK_SPOT_M || worked * 3.6 < TIMING.PARK_KMH);
+  const anchor = prev && isPoint(prev.slowAt) ? prev.slowAt : null;
+  if (slow && near && Number.isFinite(prev.slowSince) && anchor && distanceM(anchor, out.p) <= PARK_SPOT_M) {
+    out.slowSince = prev.slowSince;
+    out.slowAt = [anchor[0], anchor[1]];
+  } else if (slow && time !== null && isPoint(out.p)) {
+    out.slowSince = time;
+    out.slowAt = [out.p[0], out.p[1]];
+  } else {
+    out.slowSince = null;
+  }
+  return out;
+}
+
+// The driver's stored fix (with v/slowSince as the handler stored them), or null.
+function driverFix(positions, id) {
+  if (!positions || typeof positions !== 'object' || !has(positions, id)) return null;
+  const pos = positions[id];
+  return pos && isPoint(pos.p) ? pos : null;
+}
+
+// Parked: the driver's latest fix is fresh and has been slow for PARK_MS. Anything else is "moving" (the
+// safe side: no map while driving). Decided from stored fixes only, never from what a page says.
+export function isParked(state, positions, now) {
+  if (!state || state.phase !== 'live') return false;
+  const d = driverOf(state);
+  if (!d) return false;
+  const pos = driverFix(positions, d.id);
+  if (!pos || !Number.isFinite(pos.at) || now - pos.at > TIMING.PARK_FRESH_MS) return false;
+  const time = fixTime(pos);
+  if (!Number.isFinite(pos.slowSince) || time === null || now - time > TIMING.PARK_FRESH_MS) return false;
+  return time - pos.slowSince >= TIMING.PARK_MS;
+}
+
+function watchersOf(s) {
+  return s && s.watchers && typeof s.watchers === 'object' ? s.watchers : {};
+}
+
+function watchingCount(s, now) {
+  return Object.values(watchersOf(s)).filter((w) => w && Number.isFinite(w.lastSeen) && now - w.lastSeen < TIMING.WATCH_IDLE_MS).length;
+}
+
+function dropWatcher(s, wid, status) {
+  const w = s.watchers[wid];
+  if (!w) return;
+  delete s.watchers[wid];
+  // (Someone who left, or was let go for idling, no longer counts towards the round's watch joins: one person
+  // joining over and over mustn't lock everyone out of watching for the rest of the round. People the host
+  // removed still count; the handler also limits watch joins per game and per address.)
+  if (status === 'left' && Number.isFinite(s.watchJoins) && s.watchJoins > 0) s.watchJoins -= 1;
+  s.removedWatchers = (s.removedWatchers || []).filter((x) => x.id !== wid);
+  s.removedWatchers.push({ id: wid, status, hash: w.secretHash || '' });
+  if (s.removedWatchers.length > REMOVED_WATCHERS_KEPT) s.removedWatchers.splice(0, s.removedWatchers.length - REMOVED_WATCHERS_KEPT);
+}
+
+export function addWatcher(state, { id, name, secretHash, now } = {}) {
+  if (!state || !state.players) return err('bad_cmd');
+  if (!extrasOf(state.settings).spectators) return err('no_watch');
+  if (!validId(id) || playerOf(state, id) || has(watchersOf(state), id) || typeof secretHash !== 'string') return err('bad_cmd');
+  const clean = cleanName(name);
+  if (!clean) return err('name');
+  const s = fillIn(copy(state));
+  if (s.watchJoins >= WATCH_JOINS_MOST) return err('full', 'Too many people joined to watch this game. Try again next round.');
+  if (Object.keys(s.watchers).length >= LIMITS.watchers) {
+    for (const w of Object.values(s.watchers)) {
+      if (!Number.isFinite(w.lastSeen) || now - w.lastSeen >= TIMING.WATCH_IDLE_MS) dropWatcher(s, w.id, 'left');
+    }
+    if (Object.keys(s.watchers).length >= LIMITS.watchers) return err('watch_full');
+  }
+  const finalName = uniqueName(clean, Object.values(s.watchers).map((w) => w.name));
+  s.watchers[id] = { id, name: finalName, secretHash, joinedAt: now, lastSeen: now };
+  s.removedWatchers = s.removedWatchers.filter((x) => x.id !== id);
+  s.watchJoins += 1;
+  s.updatedAt = now;
+  return { state: s };
+}
+
+export function touchWatcher(state, wid, { now } = {}) {
+  const w = state && has(watchersOf(state), wid) ? state.watchers[wid] : null;
+  if (!w || (Number.isFinite(w.lastSeen) && now - w.lastSeen < TIMING.WATCH_SEEN_EVERY_MS)) return { state, changed: false };
+  const s = fillIn(copy(state));
+  s.watchers[wid].lastSeen = now;
+  return { state: s, changed: true };
+}
+
+export function removeWatcher(state, wid, { now, status = 'left' } = {}) {
+  if (!state || !has(watchersOf(state), wid)) return { state };
+  const s = fillIn(copy(state));
+  dropWatcher(s, wid, status);
+  if (Number.isFinite(now)) s.updatedAt = now;
+  return { state: s };
+}
+
+// The delayed clock a spectator sees: never newer than now minus SPECTATOR_DELAY_MS of game time.
+function watchClock(s, now) {
+  return Math.max(0, clockOf(s, now) - TIMING.SPECTATOR_DELAY_MS);
+}
+
+// The route-point clocks watchView needs (null when it needs none: the lobby and game over).
+export function watchWindow(state, now) {
+  if (!state || state.phase !== 'live' || state.startedAt === null || state.startedAt === undefined) return null;
+  const T = watchClock(state, now);
+  return { from: Math.max(0, T - TIMING.SPECTATOR_SPOT_MS), to: T };
+}
+
+// A player's side and status as they were at game clock T (for spectators).
+function teamAt(p, T) {
+  if (p.startTeam === 'hunter') return 'hunter';
+  if (Number.isFinite(p.turnedAt) && T >= p.turnedAt) return 'hunter';
+  return p.startTeam || p.team;
+}
+
+function statusAt(p, T) {
+  if ((p.status === 'left' || p.status === 'kicked') && Number.isFinite(p.leftAt) && T >= p.leftAt) return p.status;
+  if (Number.isFinite(p.caughtAt) && T >= p.caughtAt && !Number.isFinite(p.turnedAt)) return 'caught';
+  return 'in';
+}
+
+function sideOf(to) {
+  return to === 'hunters' || to === 'hiders' ? to : 'all';
+}
+
+export function watchView(state, wid, { now, positions = {}, trails = [], since = 0 } = {}) {
+  const s = state;
+  const w = has(watchersOf(s), wid) ? s.watchers[wid] : null;
+  const live = s.phase === 'live';
+  const over = s.phase === 'over';
+  const lobby = !live && !over;
+  const T = live ? watchClock(s, now) : clockOf(s, now);
+  const sch = schedule(s.settings);
+  // An SOS pause stops the game clock at a clock newer than T (T is always 2 minutes behind it), so as of T
+  // the game was never paused: a spectator sees the SOS only as its event, once that is 2 minutes old.
+  const paused = false;
+  const hostThen = live ? hostAt(s, T) : s.hostId;
+  const sinceId = Number.isFinite(Number(since)) ? Number(since) : 0;
+  const driverId = driverIdOf(s);
+
+  const players = ordered(s)
+    .filter((p) => (lobby ? p.status === 'in' : !!p.startTeam))
+    .map((p) => {
+      const row = live
+        ? { id: p.id, name: p.name, host: hostThen === p.id, team: teamAt(p, T), status: statusAt(p, T), faceV: p.faceV, online: true }
+        : { id: p.id, name: p.name, host: hostThen === p.id, team: p.team, status: p.status, faceV: p.faceV, online: true };
+      if (live && p.caughtBy && Number.isFinite(p.caughtAt) && p.caughtAt <= T) row.caughtBy = p.caughtBy;
+      if (over && p.caughtBy) row.caughtBy = p.caughtBy;
+      if (driverId === p.id) row.driver = true;
+      return row;
+    });
+
+  const timing = { headStartLeft: null, left: null, nextPingIn: null, pingN: null, closingIn: null, shrinking: false, closing: false };
+  const pingsSoFar = live ? s.pings.filter((x) => x.clock <= T) : s.pings;
+  if (live) {
+    timing.headStartLeft = T < sch.headStartMs ? sch.headStartMs - T : null;
+    timing.left = Math.max(0, sch.endMs - T);
+    const k = pingsSoFar.length;
+    if (k < sch.pings.length) {
+      timing.nextPingIn = Math.max(0, sch.pings[k] - T);
+      timing.pingN = k + 1;
+    }
+    if (sch.closingMs > 0) {
+      timing.closing = T >= sch.closingStartMs;
+      timing.closingIn = timing.closing ? null : sch.closingStartMs - T;
+      timing.shrinking = timing.closing && !!s.settings.shrink;
+    }
+  }
+
+  let marks = [];
+  if (over) {
+    marks = marksFor(s, { id: '', status: 'over' }, { clock: T, now, positions, sch });
+  } else if (live) {
+    const newest = {};
+    for (const tp of Array.isArray(trails) ? trails : []) {
+      if (!tp || typeof tp !== 'object' || !isPoint(tp.p) || !Number.isFinite(tp.clock)) continue;
+      if (tp.clock > T || tp.clock < T - TIMING.SPECTATOR_SPOT_MS) continue;
+      if (typeof tp.pid !== 'string' || !playerOf(s, tp.pid)) continue;
+      if (!newest[tp.pid] || tp.clock > newest[tp.pid].clock) newest[tp.pid] = tp;
+    }
+    // (Only the hunters' dots: a free hider is seen only as the hunters saw them, their ping circles. A player
+    // can watch their own game on a second phone, and a hider's exact spot, even 2 minutes old, would beat
+    // every ping, Jammer, Sprint and Decoy. Everyone's route shows in the replay at the end.)
+    for (const p of ordered(s)) {
+      if (!p.startTeam || statusAt(p, T) !== 'in') continue;
+      const tp = newest[p.id];
+      if (!tp) continue;
+      const team = teamAt(p, T);
+      if (team !== 'hunter') continue;
+      const m = { id: p.id, kind: team, team, p: [tp.p[0], tp.p[1]], r: 0, age: T - tp.clock, label: p.name };
+      if (driverId === p.id) m.driver = true;
+      marks.push(m);
+    }
+    for (const p of ordered(s)) {
+      if (!p.startTeam || teamAt(p, T) !== 'hider' || statusAt(p, T) !== 'in') continue;
+      for (let i = pingsSoFar.length - 1; i >= 0; i--) {
+        const spot = pingsSoFar[i].spots && pingsSoFar[i].spots[p.id];
+        if (spot && isPoint(spot.p)) {
+          marks.push({ id: p.id, kind: 'ping', p: [spot.p[0], spot.p[1]], r: spot.r, age: Math.max(0, T - pingsSoFar[i].clock), label: p.name });
+          break;
+        }
+      }
+    }
+  }
+
+  // Events in id order, released only once T has passed them (strictly in order, none skipped); never chat,
+  // never one player's own news.
+  const events = [];
+  let lastEventId = sinceId;
+  for (const e of s.events) {
+    if (e.id <= sinceId) continue;
+    if (live && e.clock > T) break;
+    lastEventId = e.id;
+    if (e.kind === 'chat' || !SIDE_WORDS.has(e.to)) continue;
+    // (A hider's own power news stays hidden until the game is over: a hunter watching would learn of a Decoy.)
+    if (live && e.kind === 'power' && e.to === 'hiders') continue;
+    const out = { id: e.id, at: e.at, clock: e.clock, kind: e.kind, to: e.to, side: sideOf(e.to), text: e.text };
+    if (e.from) out.from = e.from;
+    if (e.data) out.data = copy(e.data);
+    events.push(out);
+  }
+
+  const sos = null;
+
+  return {
+    v: s.v,
+    engine: ENGINE_V,
+    code: s.code,
+    phase: s.phase,
+    sub: live ? (T < sch.headStartMs ? 'headstart' : 'hunt') : null,
+    now,
+    clock: T,
+    paused,
+    watcher: w ? { id: w.id, name: w.name } : { id: String(wid || ''), name: '' },
+    watch: { delayMs: TIMING.SPECTATOR_DELAY_MS },
+    watching: watchingCount(s, now),
+    me: null,
+    players,
+    settings: copy(extrasOf(s.settings)),
+    ring: s.ring ? copy(s.ring) : null,
+    ringNow: s.ring && !lobby ? copy(ringAt(s, T)) : null,
+    timing,
+    marks,
+    team: null,
+    radar: null,
+    pending: [],
+    noSignal: [],
+    sos,
+    events,
+    lastEventId,
+    result: over && s.result ? copy(s.result) : null,
+    summary: over && s.summary && !(Number.isFinite(s.overEventId) && sinceId >= s.overEventId) ? copy(s.summary) : null,
+    overId: over && Number.isFinite(s.overEventId) ? s.overEventId : null,
+    radio: null,
+    drive: null,
+    watchers: [],
+    driverPick: null,
+  };
+}
+
+function radioOf(s) {
+  return s && s.radio && typeof s.radio === 'object' && Array.isArray(s.radio.clips) ? s.radio : freshRadio();
+}
+
+// May this player hear this clip live? A hunter who is in; a hider who turned only from when they turned.
+function hearsLive(p, clip) {
+  if (!isHunter(p)) return false;
+  if (p.startTeam === 'hunter') return true;
+  return Number.isFinite(p.turnedAt) && clip.clock >= p.turnedAt;
+}
+
+function typeBase(type) {
+  return typeof type === 'string' ? type.split(';')[0].trim().toLowerCase() : '';
+}
+
+// Why a clip can't be taken from this player now (null = it can).
+export function clipProblem(state, playerId, { ms, type, bytes, now } = {}) {
+  if (!state || state.phase !== 'live') return err('not_live').error;
+  const p = playerOf(state, playerId);
+  if (!p || !active(p)) return err('gone').error;
+  if (!isHunter(p)) return err('not_your_turn', 'Only hunters have the walkie-talkie.').error;
+  if (!RADIO_TYPES.includes(typeBase(type))) return err('bad_audio').error;
+  if (!Number.isInteger(ms) || ms < RADIO_MS_MIN || ms > RADIO_MS_MAX) return err('bad_audio').error;
+  if (!Number.isInteger(bytes) || bytes < 1 || bytes > LIMITS.radioBytes) return err('bad_audio').error;
+  const r = radioOf(state);
+  const last = r.lastAt && Number.isFinite(r.lastAt[p.id]) ? r.lastAt[p.id] : null;
+  if (last !== null && now - last >= 0 && now - last < TIMING.RADIO_GAP_MS) return err('cooldown', 'Wait a moment before the next one.').error;
+  if (r.clips.length >= LIMITS.radioClips || (r.bytes || 0) + bytes > LIMITS.radioGameBytes) return err('radio_full').error;
+  return null;
+}
+
+export function addClip(state, playerId, { id, ms, type, bytes, now } = {}) {
+  const problem = clipProblem(state, playerId, { ms, type, bytes, now });
+  if (problem) return { error: problem };
+  if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) return err('bad_cmd');
+  if (radioOf(state).clips.some((c) => c.id === id)) return err('bad_cmd');
+  const s = fillIn(copy(state));
+  // (clock: when the talking started, not when the clip arrived: the button is let go, then it's sent.)
+  const clip = { n: s.radio.next++, id, from: playerId, clock: Math.max(0, clockOf(s, now) - ms), ms, type: typeBase(type) };
+  s.radio.clips.push(clip);
+  s.radio.bytes += bytes;
+  s.radio.lastAt[playerId] = now;
+  s.players[playerId].lastSeen = now;
+  s.updatedAt = now;
+  return { state: s, clip: { ...clip } };
+}
+
+// May `who` ({ player: id } or { watcher: id }) fetch clip n's audio?
+export function canFetchClip(state, who, n) {
+  if (!state || !who || typeof who !== 'object') return false;
+  const clip = radioOf(state).clips.find((c) => c.n === n);
+  if (!clip) return false;
+  if (state.phase === 'live') {
+    if (typeof who.player !== 'string') return false;
+    return hearsLive(playerOf(state, who.player), clip);
+  }
+  if (state.phase === 'over') {
+    if (!extrasOf(state.settings).radioSave) return false;
+    if (typeof who.player === 'string') {
+      const p = playerOf(state, who.player);
+      return !!p && p.status !== 'kicked';
+    }
+    if (typeof who.watcher === 'string') return has(watchersOf(state), who.watcher);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -1428,7 +2026,7 @@ function online(s, p, positions, now) {
   return now - last < TIMING.OFFLINE_MS;
 }
 
-function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn }) {
+function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn, nearFrom }) {
   const pos = posOf(positions, h.id);
   const base = { id: h.id, label: h.name };
   const paused = s.pausedAt !== null && s.pausedAt !== undefined;
@@ -1441,6 +2039,14 @@ function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, expos
   if (exposureOn && s.exposure.spots && isPoint(s.exposure.spots[h.id])) {
     const p = s.exposure.spots[h.id];
     return { ...base, kind: 'exposure', p: [p[0], p[1]], r: 0, age: Math.max(0, clock - s.exposure.at) };
+  }
+  // The parked driver (their own view only): free hiders close to the car, live. A Jammer that is on hides
+  // them, as from Radar.
+  if (nearFrom && !paused && pos && current(pos, now) && h.powers.jammer !== 'on') {
+    const spot = revealSpot(h, pos, clock);
+    if (spot && distanceM(nearFrom, spot) <= TIMING.DRIVER_NEAR_M) {
+      return { ...base, kind: 'near', p: spot, r: 0, age: ageOf(pos, now) };
+    }
   }
   if (!paused && pos && h.outsideSince !== null && clock - h.outsideSince >= TIMING.OUTSIDE_SHOW_MS) {
     return { ...base, kind: 'outside', p: pos.p, r: 0, age: ageOf(pos, now) };
@@ -1464,14 +2070,18 @@ function radarSafe(s, r) {
   return freeHiders(s).filter((h) => h.powers.jammer === 'on' || early.includes(h.id)).map((h) => h.id);
 }
 
-function marksFor(s, me, { clock, now, positions, sch }) {
+function marksFor(s, me, { clock, now, positions, sch, parked = false }) {
   const marks = [];
   if (!me) return marks;
+  const driverId = driverIdOf(s);
   if (s.phase === 'over') {
     for (const p of ordered(s)) {
       if (!active(p) || !p.team) continue;
       const pos = posOf(positions, p.id);
-      if (pos) marks.push({ id: p.id, kind: p.team, team: p.team, p: pos.p, r: 0, age: ageOf(pos, now), label: p.name });
+      if (!pos) continue;
+      const m = { id: p.id, kind: p.team, team: p.team, p: pos.p, r: 0, age: ageOf(pos, now), label: p.name };
+      if (p.id === driverId) m.driver = true;
+      marks.push(m);
     }
     return marks;
   }
@@ -1480,14 +2090,23 @@ function marksFor(s, me, { clock, now, positions, sch }) {
     for (const p of ordered(s)) {
       if (!isHunter(p)) continue;
       const pos = posOf(positions, p.id);
-      if (pos) marks.push({ id: p.id, kind: 'hunter', p: pos.p, r: 0, age: ageOf(pos, now), label: p.name });
+      if (!pos) continue;
+      const m = { id: p.id, kind: 'hunter', p: pos.p, r: 0, age: ageOf(pos, now), label: p.name };
+      if (p.id === driverId) m.driver = true;
+      marks.push(m);
+    }
+    // Only the driver's own view, only while parked (decided from the stored fixes).
+    let nearFrom = null;
+    if (parked && driverOf(s) && driverOf(s).id === me.id) {
+      const pos = posOf(positions, me.id);
+      if (pos) nearFrom = pos.p;
     }
     const r = s.radar;
     const radarLive = !!r && clock >= r.liveAt && clock < r.until;
     const blocked = !r ? [] : r.recorded ? (r.blocked || []) : radarSafe(s, r);
     const exposureOn = !!s.exposure && clock >= s.exposure.at && clock < s.exposure.at + TIMING.EXPOSURE_SHOW_MS;
     for (const h of freeHiders(s)) {
-      const m = hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn });
+      const m = hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn, nearFrom });
       if (m) marks.push(m);
     }
   } else if (isFree(me)) {
@@ -1506,7 +2125,7 @@ function marksFor(s, me, { clock, now, positions, sch }) {
   return marks;
 }
 
-export function viewFor(state, playerId, { now, positions = {}, since = 0 } = {}) {
+export function viewFor(state, playerId, { now, positions = {}, since = 0, radioSince = 0 } = {}) {
   const s = state;
   const me = playerOf(s, playerId);
   const live = s.phase === 'live';
@@ -1528,10 +2147,12 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0 } = {}
     sprintLeft: live && isFree(me) && me.powers.sprint === 'on' && me.sprintUntil !== null ? Math.max(0, me.sprintUntil - clock) : 0,
     outsideFor: live && isFree(me) && me.outsideSince !== null ? Math.max(0, clock - me.outsideSince) : null,
     caught: me.caughtAt !== null && me.caughtAt !== undefined ? { by: me.caughtBy, at: me.caughtAt } : null,
+    driver: isDriver(s, me),
   } : {
     id: String(playerId || ''), name: '', host: false, team: null, startTeam: null, status: 'left', faceV: 0,
-    powers: {}, sprintLeft: 0, outsideFor: null, caught: null,
+    powers: {}, sprintLeft: 0, outsideFor: null, caught: null, driver: false,
   };
+  const driverId = driverIdOf(s);
 
   const players = ordered(s)
     .filter((p) => s.phase !== 'lobby' || p.status === 'in')
@@ -1542,6 +2163,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0 } = {}
       };
       if (s.phase === 'lobby') row.pick = p.pick;
       if (p.caughtBy) row.caughtBy = p.caughtBy;
+      if (p.id === driverId) row.driver = true;
       return row;
     });
 
@@ -1605,6 +2227,23 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0 } = {}
     sos = { by: s.sos.by, name: by ? by.name : '', p: pos ? pos.p : null };
   }
 
+  // v1.1: the driver, the walkie-talkie, spectators
+  const parked = live && !!me && isDriver(s, me) && isParked(s, positions, now);
+  const marks = marksFor(s, me, { clock, now, positions, sch, parked });
+  const drive = live && me ? driveFor(s, me, { now, positions, parked, marks }) : null;
+  let radio = null;
+  if (live && isHunter(me)) {
+    const after = Number.isFinite(Number(radioSince)) ? Number(radioSince) : 0;
+    const mine = radioOf(s).clips.filter((c) => hearsLive(me, c));
+    const fresh = mine.filter((c) => c.n > after).slice(-RADIO_VIEW_MOST)
+      .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type }));
+    radio = { clips: fresh, last: mine.length ? mine[mine.length - 1].n : 0 };
+  }
+  const isHost = !!me && s.hostId === me.id;
+  const watchers = isHost ? Object.values(watchersOf(s))
+    .sort((a, b) => (a.joinedAt - b.joinedAt) || (a.id < b.id ? -1 : 1))
+    .map((w) => ({ id: w.id, name: w.name })) : [];
+
   const events = s.events
     .filter((e) => e.id > sinceId && canSee(e, me))
     .map((e) => {
@@ -1625,11 +2264,11 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0 } = {}
     paused,
     me: meView,
     players,
-    settings: copy(s.settings),
+    settings: copy(extrasOf(s.settings)),
     ring: s.ring ? copy(s.ring) : null,
     ringNow,
     timing,
-    marks: marksFor(s, me, { clock, now, positions, sch }),
+    marks,
     team,
     radar,
     pending,
@@ -1644,6 +2283,47 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0 } = {}
     // event, or to a phone starting afresh (since 0). The page keeps it (overId says which round it's for).
     summary: over && s.summary && !(Number.isFinite(s.overEventId) && sinceId >= s.overEventId) ? copy(s.summary) : null,
     overId: over && Number.isFinite(s.overEventId) ? s.overEventId : null,
+    watching: watchingCount(s, now),
+    driverPick: s.phase === 'lobby' && typeof s.driverPick === 'string' ? s.driverPick : null,
+    watchers,
+    drive,
+    radio,
+  };
+}
+
+// The driver's panel (the driver) or the pickup button's facts (another hunter who is in), else null.
+function driveFor(s, me, { now, positions, parked, marks }) {
+  if (!s.driver || !isHunter(me)) return null;
+  const d = playerOf(s, s.driver.id);
+  if (!d) return null;
+  const here = !!driverOf(s);
+  if (me.id !== d.id) {
+    const k = (s.pickups || []).find((x) => x.by === me.id && (x.state === 'open' || x.state === 'coming'));
+    return {
+      id: d.id, name: d.name, here,
+      mine: k ? { id: k.id, state: k.state, at: k.at, comingAt: k.comingAt } : null,
+    };
+  }
+  if (!here) return null;
+  const fix = driverFix(positions, d.id);
+  const pickups = (s.pickups || []).filter((k) => k.state === 'open' || k.state === 'coming').map((k) => {
+    const asker = playerOf(s, k.by);
+    const pos = posOf(positions, k.by);
+    return {
+      id: k.id, by: k.by, name: asker ? asker.name : '',
+      p: pos ? pos.p : [k.p[0], k.p[1]], age: pos ? ageOf(pos, now) : 0,
+      state: k.state, at: k.at,
+    };
+  });
+  return {
+    id: d.id, name: d.name, here: true, me: true,
+    parked: !!parked,
+    speedKmh: fix && Number.isFinite(fix.v) ? Math.round(fix.v * 3.6) : null,
+    fixAge: fix && Number.isFinite(fix.at) ? Math.max(0, now - fix.at) : null,
+    pickups,
+    near: marks.filter((m) => m.kind === 'near').length,
+    drivenM: Math.round(d.stats.drivenM || 0),
+    done: d.stats.pickups || 0,
   };
 }
 
@@ -1703,6 +2383,7 @@ function closeCallsOf(s, tracks, sch) {
   const players = ordered(s).filter((p) => p.startTeam && p.status !== 'kicked');
   const name = (id) => (playerOf(s, id) ? s.players[id].name : 'Someone');
   const done = s.catches.filter((c) => c.state === 'done');
+  const driverId = driverIdOf(s);
 
   // A hunter within CLOSE_CALL_M of a free hider, and no catch of that hider in the next minute.
   const pairs = new Map();
@@ -1712,7 +2393,7 @@ function closeCallsOf(s, tracks, sch) {
       if (pt.clock < sch.headStartMs || sideAt(d, pt.clock) !== 'hider') continue;
       if (done.some((c) => c.hider === d.id && c.at >= pt.clock && c.at <= pt.clock + GOT_AWAY_MS)) continue;
       for (const h of players) {
-        if (h.id === d.id || sideAt(h, pt.clock) !== 'hunter') continue;
+        if (h.id === d.id || h.id === driverId || sideAt(h, pt.clock) !== 'hunter') continue;
         const ht = tracks[h.id];
         if (!ht) continue;
         for (let j = firstFrom(ht, pt.clock - NEAR_WINDOW_MS); j < ht.length && ht[j].clock <= pt.clock + NEAR_WINDOW_MS; j++) {
@@ -1808,6 +2489,7 @@ export function summarize(state, trails = []) {
   const endClock = Number.isFinite(s.endClock) ? s.endClock : clockOf(s, s.updatedAt);
   const result = s.result || { reason: null, winners: [], mvp: null };
   const tracks = trackPoints(s, trails, endClock);
+  const driverId = driverIdOf(s);
   const players = ordered(s).filter((p) => p.startTeam && p.status !== 'kicked').map((p) => {
     let survivedMs = null;
     if (p.startTeam === 'hider') {
@@ -1818,7 +2500,7 @@ export function summarize(state, trails = []) {
     // The same number the MVP is picked by: only clear moves on good fixes. A phone that never gave a fix
     // good enough to count (worse than 50 m all game) has none (null), never its jittery route length.
     const walked = p.track || p.stats.distanceM > 0 ? p.stats.distanceM : null;
-    return {
+    const row = {
       id: p.id,
       name: p.name,
       startTeam: p.startTeam,
@@ -1831,7 +2513,18 @@ export function summarize(state, trails = []) {
       distanceM: walked === null ? null : Math.round(walked),
       powers: p.stats.powers.slice(),
     };
+    if (p.id === driverId) {
+      row.driver = true;
+      row.drivenM = Math.round(p.stats.drivenM || 0);
+      row.pickups = p.stats.pickups || 0;
+    }
+    return row;
   });
+  const driverRow = players.find((x) => x.driver) || null;
+  const radioSaved = !!extrasOf(s.settings).radioSave;
+  const clips = radioOf(s).clips.slice()
+    .sort((a, b) => (a.clock - b.clock) || (a.n - b.n))
+    .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type }));
   const routes = {};
   for (const [id, points] of Object.entries(tracks)) {
     routes[id] = thin(points, ROUTE_MOST).map((x) => [r6(x.p[0]), r6(x.p[1]), Math.round(x.clock / 1000)]);
@@ -1844,5 +2537,8 @@ export function summarize(state, trails = []) {
     closeCalls: closeCallsOf(s, tracks, sch),
     routes,
     events: s.log.filter((e) => e.text).map((e) => ({ clock: e.clock, text: e.text })),
+    driver: driverRow ? { id: driverRow.id, drivenM: driverRow.drivenM, pickups: driverRow.pickups } : null,
+    radioSaved: radioSaved,
+    radio: radioSaved && clips.length ? clips : null,
   };
 }

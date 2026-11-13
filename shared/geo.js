@@ -239,3 +239,16 @@ export function cleanRing(ring) {
   if (ring.kind === 'circle') return { kind: 'circle', center: pt(ring.center), radiusM: Math.round(ring.radiusM) };
   return { kind: 'polygon', points: ring.points.map(pt) };
 }
+
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+
+// The nearest of the 8 compass points for a bearing (0 = north, clockwise).
+export function compassWord(deg) {
+  const d = Number.isFinite(deg) ? ((deg % 360) + 360) % 360 : 0;
+  return COMPASS[Math.round(d / 45) % 8];
+}
+
+// How far and which way from one point to another: { m: metres rounded to 10, dir: a compass word }.
+export function directionWords(from, to) {
+  return { m: Math.round(distanceM(from, to) / 10) * 10, dir: compassWord(bearingDeg(from, to)) };
+}

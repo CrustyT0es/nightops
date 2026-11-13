@@ -11,6 +11,7 @@
 //   faceFor(id) -> a generated SVG data: URL (a silhouette on a coloured background)
 import { cleanSettings, withRecommendation, schedule, ringScaleAt, pingRadiusAt, TIMING, fmtClock } from '../shared/rules.js';
 import { scaleRing, moveM, ringContains, ringCenter, offsetM } from '../shared/geo.js';
+import { withDriver, DRIVER_SAMPLES } from './drive-fixtures.js'; // v1.1 PAGE-DRIVER
 
 export const CODE = 'WYKUSX';
 export const NOW = Date.UTC(2026, 10, 14, 2, 40, 0); // Fri 13 Nov 2026, 9:40 pm in Toronto
@@ -288,6 +289,12 @@ function timingFor(settings, clock, phase) {
 }
 
 export function fixture(params = {}) {
+  // v1.1 PAGE-DRIVER: as=driver (Sam drives) and driver=1 (a driver this round): the usual sample, then the driver
+  if ((params.as === 'driver' || params.driver === '1') && !params.drv) {
+    return withDriver(fixture({ ...params, as: params.as === 'driver' ? 'hunter' : params.as, drv: '1' }), params);
+  }
+  // v1.1 end PAGE-DRIVER
+  if (params.screen === 'watch') return watchFixture(params); // v1.1 PAGE-WATCH
   const screen = params.screen || 'game';
   const as = params.as || (screen === 'over' ? 'hider' : 'hunter');
   const host = params.host === '1' || params.host === true || params.host === 1;
@@ -463,6 +470,7 @@ export function fixture(params = {}) {
       : null,
     summary: phase === 'over' ? summaryFor(settings, hidersWin) : null,
   };
+  withRadio(view, params); // v1.1 PAGE-RADIO
 
   return {
     view,
@@ -470,6 +478,32 @@ export function fixture(params = {}) {
     game: { code: CODE, id: me0.id, secret: SECRET },
   };
 }
+
+// v1.1 PAGE-RADIO: the walkie-talkie. A live hunter who is in gets view.radio (radio=1: with a clip from Mia a few
+// seconds ago); over with radio=1: summary.radio with clips (radioSave=0: not saved, no clips).
+export const RADIO_CLIPS = [
+  { n: 1, from: 'p_mia', clock: 640000, ms: 4200, type: 'audio/mp4' },
+  { n: 2, from: 'p_sam', clock: 1063000, ms: 6100, type: 'audio/mp4' },
+  { n: 3, from: 'p_mia', clock: 1066000, ms: 3000, type: 'audio/mp4' },
+  { n: 4, from: 'p_jordan', clock: 2210000, ms: 9800, type: 'audio/mp4' },
+];
+function withRadio(view, params = {}) {
+  const ids = Object.fromEntries(Object.entries(PEOPLE).map(([k, p]) => [`p_${k}`, p.id]));
+  const clips = RADIO_CLIPS.map((c) => ({ ...c, from: ids[c.from] || c.from }));
+  view.radio = null;
+  if (view.phase === 'live' && view.me && view.me.team === 'hunter' && view.me.status === 'in') {
+    const mine = params.radio === '1' ? [{ n: 1, from: ids.p_mia, clock: Math.max(0, view.clock - 4000), ms: 3200, type: 'audio/mp4' }] : [];
+    view.radio = { clips: mine, last: mine.length };
+  }
+  if (view.summary) {
+    const saved = params.radioSave !== '0';
+    view.summary.radioSaved = saved;
+    view.summary.radio = saved && params.radio === '1' ? clips : null;
+    if (view.settings) view.settings = { ...view.settings, radioSave: saved };
+  }
+  return view;
+}
+// v1.1 end PAGE-RADIO
 
 // Move a view's clock on by ms (the preview's ?tick=1): timers count down, nothing else changes.
 export function tickView(view, ms) {
@@ -516,4 +550,70 @@ export const ALL = [
   { screen: 'game', as: 'out' },
   { screen: 'over', as: 'hider' },
   { screen: 'over', as: 'hunter', state: 'hunters' },
+  ...DRIVER_SAMPLES, // v1.1 PAGE-DRIVER
+  { screen: 'watch', state: 'lobby' }, // v1.1 PAGE-WATCH
+  { screen: 'watch', state: 'live' }, // v1.1 PAGE-WATCH
 ];
+
+// v1.1 PAGE-WATCH: a spectator's views (screen=watch&state=lobby|live|paused|over), shaped like the engine's
+// watchView: me null, `watcher`, `watch`, every player's spot as of the delayed clock, the pings so far, events
+// to all/hunters/hiders (never chat, never one player's) with `side`.
+export const WATCHER = { id: '9a8b7c6d5e4f', name: 'Grandpa Joe', secret: 'fedcba9876543210fedcba9876543210' };
+
+export function watchFixture(params = {}) {
+  const state = params.state || 'live';
+  const phase = state === 'lobby' ? 'lobby' : state === 'over' ? 'over' : 'live';
+  const base = fixture({
+    screen: phase === 'lobby' ? 'lobby' : phase === 'over' ? 'over' : 'game',
+    as: 'hunter',
+    state: state === 'paused' ? 'paused' : phase === 'over' ? 'time' : 'hunt',
+    host: '0',
+  }).view;
+  const T = base.clock;
+  const sch = schedule(base.settings);
+  const players = base.players.map((p) => ({ ...p, online: true }));
+  let marks = [];
+  if (phase === 'live') {
+    for (const k of ORDER) {
+      const row = players.find((p) => p.id === PEOPLE[k].id);
+      if (!row || row.status !== 'in') continue;
+      marks.push({ id: row.id, kind: row.team, team: row.team, p: SPOTS[k], r: 0, age: 4000 + ORDER.indexOf(k) * 3000, label: row.name });
+    }
+    const lastPing = sch.pings.filter((t) => t <= T).pop();
+    if (lastPing !== undefined) {
+      const r = pingRadiusAt(base.settings, lastPing);
+      for (const k of HIDERS) {
+        marks.push({ id: PEOPLE[k].id, kind: 'ping', p: round7(moveM(SPOTS[k], r * 0.45, ORDER.indexOf(k) * 61)), r, age: T - lastPing, label: PEOPLE[k].name });
+      }
+    }
+  } else if (phase === 'over') {
+    marks = base.marks;
+  }
+  const { list } = allEvents({ phase, clock: T, settings: base.settings, as: 'hunter', state: state === 'paused' ? 'paused' : 'hunt' });
+  const sideOf = (to) => (to === 'hunters' || to === 'hiders' ? to : 'all');
+  const events = list
+    .filter((e) => e.kind !== 'chat' && (e.to === 'all' || e.to === 'hunters' || e.to === 'hiders'))
+    .map((e) => ({ ...e, side: sideOf(e.to) }));
+  const view = {
+    ...base,
+    me: null,
+    watcher: { id: WATCHER.id, name: WATCHER.name },
+    watch: { delayMs: TIMING.SPECTATOR_DELAY_MS || 120000 },
+    watching: 3,
+    players,
+    marks,
+    team: null,
+    radar: null,
+    pending: [],
+    noSignal: [],
+    sos: base.paused ? { by: PEOPLE.priya.id, name: 'Priya', p: null } : null,
+    events,
+    lastEventId: list.length ? list[list.length - 1].id : 0,
+    radio: null,
+    drive: null,
+    watchers: [],
+    driverPick: null,
+  };
+  return { view, me: { name: WATCHER.name, face: null }, game: null, watch: { code: CODE, id: WATCHER.id, secret: WATCHER.secret } };
+}
+// v1.1 end PAGE-WATCH

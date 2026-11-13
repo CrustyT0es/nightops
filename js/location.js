@@ -1,6 +1,8 @@
 // Night Ops: where this phone is. A watchPosition wrapper that keeps the last fix and never throws.
 // createLocation() -> { start(), stop(), latest() -> {p, acc, speed, at}|null,
 //                       status() -> 'off'|'asking'|'ok'|'denied'|'unavailable', on(fn) -> off() }
+// setFast(on): while this phone is the driver it asks for a fresh fix much more often (the server only calls the
+// car parked on a fix under PARK_FRESH_MS old, and a phone standing still often stops sending them).
 // fn(status, latest) runs on every change. A phone standing still may stop sending fixes, so while started
 // it asks for a fresh one now and then; and it restarts the watch when the page comes back to the front
 // (iPhones can stop a watch in the background).
@@ -10,6 +12,11 @@ const WATCH = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 };
 const FRESHEN = { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 };
 const FRESHEN_EVERY_MS = 15000;
 const STALE_MS = 20000;
+// The driver's phone: a fix never older than about 8 s (well under the server's 20 s PARK_FRESH_MS), asked for
+// fresh (maximumAge 0: a cached one would come back with the same time and be dropped).
+export const FAST_FRESHEN_EVERY_MS = 4000;
+export const FAST_STALE_MS = 6000;
+const FAST_FRESHEN = { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 };
 
 const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 
@@ -18,12 +25,15 @@ export function createLocation({
   now = () => Date.now(),
   doc = globalThis.document,
   perms = globalThis.navigator?.permissions,
+  every = (fn, ms) => setInterval(fn, ms),
+  stopEvery = (t) => clearInterval(t),
 } = {}) {
   let state = geo ? 'off' : 'unavailable';
   let last = null;
   let watchId = null;
   let running = false;
   let freshen = null;
+  let fast = false;
   const fns = new Set();
 
   function emit() {
@@ -89,8 +99,23 @@ export function createLocation({
 
   function poke() {
     if (!running || !geo || state === 'denied') return;
-    if (last && now() - last.at < STALE_MS) return;
-    try { geo.getCurrentPosition(onFix, () => {}, FRESHEN); } catch { /* ignore */ }
+    if (last && now() - last.at < (fast ? FAST_STALE_MS : STALE_MS)) return;
+    try { geo.getCurrentPosition(onFix, () => {}, fast ? FAST_FRESHEN : FRESHEN); } catch { /* ignore */ }
+  }
+
+  function startFreshen() {
+    if (freshen) stopEvery(freshen);
+    freshen = every(poke, fast ? FAST_FRESHEN_EVERY_MS : FRESHEN_EVERY_MS);
+  }
+
+  function setFast(on) {
+    const want = !!on;
+    if (want === fast) return;
+    fast = want;
+    if (running) {
+      startFreshen();
+      if (fast) poke();
+    }
   }
 
   // Back to the front: the watch starts again. While blocked it asks once more too (the player may have just
@@ -132,14 +157,14 @@ export function createLocation({
     if (!last) setState('asking');
     watch();
     watchPermission();
-    if (!freshen) freshen = setInterval(poke, FRESHEN_EVERY_MS);
+    if (!freshen) startFreshen();
     if (doc && doc.addEventListener) doc.addEventListener('visibilitychange', onVisible);
   }
 
   function stop() {
     running = false;
     clearWatch();
-    if (freshen) clearInterval(freshen);
+    if (freshen) stopEvery(freshen);
     freshen = null;
     if (doc && doc.removeEventListener) doc.removeEventListener('visibilitychange', onVisible);
     setState(geo ? 'off' : 'unavailable');
@@ -148,6 +173,8 @@ export function createLocation({
   return {
     start,
     stop,
+    setFast,
+    fast: () => fast,
     latest: () => (last ? { p: last.p.slice(), acc: last.acc, speed: last.speed, at: last.at } : null),
     status: () => state,
     running: () => running,
