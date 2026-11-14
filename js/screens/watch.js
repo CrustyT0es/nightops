@@ -13,6 +13,7 @@ import { createMap } from '../map.js';
 import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js'; // v1.2 PAGE-MAP
 import { openSheet } from '../ui/sheet.js'; // v1.2 PAGE-MAP: the menu
 import { MODES, fmtClock } from '../../shared/rules.js';
+import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js'; // v1.3 PAGE-AFTER
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
@@ -83,6 +84,7 @@ export function pbpRows(events, most = PBP_MOST) {
     side: e.side === 'hunters' || e.side === 'hiders' ? e.side : 'all',
     kind: String(e.kind || ''),
     text: e.text.trim().slice(0, 240),
+    ...(e.kind === 'checkpoint' && isObj(e.data) && e.data.what === 'done' ? { event: e } : {}), // v1.3 PAGE-AFTER: its photo
   }));
 }
 
@@ -193,7 +195,10 @@ export function mount(root, app) {
       face({ name: p.name, src: faceSrc(p.id), size: 36 }),
       h('span.w-player-name', p.name),
       p.host ? h('span.chip.w-host', icon('crown', 14), 'Host') : null)));
-    fill(W.rules, ruleLines(v.settings).map(([k, words]) => h('div.w-rule', h('dt', k), h('dd', words))));
+    // v1.3 PAGE-AFTER: "6 checkpoints. Only the host knows where."
+    const cpRule = cpRuleLine(v);
+    fill(W.rules, [...ruleLines(v.settings), ...(cpRule ? [cpRule] : [])].map(([k, words]) => h('div.w-rule', h('dt', k), h('dd', words))));
+    // v1.3 end PAGE-AFTER
     text(W.watching, watchingWords(v.watching));
     W.watching.hidden = !v.watching;
     const ring = v.ring || null;
@@ -253,7 +258,11 @@ export function mount(root, app) {
     const stopSq = h('button.tray-sq.w-stop-sq', { type: 'button', 'aria-label': 'Stop watching' }, icon('door', 22));
     stopSq.addEventListener('click', () => { stopSq.disabled = true; try { app.stopWatching(); } catch (e) { console.error(e); } });
     tray.setMain([{ el: newest, grow: true }, stopSq]);
-    tray.setMore([h('div.w-sides', hunters, hiders, out), h('h2.label.w-pbp-title', 'Play-by-play'), pbpEmpty, pbpList]);
+    // v1.3 PAGE-AFTER: the checkpoints (zones on the map; scores and the newest done in the tray), 2 min late
+    if (S.cpW) { try { S.cpW.destroy(); } catch { /* ignore */ } }
+    S.cpW = cpWatch({ app, map: () => S.map });
+    // v1.3 end PAGE-AFTER
+    tray.setMore([h('div.w-sides', hunters, hiders, out), S.cpW.el, h('h2.label.w-pbp-title', 'Play-by-play'), pbpEmpty, pbpList]); // v1.3 PAGE-AFTER: S.cpW.el
     tray.el.classList.add('w-panel');
     fill(root, mapWrap, hud, tray.el);
     root.classList.add('w-live');
@@ -361,6 +370,7 @@ export function mount(root, app) {
       } catch (e) { console.error(e); }
     }
 
+    try { if (S.cpW) S.cpW.update(v); } catch (e) { console.error(e); } // v1.3 PAGE-AFTER
     const rows = pbpRows(v.events);
     const key = rows.map((r) => r.id).join(',');
     if (key !== S.pbpKey) {
@@ -369,7 +379,8 @@ export function mount(root, app) {
       S.newest = rows.length ? rows[0].id : 0;
       fill(W.pbpList, rows.map((r) => h(`li.w-pbp-item.s-${r.side}${before && r.id > before ? '.new' : ''}`,
         h('span.w-pbp-time.mono', r.clock === null ? '' : fmtClock(r.clock)),
-        h('span.w-pbp-text', r.text))));
+        h('span.w-pbp-text', r.text),
+        r.event ? cpEventThumb({ app, event: r.event }) : null))); // v1.3 PAGE-AFTER: the done's photo
       W.pbpEmpty.hidden = rows.length > 0;
       // v1.2 PAGE-MAP: the tray's main row shows the newest line
       text(W.newestText, rows.length ? rows[0].text : 'Nothing has happened yet.');
@@ -418,6 +429,7 @@ export function mount(root, app) {
       for (const off of offs.splice(0)) { try { off(); } catch { /* ignore */ } }
       if (S.ro) { try { S.ro.disconnect(); } catch { /* ignore */ } } // v1.2 PAGE-MAP
       if (S.offMode) { try { S.offMode(); } catch { /* ignore */ } }
+      if (S.cpW) { try { S.cpW.destroy(); } catch { /* ignore */ } } // v1.3 PAGE-AFTER
       dropMap();
       root.classList.remove('w-root', 'w-live');
     },

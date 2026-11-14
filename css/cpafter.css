@@ -1,0 +1,127 @@
+/* Night Ops v1.3 (PAGE-AFTER): Checkpoints after the game (the end screen's card), the replay's done pulses and
+   ticks, and the spectator's tray row. Violet (--cp) marks checkpoints; everything else keeps the over screen's look. */
+
+/* ---- the end screen's card ---- */
+.cpa-card::before { background: var(--cp, #c792ff); }
+.cpa-title { display: inline-flex; align-items: center; gap: 8px; color: var(--cp, #c792ff); }
+.cpa-sub { margin-top: 4px; }
+
+.cpa-board { display: grid; margin: 0; padding: 0; list-style: none; }
+.cpa-row {
+  display: grid;
+  grid-template-columns: 22px 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cpa-row:last-child { border-bottom: 0; }
+.cpa-place { color: var(--muted); font-size: 14px; font-weight: 700; text-align: center; }
+.cpa-row.won .cpa-place { color: var(--cp, #c792ff); }
+.cpa-row-main { min-width: 0; display: grid; gap: 2px; }
+.cpa-row-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cpa-name { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.cpa-row-line { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+.cpa-count { display: grid; justify-items: end; line-height: 1.1; }
+.cpa-count strong { font-size: 22px; color: var(--text); }
+.cpa-row.won .cpa-count strong { color: var(--cp, #c792ff); }
+.cpa-count span { color: var(--muted); font-size: 11px; }
+.cpa-row.me { background: linear-gradient(90deg, rgba(199, 146, 255, 0.08), transparent 70%); }
+
+.cpa-slots { display: grid; gap: 14px; padding-top: 4px; }
+.cpa-slot { display: grid; gap: 8px; }
+.cpa-slot-name { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.cpa-slot-n { color: var(--cp, #c792ff); }
+.cpa-slot-task { color: var(--muted); font-weight: 400; }
+.cpa-none { margin: 0; color: var(--muted); font-size: 14px; }
+.cpa-dones { display: flex; flex-wrap: wrap; gap: 10px 12px; }
+.cpa-done { display: grid; justify-items: center; gap: 4px; width: 84px; text-align: center; }
+.cpa-done-name { max-width: 100%; font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpa-done-note { font-size: 11px; color: var(--warn); }
+.cpa-done.struck .cpa-done-name { text-decoration: line-through; color: var(--muted); }
+.cpa-strike { min-height: 32px; padding: 0 8px; font-size: 12px; }
+
+/* A photo (or a "Stayed 20 s" tile): 84px square, a 44px tap area at least. */
+.cpa-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(199, 146, 255, 0.45);
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--cp, #c792ff);
+  font: inherit;
+  font-size: 12px;
+  touch-action: manipulation;
+}
+button.cpa-tile { cursor: pointer; }
+.cpa-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cpa-tile.stay { gap: 4px; align-content: center; color: var(--text-2); text-align: center; padding: 6px; }
+.cpa-tile.stay .icon { color: var(--cp, #c792ff); }
+.cpa-tile.struck { opacity: 0.4; border-style: dashed; }
+.cpa-pic { display: grid; place-items: center; width: 100%; height: 100%; }
+.cpa-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cpa-tile.small { width: 44px; height: 44px; border-radius: 10px; }
+
+.cpa-calls-box { display: grid; gap: 8px; }
+.cpa-calls { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cpa-call {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--cp, #c792ff);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.cpa-call-text { min-width: 0; display: grid; gap: 2px; }
+.cpa-call-kind { color: var(--cp, #c792ff); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.cpa-call-line { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.cpa-unopened { margin: 0; }
+
+/* ---- the replay: ticks, the legend, a pulse on the hider's head ---- */
+.over-tick.k-checkpoint { top: 3px; height: 12px; background: var(--cp, #c792ff); }
+.over-key.k-checkpoint::before { background: var(--cp, #c792ff); }
+
+.cpa-pulses { position: absolute; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; }
+.cpa-pulse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: -34px 0 0 -13px;   /* above the head, so the face stays in sight */
+  border-radius: 50%;
+  background: var(--cp, #c792ff);
+  color: var(--on-cp, #160a24);
+  box-shadow: 0 0 0 0 rgba(199, 146, 255, 0.7);
+  animation: cpa-pulse 1.2s var(--ease, ease-out) infinite;
+}
+@keyframes cpa-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(199, 146, 255, 0.7); }
+  100% { box-shadow: 0 0 0 16px rgba(199, 146, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cpa-pulse { animation: none; box-shadow: 0 0 0 4px rgba(199, 146, 255, 0.35); }
+}
+
+/* ---- the spectator's tray row and play-by-play ---- */
+.cpa-w { display: grid; gap: 6px; padding: 10px 0 2px; border-top: 1px solid var(--line); }
+.cpa-w-now { margin: 0; font-size: 15px; line-height: 1.4; color: var(--text); overflow-wrap: anywhere; }
+.cpa-w-scores { margin: 0; font-size: 14px; color: var(--text-2); overflow-wrap: anywhere; }
+.cpa-w-dones { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.cpa-w-done { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 10px; }
+.cpa-w-done.struck .cpa-w-what { text-decoration: line-through; color: var(--muted); }
+.cpa-w-words { display: grid; min-width: 0; }
+.cpa-w-what { font-size: 14px; color: var(--text-2); overflow-wrap: anywhere; }
+.cpa-w-time { font-size: 12px; color: var(--muted); }
+.w-pbp-item > .cpa-tile { grid-column: 2; justify-self: start; }

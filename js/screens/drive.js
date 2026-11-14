@@ -18,11 +18,13 @@ import { holdInert } from '../ui/inert.js';
 import { fmtClock, fmtDistance } from '../../shared/rules.js';
 import { directionWords, isPoint } from '../../shared/geo.js';
 import { speechReady } from '../alerts.js';
+import { cpSpeech, cpDriveLine } from './cpplay.js'; // v1.3 PAGE-PLAY
 
 export const VOICE_KEY = 'nightops-drive-voice';   // 'off' = the driver muted the voice
 export const DRIVE_STALE_MS = 120000;              // events older than this aren't spoken (a phone that slept)
 export const FRESH_PING_MS = 45000;                // a ping mark this young came with the ping just heard
 export const LIVE_KINDS = ['near', 'radar', 'exposure', 'outside'];
+LIVE_KINDS.push('overstay'); // v1.3 PAGE-PLAY: a hider live at a checkpoint
 export const TIME_CALLS = [[300000, '5 minutes left.'], [60000, '1 minute left.']];
 export const QUEUE_MOST = 6;                       // things waiting to be said; older ones go first
 const TICK_MS = 500;
@@ -143,6 +145,7 @@ export function speechFor(e, view) {
   const data = e.data && typeof e.data === 'object' ? e.data : {};
   const me = view.me || {};
   switch (e.kind) {
+    case 'checkpoint': return cpSpeech(e, view, driverSpot(view)); // v1.3 PAGE-PLAY
     case 'ping': {
       if (e.to !== 'hunters') return null;
       const from = driverSpot(view);
@@ -449,6 +452,7 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
 
   const tapLine = h('p.drive-tap', { hidden: true }, icon('speaker', 22), h('span', TAP_LINE));
   const talking = h('p.drive-talking', { hidden: true, role: 'status' });
+  const cpLine = h('p.drive-cp', { hidden: true }); // v1.3 PAGE-PLAY: "Checkpoint 2, 7-Eleven: 400 m north-east, closes in 4 min"
   const pkTitle = h('h2.label.drive-sec-title', 'Pickups');
   const pkList = pickupList(app, true);
   const pkBox = h('section.drive-pickups', { hidden: true, 'aria-label': 'Pickups' }, pkTitle, pkList.el);
@@ -466,7 +470,7 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
         h('p.drive-kicker', icon('car', 18), h('span', 'Driving')),
         h('div.drive-top-btns', voiceBtn, sosBtn, menuBtn)),
       h('div.drive-time', h('span.label', 'Left'), leftNum)),
-    h('div.drive-body', tapLine, talking, pkBox, hdBox),
+    h('div.drive-body', tapLine, talking, cpLine, pkBox, hdBox), // v1.3 PAGE-PLAY: cpLine
     h('footer.drive-foot', radioBox, parkLine));
   container.appendChild(layer);
 
@@ -529,6 +533,9 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     S.lastLeft = left;
     setHidden(sosBtn, view.phase !== 'live' || !!view.paused);
     if (!shown) return;
+    // v1.3 PAGE-PLAY: the open checkpoint, from the car
+    { const cl = cpDriveLine(view, driverSpot(view), d); setHidden(cpLine, !cl); text(cpLine, cl); }
+    // v1.3 end PAGE-PLAY
     const pk = pickupLines(view);
     pkList.update(pk);
     setHidden(pkBox, !pk.length);

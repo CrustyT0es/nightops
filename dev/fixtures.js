@@ -12,6 +12,9 @@
 import { cleanSettings, withRecommendation, schedule, ringScaleAt, pingRadiusAt, TIMING, fmtClock } from '../shared/rules.js';
 import { scaleRing, moveM, ringContains, ringCenter, offsetM } from '../shared/geo.js';
 import { withDriver, DRIVER_SAMPLES } from './drive-fixtures.js'; // v1.1 PAGE-DRIVER
+import { withCpPlay } from './cpplay-fixtures.js'; // v1.3 PAGE-PLAY
+import { withCpSetup } from './cpsetup-fixtures.js'; // v1.3 PAGE-SETUP
+import { withCpOver, withCpWatch } from './cpafter-fixtures.js'; // v1.3 PAGE-AFTER
 
 export const CODE = 'WYKUSX';
 export const NOW = Date.UTC(2026, 10, 14, 2, 40, 0); // Fri 13 Nov 2026, 9:40 pm in Toronto
@@ -295,6 +298,13 @@ export function fixture(params = {}) {
   }
   // v1.1 end PAGE-DRIVER
   if (params.screen === 'watch') return watchFixture(params); // v1.1 PAGE-WATCH
+  // v1.3 PAGE-SETUP: screen=checkpoints (the editor: the host's lobby) and mode=checkpoints in the lobby
+  if ((params.screen === 'checkpoints' || params.mode === 'checkpoints') && !params.cpset) {
+    const inner = { ...params, cpset: '1' };
+    if (params.screen === 'checkpoints') Object.assign(inner, { screen: 'lobby', host: '1' });
+    return withCpSetup(fixture(inner), params);
+  }
+  // v1.3 end PAGE-SETUP
   const screen = params.screen || 'game';
   const as = params.as || (screen === 'over' ? 'hider' : 'hunter');
   const host = params.host === '1' || params.host === true || params.host === 1;
@@ -473,6 +483,8 @@ export function fixture(params = {}) {
   withRadio(view, params); // v1.1 PAGE-RADIO
   withCam(view, params); // v1.2 PAGE-CAM
   withHidersRadio(view, params); // v1.2 PAGE-RADIO
+  withCpPlay(view, params); // v1.3 PAGE-PLAY: &cp=lead|inside|safe|overstay|again|done (hider), waiting|shown|overstay
+  if (!params.cpw) withCpOver(view, params); // v1.3 PAGE-AFTER: screen=over&cp=1
 
   return {
     view,
@@ -601,6 +613,7 @@ export function watchFixture(params = {}) {
     as: 'hunter',
     state: state === 'paused' ? 'paused' : phase === 'over' ? 'time' : 'hunt',
     host: '0',
+    cpw: '1', // v1.3 PAGE-AFTER: withCpWatch adds the checkpoints below
   }).view;
   const T = base.clock;
   const sch = schedule(base.settings);
@@ -647,6 +660,7 @@ export function watchFixture(params = {}) {
     watchers: [],
     driverPick: null,
   };
+  withCpWatch(view, params); // v1.3 PAGE-AFTER: &cp=1
   return { view, me: { name: WATCHER.name, face: null }, game: null, watch: { code: CODE, id: WATCHER.id, secret: WATCHER.secret } };
 }
 // v1.1 end PAGE-WATCH

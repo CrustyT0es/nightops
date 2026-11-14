@@ -71,8 +71,16 @@ export function howToPlay() {
     part('Stay safe',
       'Stay in the ring. No roads, no private property, no climbing fences or going into closed places.',
       "It's dark: watch your step, bring a light, and tell someone at home where you are. If anything feels wrong, press SOS."),
+    // v1.3 PAGE-SETUP: Checkpoints
+    part('Checkpoints',
+      'In Checkpoints, the host puts checkpoints on the map, like stores or a statue. One is open at a time.',
+      'Hiders see each new checkpoint a little before the hunters. Go there, do the task and take the photo. Each one counts once.',
+      "Inside the open checkpoint you're safe for a few minutes. Stay too long, or go back to one you already did, and the hunters see you.",
+      'Only go into the open checkpoint: other stores are off limits. No running or yelling inside stores; hunters wait outside.'),
+    // v1.3 end PAGE-SETUP
     part('Who wins',
-      'Hiders win if any of them are still free when time runs out. Hunters win by catching everyone.'));
+      'Hiders win if any of them are still free when time runs out. Hunters win by catching everyone.',
+      'In Checkpoints, the hider with the most checkpoints wins.')); // v1.3 PAGE-SETUP: the Checkpoints line
   openSheet({ title: 'How to play', body, actions: [{ label: 'Got it', kind: 'primary' }], className: 'home-how-sheet' });
 }
 

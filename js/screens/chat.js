@@ -15,6 +15,7 @@ import { icon } from '../ui/icons.js';
 import { openSheet } from '../ui/sheet.js';
 import { banner } from '../ui/banner.js';
 import { LIMITS } from '../../shared/rules.js';
+import { photoThumb, strikeActions } from './cpplay.js'; // v1.3 PAGE-PLAY
 
 export const QUICK = Object.freeze({
   hunter: Object.freeze(['On my way', 'I see someone', 'Need backup']),
@@ -230,9 +231,17 @@ export function openChat(app, { onClose = null } = {}) {
       return li;
     }
     const time = timeOf(e.at);
+    // v1.3 PAGE-PLAY: a checkpoint done with a photo shows it small (a tap opens it big)
+    const cpd = e.kind === 'checkpoint' && e.data && e.data.what === 'done' && typeof e.data.photo === 'string' && e.data.photo
+      ? h('span.chat-event-photo', photoThumb(app, e.data.photo, {
+        title: String(e.text || 'Checkpoint photo').replace(/\.$/, ''), size: 64,
+        actions: Number.isInteger(e.data.n) ? () => strikeActions(app, e.data.n) : null,
+      }))
+      : null;
+    // v1.3 end PAGE-PLAY
     return h(`li.chat-event.k-${String(e.kind || 'info').replace(/[^a-z-]/g, '')}`, { 'data-id': String(e.id) },
       time ? h('span.chat-event-time', time) : null,
-      h('span.chat-event-text', String(e.text || '')));
+      h('span.chat-event-text', String(e.text || '')), cpd);
   }
 
   function showable(events) {

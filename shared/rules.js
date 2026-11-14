@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM } from './geo.js';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -18,6 +18,17 @@ export const LIMITS = {
   camGameBytes: 900000000,  // a round's clips from everyone (the handler's default; createHandler can lower it)
   camMoments: 1000,         // moments kept in one round (newest)
   camClipsEach: 200,        // clips one player may upload in one round
+  // v1.3: Checkpoints
+  checkpoints: 12,          // most checkpoints in the list
+  checkpointsLeast: 2,      // Start needs at least this many (and at least this many that fit the game time)
+  cpApartM: 60,             // checkpoint centres at least this far apart
+  cpRadius: Object.freeze({ least: 20, most: 80, start: 35 }), // a checkpoint's zone radius, metres (whole numbers)
+  cpName: 40,               // letters in a checkpoint's name
+  cpTask: 80,               // letters in its task (may be empty)
+  cpPhotoBytes: 60000,      // one photo's JPEG, decoded
+  cpPhotoSide: 720,         // the page makes the longest side at most this
+  cpPhotos: 300,            // photos stored in one round (then 'cp_full')
+  cpPhotoIds: 12,           // photos fetched in one request
 };
 
 export const TIMING = {
@@ -62,11 +73,26 @@ export const TIMING = {
   CAM_NEAR_M: 50,              // close call for the camera: a hunter this close to a free hider...
   CAM_NEAR_FRESH_MS: 20000,    // ...both fixes no older than this...
   CAM_NEAR_GAP_MS: 60000,      // ...and at most one such moment per hunter-hider pair this often
+  // v1.3: Checkpoints
+  CP_FRESH_MS: 20000,          // a fix counts for "inside" only this fresh (now - at and now - got)
+  CP_ACC_MAX_M: 50,            // a fix worse than this says nothing about inside/outside
+  CP_ACC_SLACK_M: 15,          // inside = within r + min(acc, this) of the centre
+  CP_STAY_MS: 20000,           // photos off: inside this long (one visit) counts it
+  CP_OPEN_LEAST_MS: 180000,    // Auto never makes a checkpoint shorter than 3 min
+  CP_LAST_MS: 180000,          // a checkpoint isn't opened (for the hunters) later than this before time's up
+  CP_PHOTO_GAP_MS: 5000,       // one photo per player this often
+  CP_TOLD_GAP_MS: 60000,       // "You're at the checkpoint" at most this often per hider per checkpoint
+  CP_NEAR_CALL_M: 40,          // close call: a hunter this close when a checkpoint was done
+  CP_HOLD_MS: 10000,           // the safe zone (and the photo) need a fix that kept the visit going this recently
+  CP_POOR_SLACK_M: 40,         // a poor fix (worse than CP_ACC_MAX_M) keeps an open visit going within r + this
+  CP_BACK_MS: 10000,           // back in this soon after a visit ended: the same visit goes on (GPS jitter at the edge)
+  CP_TAG_NEAR_M: 100,          // a refused tag names the safe zone only to a hunter this close to it (once shown)
 };
 
 export const MODES = {
   classic: { label: 'Classic', line: 'A third hunt, the rest hide. Caught hiders join the hunters.' },
   infection: { label: 'Infection', line: 'One hunter to start. Everyone caught joins them.' },
+  checkpoints: { label: 'Checkpoints', line: 'Hiders race to checkpoints and take a photo at each. Most checkpoints wins.' },
 };
 
 export const POWERS = {
@@ -102,6 +128,12 @@ export const DEFAULTS = Object.freeze({
   radioHiders: false,      // hiders get their own walkie-talkie
   cam: false,              // phones film clips for the replay (only players who say OK)
   camMode: 'highlights',   // 'highlights' or 'everything' (EXTRA_CHOICES)
+  // v1.3 Checkpoints (ordinary settings: a hand change puts them in `custom`; presets never touch them)
+  cpOpenMin: 0,            // minutes each checkpoint stays open; 0 = Auto (the game time shared out so all fit)
+  cpLeadMin: 2,            // hiders see each checkpoint this many minutes before the hunters
+  cpSafeMin: 3,            // safe time inside a checkpoint, per hider per checkpoint in total
+  cpPhoto: true,           // a photo is needed; false = staying inside CP_STAY_MS counts it
+  cpOrder: 'host',         // 'host' (the host's order) | 'shuffle' (shuffled at Start)
 });
 
 // The extra switches (booleans; never counted as "changed by hand", never in presets or recommendations).
@@ -126,7 +158,9 @@ export const CAM_MODES_UI = [
 ];
 
 // Moment kinds ('mark' = the phone's own "Record this", never from the server).
-export const CAM_KINDS = Object.freeze(['radio', 'tag', 'denied', 'caught', 'near', 'power', 'sos', 'outside', 'over', 'mark']);
+// (v1.3 appended 'checkpoint' and 'overstay', so older lists stay valid.)
+export const CAM_KINDS = Object.freeze(['radio', 'tag', 'denied', 'caught', 'near', 'power', 'sos', 'outside', 'over', 'mark',
+  'checkpoint', 'overstay']);
 
 export const PRESETS = {
   quick: { label: 'Quick', line: '20 min, pings every 3', settings: { durationMin: 20, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1 } },
@@ -146,8 +180,19 @@ export const SETTINGS_UI = [
   { key: 'closingPingEveryMin', label: 'Ping every, closing in', kind: 'stepper', min: 1, max: 5, step: 1, unit: 'min', show: (s) => s.closingMin > 0 },
   { key: 'shrink', label: 'Ring shrinks while closing in', kind: 'switch', show: (s) => s.closingMin > 0 },
   { key: 'finalSizePct', label: 'Final ring size', kind: 'stepper', min: 20, max: 90, step: 10, unit: '%', show: (s) => s.closingMin > 0 && s.shrink },
-  { key: 'caught', label: 'Caught hiders', kind: 'options', options: [['join', 'Become hunters'], ['out', 'Sit out and watch']], show: (s) => s.mode === 'classic' },
+  { key: 'caught', label: 'Caught hiders', kind: 'options', options: [['join', 'Become hunters'], ['out', 'Sit out and watch']], show: (s) => s.mode !== 'infection' },
 ];
+
+// v1.3: the lobby's Checkpoints card, in this order (the same item shape as SETTINGS_UI).
+export const CP_SETTINGS_UI = [
+  { key: 'cpOpenMin', label: 'Each checkpoint is open for', kind: 'stepper', min: 0, max: 30, step: 1, unit: 'min', zero: 'Auto' },
+  { key: 'cpLeadMin', label: "Hiders' head start on each", kind: 'stepper', min: 0, max: 5, step: 1, unit: 'min', zero: 'None' },
+  { key: 'cpSafeMin', label: 'Safe time inside', kind: 'stepper', min: 1, max: 10, step: 1, unit: 'min' },
+  { key: 'cpPhoto', label: 'Photo needed', kind: 'switch', hint: 'Off: staying inside for 20 seconds counts it.' },
+  { key: 'cpOrder', label: 'Order', kind: 'options', options: [['host', 'In my order'], ['shuffle', 'Shuffled']] },
+];
+
+export const CP_TASK_IDEAS = ['Buy a pack of gum', 'Selfie by the sign', 'Selfie with the big statue', 'Photo with something red'];
 
 const INTS = {
   hunters: [0, LIMITS.players - 1, 1],
@@ -157,13 +202,18 @@ const INTS = {
   closingMin: [0, 30, 5],
   closingPingEveryMin: [1, 5, 1],
   finalSizePct: [20, 90, 10],
+  cpOpenMin: [0, 30, 1],
+  cpLeadMin: [0, 5, 1],
+  cpSafeMin: [1, 10, 1],
 };
 const CHOICES = {
   mode: Object.keys(MODES),
   pingWarnSec: [0, 15, 30, 60],
   pingAccuracyM: [0, 50, 100, 200],
   caught: ['join', 'out'],
+  cpOrder: ['host', 'shuffle'],
 };
+const CP_INTS = ['cpOpenMin', 'cpLeadMin', 'cpSafeMin'];
 
 function snap(v, [min, max, step]) {
   // Only numbers and number-like strings: Number(null), Number('') and Number(true) are 0 or 1, not a choice.
@@ -190,6 +240,7 @@ export function cleanSettings(input, base = DEFAULTS) {
     if (key in input && list.includes(input[key])) out[key] = input[key];
   }
   if ('shrink' in input && typeof input.shrink === 'boolean') out.shrink = input.shrink;
+  if ('cpPhoto' in input && typeof input.cpPhoto === 'boolean') out.cpPhoto = input.cpPhoto;
   for (const key of EXTRA_KEYS) if (key in input && typeof input[key] === 'boolean') out[key] = input[key];
   for (const [key, list] of Object.entries(EXTRA_CHOICES)) {
     if (key in input && list.includes(input[key])) out[key] = input[key];
@@ -207,7 +258,21 @@ export function cleanSettings(input, base = DEFAULTS) {
   return fixUp(out);
 }
 
+// v1.3: a missing or invalid Checkpoints field gets its default (older stored settings); an open time of 1 or
+// 2 minutes becomes 3 (Auto never goes below 3 either). Changes s in place and returns it.
+export function fixCheckpointSettings(s) {
+  for (const key of CP_INTS) {
+    const [min, max] = INTS[key];
+    if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) s[key] = DEFAULTS[key];
+  }
+  if (s.cpOpenMin === 1 || s.cpOpenMin === 2) s.cpOpenMin = 3;
+  if (typeof s.cpPhoto !== 'boolean') s.cpPhoto = DEFAULTS.cpPhoto;
+  if (!CHOICES.cpOrder.includes(s.cpOrder)) s.cpOrder = DEFAULTS.cpOrder;
+  return s;
+}
+
 function fixUp(s) {
+  fixCheckpointSettings(s);
   // (Older stored settings lack the v1.1/v1.2 extras: they get the defaults.)
   for (const key of EXTRA_KEYS) if (typeof s[key] !== 'boolean') s[key] = DEFAULTS[key];
   for (const [key, list] of Object.entries(EXTRA_CHOICES)) if (!list.includes(s[key])) s[key] = DEFAULTS[key];
@@ -247,11 +312,12 @@ export function ringSize(ring) {
   return { key: 'huge', label: 'Huge', across };
 }
 
+// (cpLeadMin and cpSafeMin only matter in Checkpoints; cpOpenMin is never recommended: its Auto fits already.)
 const BY_SIZE = {
-  small: { durationMin: 25, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1 },
-  medium: { durationMin: 45, headStartMin: 5, pingEveryMin: 5, closingMin: 10, closingPingEveryMin: 2 },
-  large: { durationMin: 60, headStartMin: 7, pingEveryMin: 6, closingMin: 10, closingPingEveryMin: 2 },
-  huge: { durationMin: 90, headStartMin: 10, pingEveryMin: 7, closingMin: 15, closingPingEveryMin: 3 },
+  small: { durationMin: 25, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1, cpLeadMin: 1, cpSafeMin: 2 },
+  medium: { durationMin: 45, headStartMin: 5, pingEveryMin: 5, closingMin: 10, closingPingEveryMin: 2, cpLeadMin: 2, cpSafeMin: 3 },
+  large: { durationMin: 60, headStartMin: 7, pingEveryMin: 6, closingMin: 10, closingPingEveryMin: 2, cpLeadMin: 3, cpSafeMin: 4 },
+  huge: { durationMin: 90, headStartMin: 10, pingEveryMin: 7, closingMin: 15, closingPingEveryMin: 3, cpLeadMin: 3, cpSafeMin: 5 },
 };
 
 // The recommended timings for this ring and number of players (only the timing fields).
@@ -320,4 +386,152 @@ export function fmtDistance(m) {
   if (tens < 1000) return `${tens || 0} m`; // (|| 0: never "-0 m")
   const km = m / 1000;
   return `${km.toFixed(km < 9.95 ? 1 : 0)} km`; // 996 m is "1.0 km", never "1000 m"; 9,960 m is "10 km"
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Text: names, messages and checkpoint words are cleaned the same way (the engine's cleanName and cleanChat
+// use these too).
+
+// Letters that only cause trouble in a name or a message: control characters, zero-width spaces, and the
+// direction marks that can flip text around (U+061C and U+180E too). The joiner U+200D is kept only between
+// two visible letters, where it holds an emoji or some scripts together; alone it would make a blank name.
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b\u200c\u200e\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
+const ZWJ = '\u200d';
+// (Unicode property escapes, no look-behind: this file also runs in the page, and iPhones before iOS 16.4
+// can't even read a regular expression with a look-behind in it.)
+const VISIBLE_NEXT_TO_ZWJ = /[\p{L}\p{M}\p{N}\p{S}]/u;
+// What two names are compared by: the letters a person sees. Fillers that draw nothing (the Hangul fillers,
+// the blank braille cell, variation selectors, tag letters, the joiner...) and spaces don't count.
+const NOT_SEEN = /[\p{Default_Ignorable_Code_Point}\u2800\s]/gu;
+const SEEN_LETTER = /[\p{L}\p{N}\p{S}\p{P}]/u;
+
+export function withoutLoneJoiners(text) {
+  if (!text.includes(ZWJ)) return text;
+  const a = Array.from(text);
+  let out = '';
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === ZWJ && !(i > 0 && i < a.length - 1 && VISIBLE_NEXT_TO_ZWJ.test(a[i - 1]) && VISIBLE_NEXT_TO_ZWJ.test(a[i + 1]))) continue;
+    out += a[i];
+  }
+  return out;
+}
+
+// One line, no invisible letters, spaces squeezed.
+export function tidyText(text) {
+  if (typeof text !== 'string') return '';
+  return withoutLoneJoiners(text.normalize('NFC').replace(INVISIBLE, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+// A name or message as it is compared: what can be seen, in lower case ('' = nothing visible at all).
+export function nameKey(text) {
+  if (typeof text !== 'string') return '';
+  return text.normalize('NFKC').replace(NOT_SEEN, '').toLowerCase();
+}
+
+export function seenAtAll(text) {
+  return SEEN_LETTER.test(nameKey(text));
+}
+
+export function cutText(text, most) {
+  const a = Array.from(text);
+  return a.length > most ? a.slice(0, most).join('') : text;
+}
+
+// A line as it will be shown, at most `most` letters ('' = nothing that can be seen).
+export function cleanLine(text, most) {
+  const out = withoutLoneJoiners(cutText(tidyText(text), most)).trim();
+  return seenAtAll(out) ? out : '';
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// v1.3: Checkpoints
+
+// When each checkpoint opens (see the contract's "cpPlan"). Pure.
+export function cpPlan(settings, count) {
+  const s = fixCheckpointSettings({ ...(settings || DEFAULTS) });
+  const min = 60000;
+  const safeMs = s.cpSafeMin * min;
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  if (n < 1) return { openMs: 0, leadMs: 0, safeMs, slots: [], skipped: 0 };
+  const sch = schedule(s);
+  const H = sch.headStartMs;
+  const E = sch.endMs;
+  const openMs = s.cpOpenMin > 0 ? s.cpOpenMin * min
+    : Math.max(TIMING.CP_OPEN_LEAST_MS, Math.floor((E - H) / n / min) * min);
+  const leadMs = Math.max(0, Math.min(s.cpLeadMin * min, openMs - min));
+  const slots = [];
+  for (let k = 0; k < n; k++) {
+    const show = H + k * openMs;
+    if (k > 0 && show > E - TIMING.CP_LAST_MS) break;
+    slots.push({ k, at: Math.max(0, show - leadMs), show, close: E });
+  }
+  for (let k = 0; k < slots.length - 1; k++) slots[k].close = slots[k + 1].at;
+  return { openMs, leadMs, safeMs, slots, skipped: n - slots.length };
+}
+
+const CP_ID = /^[a-z0-9]{1,8}$/;
+const CP_OSM = /^(node|way|relation)\/[0-9]{1,15}$/;
+const r7 = (v) => Math.round(v * 1e7) / 1e7;
+
+function isEntry(c) {
+  return !!c && typeof c === 'object' && !Array.isArray(c) && isPoint(c.p);
+}
+
+// The host's checkpoints made safe to store: entries without a valid point dropped, cut to LIMITS.checkpoints.
+export function cleanCheckpoints(list) {
+  if (!Array.isArray(list)) return [];
+  const entries = list.filter(isEntry).slice(0, LIMITS.checkpoints);
+  const taken = new Set();
+  const ids = entries.map((c) => {
+    if (typeof c.id === 'string' && CP_ID.test(c.id) && !taken.has(c.id)) {
+      taken.add(c.id);
+      return c.id;
+    }
+    return null;
+  });
+  let next = 1;
+  const { least, most, start } = LIMITS.cpRadius;
+  return entries.map((c, i) => {
+    let id = ids[i];
+    if (id === null) {
+      while (taken.has(`k${next}`)) next++;
+      id = `k${next}`;
+      taken.add(id);
+    }
+    const r = typeof c.r === 'number' && Number.isFinite(c.r) ? Math.max(least, Math.min(most, Math.round(c.r))) : start;
+    return {
+      id,
+      p: [r7(c.p[0]), r7(c.p[1])],
+      r,
+      name: cleanLine(c.name, LIMITS.cpName),
+      task: cleanLine(c.task, LIMITS.cpTask),
+      osm: typeof c.osm === 'string' && CP_OSM.test(c.osm) ? c.osm : null,
+    };
+  });
+}
+
+// '' when the list works with this ring, else a sentence saying what's wrong (fewer than 2 is fine here: the
+// editor saves one at a time; Start checks the count).
+export function checkpointProblem(list, ring) {
+  if (!Array.isArray(list)) return 'Add the checkpoints again.';
+  if (list.length > LIMITS.checkpoints) return `At most ${LIMITS.checkpoints} checkpoints.`;
+  const { least, most } = LIMITS.cpRadius;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    const n = i + 1;
+    if (!isEntry(c)) return `Checkpoint ${n} is off the map.`;
+    if (!cleanLine(c.name, LIMITS.cpName)) return `Give checkpoint ${n} a name.`;
+    if (!Number.isInteger(c.r) || c.r < least || c.r > most) return `Checkpoint ${n}: the zone must be ${least} to ${most} m around the spot.`;
+  }
+  if (ringProblem(ring)) return 'Draw the ring first.';
+  const name = (c) => cleanLine(c.name, LIMITS.cpName);
+  for (const c of list) if (outsideByM(ring, c.p) > 0) return `${name(c)} is outside the ring.`;
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      if (distanceM(list[i].p, list[j].p) < LIMITS.cpApartM) {
+        return `${name(list[i])} and ${name(list[j])} are too close. Keep checkpoints at least ${LIMITS.cpApartM} m apart.`;
+      }
+    }
+  }
+  return '';
 }

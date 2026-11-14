@@ -381,10 +381,19 @@ export function placeLabels(items, { gap = 4, pad = 2 } = {}) {
 }
 
 // Which face stands for a merged group: you > SOS > live > offline > the newest ping > the rest.
+// v1.3 PAGE-SETUP: a checkpoint slot's state at a clock (the replay's helper): open from `at` until `close`.
+export function spotState(slot, clockMs) {
+  if (!slot || !Number.isFinite(clockMs) || !Number.isFinite(slot.at)) return null;
+  if (clockMs < slot.at) return null;
+  return Number.isFinite(slot.close) && clockMs >= slot.close ? 'closed' : 'active';
+}
+// v1.3 end PAGE-SETUP
+
 export function markRank(kind, { me = false, age = 0 } = {}) {
   if (me) return 100;
   if (kind === 'sos') return 90;
   if (kind === 'radar' || kind === 'exposure' || kind === 'outside' || kind === 'near' || kind === 'hunter' || kind === 'hider' || kind === 'self') return 60;
+  if (kind === 'overstay') return 60; // v1.3 PAGE-PLAY: stayed at a checkpoint too long (live)
   if (kind === 'route') return 50;
   if (kind === 'offline') return 30;
   if (kind === 'ping') return 20 + Math.max(0, 9 - Math.min(9, (Number(age) || 0) / 60000));
@@ -405,9 +414,11 @@ const KINDS = {
   seen: { team: 'hider', area: 'seen', age: true },
   sos: { team: 'hunter', sos: true },
   near: { team: 'hider', pulse: true, chip: 'Near car', chipKind: 'live' }, // v1.1 PAGE-DRIVER: the parked driver's
+  overstay: { team: 'hider', exact: true, chip: 'Checkpoint', chipKind: 'cp' }, // v1.3 PAGE-PLAY: live at a checkpoint
   other: { team: null },
 };
 const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping', 'near']); // v1.1 PAGE-DRIVER: + near
+TAPPABLE.add('overstay'); // v1.3 PAGE-PLAY
 
 export function validRing(r) {
   if (!r || typeof r !== 'object') return null;
@@ -1097,6 +1108,12 @@ export function createMap(container, { interactive = true } = {}) {
   const groupsLayer = h('div.nmap-groups'); // v1.2: the "+N" buttons of merged faces
   root.append(areaSvg, facesLayer, groupsLayer);
   container.appendChild(root);
+  // v1.3 PAGE-SETUP: checkpoint spots go over the ring and the ping circles, under the faces
+  const spotSvg = svgNode('svg', { class: 'nmap-spots', 'aria-hidden': 'true', focusable: 'false' });
+  const spotLayer = h('div.nmap-spot-pins');
+  root.insertBefore(spotSvg, facesLayer);
+  root.insertBefore(spotLayer, facesLayer);
+  // v1.3 end PAGE-SETUP
 
   const timers = new Set();
   const later = (fn, ms) => {
@@ -1490,6 +1507,7 @@ export function createMap(container, { interactive = true } = {}) {
     let moving = false;
     for (const rec of recs.values()) if (drawRec(rec, now, eng)) moving = true;
     for (const rec of heads.values()) drawRec(rec, now, eng);
+    drawSpots(eng); // v1.3 PAGE-SETUP
     placeGroups();
     // v1.2: a new zoom (or size): group the faces again once it stands still.
     let z = null;
@@ -1709,6 +1727,7 @@ export function createMap(container, { interactive = true } = {}) {
     else if (kind === 'near') what = 'live, near the car'; // v1.1 PAGE-DRIVER
     else if (kind === 'exposure') what = 'exact spot from Exposure';
     else if (kind === 'outside') what = 'outside the ring, live';
+    else if (kind === 'overstay') what = 'live, stayed at the checkpoint too long'; // v1.3 PAGE-PLAY
     else if (kind === 'offline') what = `offline, last seen ${fmtAgo(age)}`;
     else if (kind === 'seen') what = `what the hunters saw ${fmtAgo(age)}`;
     else if (kind === 'sos') what = 'needs help';
@@ -2166,6 +2185,130 @@ export function createMap(container, { interactive = true } = {}) {
     if (!S.final) { S.final = true; resolveReady(S.mode); }
   }
 
+  // v1.3 PAGE-SETUP: checkpoint spots. setSpots(list) draws each as a circle in metres and a round numbered badge
+  // (a suggestion: a small hollow pin, no circle); onSpotTap(fn(key)) makes the badges and pins buttons.
+  const spotRecs = new Map(); // key -> { spot, circle, el, hit, badge, nameEl, x, y, shown }
+  let spotTapFn = null;
+
+  function spotLabelOn(spot) {
+    return spot.label !== false && (spot.state === 'active' || spot.state === 'suggest' || spot.state === 'draft');
+  }
+
+  function spotAria(spot) {
+    const name = spot.name || 'a spot';
+    if (spot.state === 'suggest') return `Suggested: ${name}. Add it`;
+    const words = { active: 'open now', soon: 'opening soon', done: 'done', closed: 'closed', draft: 'not saved yet' }[spot.state];
+    return `Checkpoint ${spot.n}: ${name}${words ? `, ${words}` : ''}${spot.mine ? ', you did it' : ''}`;
+  }
+
+  function writeSpot(rec) {
+    const sp = rec.spot;
+    const tappable = !!spotTapFn;
+    rec.el.className = `nspot s-${sp.state}${sp.mine ? ' mine' : ''}${tappable ? ' tap' : ''}${rec.shown ? '' : ' unplaced'}`;
+    if (tappable) {
+      rec.el.removeAttribute('aria-hidden');
+      rec.hit.tabIndex = 0;
+      rec.hit.setAttribute('aria-label', spotAria(sp));
+    } else {
+      rec.el.setAttribute('aria-hidden', 'true');
+      rec.hit.tabIndex = -1;
+      rec.hit.removeAttribute('aria-label');
+    }
+    const face = sp.state === 'suggest' ? '' : sp.mine ? 'tick' : String(sp.n);
+    if (rec.face !== face) {
+      rec.face = face;
+      if (face === 'tick') rec.badge.replaceChildren(icon('check', 16));
+      else rec.badge.textContent = face;
+    }
+    text(rec.nameEl, sp.name || '');
+    rec.nameEl.hidden = !spotLabelOn(sp) || !sp.name;
+    rec.circle.setAttribute('class', `nspot-zone s-${sp.state}`);
+  }
+
+  function setSpots(list) {
+    if (S.destroyed) return;
+    const seen = new Set();
+    let i = 0;
+    for (const raw of Array.isArray(list) ? list : []) {
+      i++;
+      if (!raw || typeof raw !== 'object' || !isPoint(raw.p)) continue;
+      const key = String(raw.key ?? `s${i}`);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const state = ['active', 'soon', 'done', 'closed', 'suggest', 'draft'].includes(raw.state) ? raw.state : 'soon';
+      const r = Number.isFinite(raw.r) && raw.r > 0 ? Math.min(raw.r, 5000) : 0;
+      const spot = {
+        key, p: [raw.p[0], raw.p[1]], r, n: Number.isFinite(raw.n) ? raw.n : i, state,
+        name: typeof raw.name === 'string' ? raw.name : '', mine: !!raw.mine, label: raw.label,
+      };
+      let rec = spotRecs.get(key);
+      if (!rec) {
+        const badge = h('span.nspot-badge');
+        const nameEl = h('span.nspot-name');
+        const hit = h('button.nspot-hit', { type: 'button', tabindex: '-1' }, badge);
+        hit.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (spotTapFn) { try { spotTapFn(rec.spot.key); } catch (err) { console.error(err); } }
+        });
+        const el = h('div.nspot.unplaced', { 'aria-hidden': 'true' }, hit, nameEl);
+        const circle = svgNode('circle', { class: 'nspot-zone', cx: -999, cy: -999, r: 0 });
+        rec = { spot, circle, el, hit, badge, nameEl, face: null, x: null, y: null, shown: false };
+        spotRecs.set(key, rec);
+        spotSvg.appendChild(circle);
+        spotLayer.appendChild(el);
+      }
+      rec.spot = spot;
+      writeSpot(rec);
+    }
+    for (const [key, rec] of spotRecs) {
+      if (seen.has(key)) continue;
+      rec.el.remove();
+      rec.circle.remove();
+      spotRecs.delete(key);
+    }
+    // The badges in number order, so focus moves 1, 2, 3...; suggestions after them.
+    const order = [...spotRecs.values()].sort((a, b) => (a.spot.state === 'suggest') - (b.spot.state === 'suggest') || a.spot.n - b.spot.n);
+    // (Only when the order changed: moving an element starts its fade-in again.)
+    const now = [...spotLayer.children];
+    if (now.length !== order.length || order.some((rec, i) => now[i] !== rec.el)) {
+      for (const rec of order) spotLayer.appendChild(rec.el);
+    }
+    if (active) drawSpots(active);
+    requestFrame();
+  }
+
+  function drawSpots(eng) {
+    for (const rec of spotRecs.values()) {
+      const sp = rec.spot;
+      const xy = eng.project(sp.p);
+      if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) {
+        if (rec.shown) { rec.shown = false; rec.el.classList.add('unplaced'); }
+        rec.circle.setAttribute('r', '0');
+        continue;
+      }
+      place(rec, xy[0], xy[1]);
+      const rr = sp.state === 'suggest' ? 0 : Math.round(sp.r * eng.pxPerMetre(sp.p[1]) * 10) / 10;
+      const cx = Math.round(xy[0] * 10) / 10;
+      const cy = Math.round(xy[1] * 10) / 10;
+      if (rec.circle._cx !== cx) { rec.circle._cx = cx; rec.circle.setAttribute('cx', cx); }
+      if (rec.circle._cy !== cy) { rec.circle._cy = cy; rec.circle.setAttribute('cy', cy); }
+      if (rec.circle._r !== rr) { rec.circle._r = rr; rec.circle.setAttribute('r', rr); }
+    }
+  }
+
+  function onSpotTap(fn) {
+    if (S.destroyed) return () => {};
+    spotTapFn = typeof fn === 'function' ? fn : null;
+    for (const rec of spotRecs.values()) writeSpot(rec);
+    const mine = spotTapFn;
+    return () => {
+      if (spotTapFn !== mine || S.destroyed) return;
+      spotTapFn = null;
+      for (const rec of spotRecs.values()) writeSpot(rec);
+    };
+  }
+  // v1.3 end PAGE-SETUP
+
   // ---- start ----
 
   makePlain();
@@ -2183,6 +2326,7 @@ export function createMap(container, { interactive = true } = {}) {
     fit,
     center,
     setRoutes,
+    setSpots, onSpotTap, // v1.3 PAGE-SETUP
     setInsets,
     fitAll,
     zoomBy,

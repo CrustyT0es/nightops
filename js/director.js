@@ -10,6 +10,7 @@
 //   2. follow (a face tapped): that player's clip whenever they have one (any brightness).
 //   3. Talk: the speaker's clip while their walkie message plays; else the other talker of the exchange.
 //   4. A tag, "no", catch or close call (its clip window around the moment): its people, cutting every SHOT_MS.
+//      (v1.3: a checkpoint done or a safe time run out too, why 'checkpoint'.)
 //   5. Else the loudest / fastest-moving (loud + min(50, speed x 10)); 'only' when there's one candidate.
 // A shot is held at least SHOT_MS unless its clip ends or goes dark, or a higher rule starts; within the
 // loudest rule a switch needs a score SWITCH_BY higher.
@@ -26,6 +27,13 @@ const PRE = TIMING.CAM_PRE_MS || 10000;
 const POST = TIMING.CAM_POST_MS || 20000;
 const RANK = { follow: 4, talk: 3, tag: 2, near: 2, loud: 1, only: 1 };
 const SCENE_KINDS = new Set(['tag', 'denied', 'caught', 'near']);
+// v1.3 PAGE-AFTER: rule 4 also takes a checkpoint done and a safe time run out (why 'checkpoint')
+RANK.checkpoint = 2;
+SCENE_KINDS.add('checkpoint');
+SCENE_KINDS.add('overstay');
+const sceneWhy = (kind) => (kind === 'near' ? 'near' : kind === 'checkpoint' || kind === 'overstay' ? 'checkpoint' : 'tag');
+const weighty = (why) => why === 'talk' || why === 'tag' || why === 'near' || why === 'checkpoint';
+// v1.3 end PAGE-AFTER
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
@@ -169,7 +177,7 @@ export function direct({ clips, talk, moments, routes, from, to, follow = null }
           // Holding the current person when they're one of them, until the shot's time is up.
           let c = people[turn];
           if (cur && people.some((p) => p.id === cur.id) && t - cur.since < SHOT_MS) c = people.find((p) => p.id === cur.id);
-          want = { clip: c, why: scene.kind === 'near' ? 'near' : 'tag' };
+          want = { clip: c, why: sceneWhy(scene.kind) }; // v1.3 PAGE-AFTER: sceneWhy
         }
       }
     }
@@ -218,9 +226,9 @@ export function movieWindows({ cuts, moments, talk, most = 480000 } = {}) {
     const last = merged[merged.length - 1];
     if (last && c.from - last.to < 4000) {
       last.to = Math.max(last.to, c.to);
-      last.weight += (c.why === 'talk' || c.why === 'tag' || c.why === 'near' ? 3 : 1) * (c.to - c.from);
+      last.weight += (weighty(c.why) ? 3 : 1) * (c.to - c.from); // v1.3 PAGE-AFTER: weighty
     } else {
-      merged.push({ from: c.from, to: c.to, weight: (c.why === 'talk' || c.why === 'tag' || c.why === 'near' ? 3 : 1) * (c.to - c.from) });
+      merged.push({ from: c.from, to: c.to, weight: (weighty(c.why) ? 3 : 1) * (c.to - c.from) }); // v1.3 PAGE-AFTER: weighty
     }
   }
   const total = merged.reduce((s, w) => s + (w.to - w.from), 0);

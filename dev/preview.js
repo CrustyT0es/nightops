@@ -16,6 +16,9 @@ import { ringCenter } from '../shared/geo.js';
 import { fixture, faceFor, tickView, ALL } from './fixtures.js';
 import { silentWav, toBase64 } from '../js/radio.js'; // v1.1 PAGE-RADIO
 import { CAM_FILMED, camClips, PEOPLE } from './fixtures.js'; // v1.2 PAGE-CAM
+import { cleanCheckpoints } from '../shared/rules.js'; // v1.3 PAGE-SETUP
+import { lobbyCp } from './cpsetup-fixtures.js'; // v1.3 PAGE-SETUP
+import { strikeCp } from './cpafter-fixtures.js'; // v1.3 PAGE-AFTER
 
 // v1.2 PAGE-CAM: a 3 s WebM drawn here (a moving bar and the time), made once, for the preview's clip links.
 let webm = null;
@@ -48,6 +51,24 @@ function previewWebm() {
 // v1.2 end PAGE-CAM
 
 const params = Object.fromEntries(new URLSearchParams(location.search));
+// v1.3 PAGE-PLAY: a checkpoint photo for the preview: a small JPEG with a coloured sky and the id's first letters
+function previewPhoto(id) {
+  const c = document.createElement('canvas');
+  c.width = 240;
+  c.height = 180;
+  const g = c.getContext('2d');
+  const hue = parseInt(String(id).slice(0, 2), 16) || 200;
+  const grad = g.createLinearGradient(0, 0, 0, 180);
+  grad.addColorStop(0, `hsl(${hue}, 60%, 45%)`);
+  grad.addColorStop(1, `hsl(${(hue + 50) % 360}, 50%, 15%)`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 240, 180);
+  g.fillStyle = 'rgba(255,255,255,0.85)';
+  g.font = 'bold 28px sans-serif';
+  g.fillText(String(id).slice(0, 4).toUpperCase(), 20, 160);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+// v1.3 end PAGE-PLAY
 // v1.2 PAGE-MAP: &text=130 makes the text 130% (a phone's bigger text), &safe=47,34 stands in for an iPhone's
 // notch and home bar (safe-area top, bottom in px)
 if (/^\d{2,3}$/.test(params.text || '')) document.documentElement.style.fontSize = `${params.text}%`;
@@ -100,6 +121,24 @@ function onCmd(cmd) {
   if (cmd.type === 'chat' && typeof cmd.text === 'string' && cmd.text.trim()) {
     pushEvent({ kind: 'chat', to: side(current.me), text: cmd.text.trim().slice(0, 200), from: current.me.id });
   }
+  // v1.3 PAGE-SETUP: the checkpoint editor's Save and the Checkpoints card's settings land at once
+  if (cmd.type === 'checkpoints' && current.phase === 'lobby') {
+    const list = cleanCheckpoints(cmd.list);
+    current = { ...current, cp: lobbyCp(current, list) };
+  } else if (cmd.type === 'settings' && cmd.settings && current.phase === 'lobby'
+    && Object.keys(cmd.settings).some((k) => k === 'mode' || k.startsWith('cp'))) {
+    current = { ...current, settings: { ...current.settings, ...cmd.settings } };
+    if (current.settings.mode === 'checkpoints') current.cp = lobbyCp(current, current.cp && current.cp.list ? current.cp.list : []);
+    else current.cp = null;
+  }
+  // v1.3 end PAGE-SETUP
+  // v1.3 PAGE-AFTER: the host's Don't count / Count it again
+  if (cmd.type === 'cpstrike' && current.cp && Number.isInteger(cmd.n)) {
+    current = strikeCp(current, cmd);
+    const d = current.cp.done.find((x) => x.n === cmd.n);
+    if (d) pushEvent({ kind: 'checkpoint', to: 'all', text: cmd.struck ? `The host didn't count ${d.name}'s checkpoint ${d.k + 1}.` : `The host counts ${d.name}'s checkpoint ${d.k + 1} again.`, data: { what: 'strike', n: d.n, pid: d.pid, struck: !!cmd.struck } });
+  }
+  // v1.3 end PAGE-AFTER
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -162,6 +201,20 @@ const api = {
         return { ok: true, kept, released: [] };
       }
       // v1.2 end PAGE-CAM
+      // v1.3 PAGE-PLAY: checkpoint photos: every photo is a small JPEG drawn here; a sent one counts at once
+      case 'cp-photos':
+        return { ok: true, photos: Object.fromEntries((body.ids || []).map((id) => [id, previewPhoto(id)])) };
+      case 'cp-photo': {
+        say('cp-photo', { k: body.k, bytes: Math.round(String(body.photo || '').length * 0.75) });
+        if (current && current.cp && current.cp.mine) {
+          const n = (current.cp.done || []).length + 1;
+          const done = { n, k: body.k, pid: current.me.id, name: current.me.name, clock: current.clock, how: 'photo', photo: 'f0e1d2c3b4a59687', struck: false };
+          current = { ...current, cp: { ...current.cp, done: [...current.cp.done, done], mine: { ...current.cp.mine, did: true, canPhoto: false } } };
+          pushEvent({ kind: 'checkpoint', to: 'hiders', text: `${current.me.name} did checkpoint ${body.k + 1}: ${current.cp.active ? current.cp.active.name : ''}.`, data: { what: 'done', n, k: body.k, pid: current.me.id, photo: done.photo, how: 'photo' } });
+        }
+        return { ok: true, view: snapshot(body.since), done: { n: 3, k: body.k } };
+      }
+      // v1.3 end PAGE-PLAY
       case 'cmd':
         onCmd(body.cmd);
         return { ok: true, view: snapshot(body.since) };

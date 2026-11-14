@@ -30,7 +30,7 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING } from '../shared/rules.js';
+import { TIMING, LIMITS } from '../shared/rules.js';
 import { h, fill } from './dom.js';
 import { icon } from './ui/icons.js';
 import { banner as defaultBanner } from './ui/banner.js';
@@ -40,8 +40,10 @@ import { ApiError, toApiError, WORDS } from './api.js';
 import { cleanName, cleanFace } from './identity.js';
 import { createRadio, fromBase64 } from './radio.js'; // v1.1 PAGE-RADIO
 import { createCamera } from './camera.js'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js'; // v1.3 PAGE-PLAY
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
+SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)
 export const EVENT_CAP = 400;
 export const HELD_CAP = 100;       // events kept for a screen that is still loading
 export const BACKOFF_MS = [1000, 2000, 5000, 10000];
@@ -53,6 +55,11 @@ const REVEAL_MAX_MS = 30000;      // the reveal gives way to the game after this
 const FACE_RETRY_MS = 15000;
 const GONE = new Set(['gone', 'no_game', 'bad_secret', 'bad_player', 'no_player', 'unknown_game', 'not_found', 'kicked']);
 const NOT_SENT = "No connection, so that didn't go through. Try again.";
+const PHOTO_ASK_AGAIN_MS = 10000;
+// v1.3: a checkpoint photo goes with a fix at most this old (the server wants one under TIMING.CP_FRESH_MS, 20 s),
+// waiting at most PHOTO_FIX_WAIT_MS for it after the phone's camera closes.
+export const PHOTO_FIX_AGE_MS = 6000;
+export const PHOTO_FIX_WAIT_MS = 8000;  // v1.3 PAGE-PLAY: a checkpoint photo that didn't come isn't asked for again sooner
 
 // ---- pure helpers (tested in Node) ------------------------------------------------------------------
 
@@ -102,6 +109,9 @@ export function chooseScreen({ view, current = null, revealed = false } = {}) {
   // v1.1 PAGE-WATCH: a spectator's view: the watch screen, and the normal end screen (never reveal, ring or game)
   if (view.watcher) return watchScreenFor(view);
   // v1.1 end PAGE-WATCH
+  // v1.3 PAGE-SETUP: the host stays in the checkpoint editor while the lobby lasts
+  if (view.phase === 'lobby' && current === 'checkpoints') return view.me && view.me.host ? 'checkpoints' : 'lobby';
+  // v1.3 end PAGE-SETUP
   if (view.phase === 'lobby') return current === 'ring' && view.me && view.me.host ? 'ring' : 'lobby';
   if (view.phase === 'live') {
     if (current === 'reveal') return 'reveal';
@@ -359,6 +369,11 @@ export class App {
       this.cam = null;
     }
     // v1.2 end PAGE-CAM
+    // v1.3 PAGE-PLAY: checkpoint photos fetched (id -> data: URL), cleared on a new round and on leaving
+    this.photos = new Map();
+    this._photoAsked = new Map(); // id -> when it was last asked for and didn't come (not asked again for 10 s)
+    this._photoWait = new Map();  // id -> Promise of the answer it's in
+    // v1.3 end PAGE-PLAY
   }
 
   // v1.1 PAGE-WATCH: true while this phone is a spectator (app.game is null then)
@@ -646,6 +661,7 @@ export class App {
     this._held = [];
     this._radioReset(); // v1.1 PAGE-RADIO: the walkie-talkie stops, its clips go
     this._camReset(); // v1.2 PAGE-CAM: filming stops (clips kept on the phone stay)
+    this._photoReset(); // v1.3 PAGE-PLAY
     this._setConnection('ok');
     if (this._locOn && this.location) {
       this._locOn = false;
@@ -1001,6 +1017,171 @@ export class App {
   }
   // v1.2 end PAGE-CAM -------------------------------------------------------------------------------------
 
+  // v1.3 PAGE-PLAY: checkpoint photos ---------------------------------------------------------------------
+
+  _photoReset() {
+    if (!this.photos) return;
+    this.photos.clear();
+    this._photoAsked.clear();
+    this._photoWait.clear();
+    if (this._photoQueue) this._photoQueue.clear();
+    this._photoBatch = null;
+  }
+
+  // Photos by id (players and spectators: the server sends only what this phone may see). The ones kept here
+  // first, then cp-photos for the rest in groups of 12. The ids asked for in one go of drawing (an end screen with
+  // a thumb per photo, each asking for its own) are gathered into those groups and sent one group at a time, so a
+  // big game's photos never flood the server (it limits each player's requests). An id that didn't come isn't
+  // asked again for 10 s.
+  // -> Promise<{ [id]: dataUrl }>; never rejects (a missing photo is simply not in the answer).
+  async photo(ids) {
+    const out = {};
+    try {
+      const want = [...new Set((Array.isArray(ids) ? ids : [ids]).filter((id) => typeof id === 'string' && /^[0-9a-f]{16}$/.test(id)))];
+      const ask = [];
+      const waits = [];
+      const now = Date.now();
+      for (const id of want) {
+        if (this.photos.has(id)) out[id] = this.photos.get(id);
+        else if (this._photoWait.has(id)) waits.push(this._photoWait.get(id).then(() => { if (this.photos.has(id)) out[id] = this.photos.get(id); }));
+        else if (!(now - (this._photoAsked.get(id) || 0) < PHOTO_ASK_AGAIN_MS)) ask.push(id);
+      }
+      if (ask.length && (this.game || this.watching)) {
+        const p = this._askPhotos(ask);
+        waits.push(p.then(() => { for (const id of ask) if (this.photos.has(id)) out[id] = this.photos.get(id); }));
+      }
+      await Promise.all(waits);
+    } catch (e) {
+      console.error(e);
+    }
+    return out;
+  }
+
+  // Queue ids for the next cp-photos round (sent after this go of drawing). -> Promise, resolved once they're in.
+  _askPhotos(ids) {
+    if (!this._photoQueue) this._photoQueue = new Set();
+    for (const id of ids) this._photoQueue.add(id);
+    if (!this._photoBatch) {
+      const batch = new Promise((resolve) => setTimeout(resolve, 0))
+        .then(() => this._sendQueuedPhotos(batch))
+        .catch(() => {});
+      this._photoBatch = batch;
+    }
+    const p = this._photoBatch;
+    for (const id of ids) this._photoWait.set(id, p);
+    return p;
+  }
+
+  async _sendQueuedPhotos(batch) {
+    if (this._photoBatch === batch) this._photoBatch = null; // asks from now on go in the next round
+    const ask = [...this._photoQueue].filter((id) => this._photoWait.get(id) === batch);
+    for (const id of ask) this._photoQueue.delete(id);
+    const LIMIT = Number(LIMITS.cpPhotoIds) || 12;
+    const kept = this.photos;
+    try {
+      for (let i = 0; i < ask.length; i += LIMIT) {
+        const group = ask.slice(i, i + LIMIT);
+        if (!(this.game || this.watching) || kept !== this.photos) break;
+        try {
+          const res = await this._post('cp-photos', { ids: group }, { timeoutMs: 20000 });
+          const got = res && res.photos && typeof res.photos === 'object' ? res.photos : {};
+          for (const id of group) {
+            const url = got[id];
+            if (typeof url === 'string' && url.startsWith('data:image/jpeg;base64,') && kept === this.photos) {
+              this.photos.set(id, url);
+              this._photoAsked.delete(id);
+            } else {
+              this._photoAsked.set(id, Date.now());
+            }
+          }
+        } catch {
+          for (const id of group) this._photoAsked.set(id, Date.now());
+        }
+      }
+    } finally {
+      for (const id of ask) if (this._photoWait.get(id) === batch) this._photoWait.delete(id);
+    }
+  }
+
+  // Send a checkpoint photo (a free hider inside the open checkpoint k). -> Promise<view>; rejects with an ApiError
+  // whose message says why (outside, closed, done already...).
+  // While the phone's own camera covers the page no location fixes come, so the last one is from before the camera
+  // opened, and the server (which wants a fix under CP_FRESH_MS) would say "Get inside the checkpoint first". So it
+  // first waits a moment for a fresh fix (opts.onCheck() is told when it has to wait), and when the server still says
+  // outside, it waits for a newer fix than the one it sent and sends once more.
+  async sendPhoto(k, dataUrl, opts = {}) {
+    if (!this.game) throw new ApiError({ code: 'not_in_game', message: "You're not in this game right now." });
+    const game = this.game;
+    await this._photoFix(-Infinity, opts);
+    if (game !== this.game) throw new ApiError({ code: 'not_in_game', message: "You're not in this game any more." });
+    let res;
+    try {
+      res = await this._sendPhotoOnce(game, k, dataUrl);
+    } catch (e) {
+      const err = toApiError(e);
+      if (err.code !== 'cp_outside') throw err;
+      const got = game === this.game && await this._photoFix(Number.isFinite(e && e.sentAt) ? e.sentAt : -Infinity, opts);
+      if (!got || game !== this.game) {
+        this.emit('error', err);
+        throw err;
+      }
+      try {
+        res = await this._sendPhotoOnce(game, k, dataUrl);
+      } catch (e2) {
+        const err2 = toApiError(e2);
+        if (err2.code === 'cp_outside') this.emit('error', err2);
+        throw err2;
+      }
+    }
+    return this._photoSent(game, res, dataUrl);
+  }
+
+  // Wait (PHOTO_FIX_WAIT_MS at most) for a fix newer than `newerThan` and under PHOTO_FIX_AGE_MS old. -> true when
+  // one came (or the one there already was good), false otherwise. Never rejects.
+  async _photoFix(from, opts = {}) {
+    const loc = this.location;
+    if (!loc || typeof loc.waitFix !== 'function') return false;
+    try {
+      const fresh = (p) => !!p && Number.isFinite(p.at) && p.at > from && Date.now() - p.at <= PHOTO_FIX_AGE_MS;
+      if (fresh(loc.latest())) return true;
+      if (typeof opts.onCheck === 'function') { try { opts.onCheck(); } catch (e) { console.error(e); } }
+      const p = await loc.waitFix({ newerThan: from, maxAgeMs: PHOTO_FIX_AGE_MS, waitMs: PHOTO_FIX_WAIT_MS });
+      return fresh(p);
+    } catch {
+      return false;
+    }
+  }
+
+  async _sendPhotoOnce(game, k, dataUrl) {
+    const body = { k, photo: dataUrl, since: this._since, radioSince: this._radioSince(), camSince: this._camSince() };
+    const pos = this._posToSend();
+    if (pos) body.pos = pos;
+    try {
+      return await this._post('cp-photo', body, { timeoutMs: 30000 });
+    } catch (e) {
+      const err = toApiError(e);
+      if (game === this.game && isGone(err, 'cp-photo')) this.syncNow();
+      if (game === this.game && err.offline) this._setConnection(this._online() ? 'reconnecting' : 'offline');
+      if (err.code !== 'cp_outside') this.emit('error', err);
+      // (cp_outside: sendPhoto waits for a fix newer than the one sent here, and may send once more.)
+      err.sentAt = pos && Number.isFinite(pos.at) ? pos.at : -Infinity;
+      throw err;
+    }
+  }
+
+  _photoSent(game, res, dataUrl) {
+    if (game !== this.game) throw new ApiError({ code: 'not_in_game', message: "You're not in this game any more." });
+    this._ok();
+    // Our own photo is kept here at once (its id comes in the view's list of checkpoints done).
+    const n = res && res.done ? res.done.n : null;
+    const done = res && res.view && res.view.cp && Array.isArray(res.view.cp.done) ? res.view.cp.done : [];
+    const row = done.find((d) => d && d.n === n && typeof d.photo === 'string');
+    if (row) this.photos.set(row.photo, dataUrl);
+    this._take(res && res.view);
+    return this.view;
+  }
+  // v1.3 end PAGE-PLAY -------------------------------------------------------------------------------------
+
   // v1.1 PAGE-WATCH: spectators -------------------------------------------------------------------------
   // A spectator has their own id and secret (identity's 'nightops-watch'), never plays and never sends a
   // position. Their loop posts wsync every watchMs; the views come 2 minutes behind (the server decides).
@@ -1289,6 +1470,7 @@ export class App {
       try { this.store.remove(REVEALED_KEY); } catch { /* ignore */ }
       this._radioReset(); // v1.1 PAGE-RADIO: a new round's clips count from 1 again
       this._camReset(); // v1.2 PAGE-CAM: a new round's moments count from 1 again
+      this._photoReset(); // v1.3 PAGE-PLAY: the last round's photos go
     }
     // The side you're no longer on (a hider who joined the hunters, or was caught and sits out): its news goes.
     const was = sideNow(prev);
@@ -1385,11 +1567,22 @@ export class App {
 
   // During a live game the phone's Back stays in the game (it would close Night Ops on Android).
   _guard(on) {
+    this._guardLive = !!on;
     try {
-      if (this.back && typeof this.back.guard === 'function') this.back.guard(!!on, () => this._backPressed());
+      const hold = this._backHold;
+      if (this.back && typeof this.back.guard === 'function') {
+        this.back.guard(!!on || !!hold, () => (this._backHold ? this._backHold() : this._backPressed()));
+      }
     } catch (e) {
       console.error(e);
     }
+  }
+
+  // v1.3: a screen with changes not yet saved (the checkpoint editor) keeps Back on the page too: Back then calls
+  // fn (which asks "Leave without saving?"). holdBack(null) lets it go.
+  holdBack(fn) {
+    this._backHold = typeof fn === 'function' ? fn : null;
+    this._guard(!!this._guardLive);
   }
 
   _backPressed() {
@@ -1416,7 +1609,8 @@ export class App {
     const want = !!v && v.phase === 'live' && !!v.me && v.me.status === 'in';
     // v1.1 PAGE-DRIVER: the driver's phone keeps its fixes fresh (parked is decided on a fix under 20 s old).
     try {
-      if (typeof this.location.setFast === 'function') this.location.setFast(want && !!v.me.driver);
+      // v1.3 PAGE-PLAY: ...and so does a hider at or near the open checkpoint (inside is decided on a fix under 20 s old)
+      if (typeof this.location.setFast === 'function') this.location.setFast(want && (!!v.me.driver || cpWantsFresh(v)));
     } catch (e) {
       console.error(e);
     }

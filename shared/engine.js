@@ -9,12 +9,14 @@ import {
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
+  tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
+  cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
 } from './rules.js';
 
 export const ENGINE_V = 1;
 
 // The timing settings a recommendation sets (rules.recommend's fields).
-export const TIMING_KEYS = Object.freeze(['durationMin', 'headStartMin', 'pingEveryMin', 'closingMin', 'closingPingEveryMin']);
+export const TIMING_KEYS = Object.freeze(['durationMin', 'headStartMin', 'pingEveryMin', 'closingMin', 'closingPingEveryMin', 'cpLeadMin', 'cpSafeMin']);
 
 const EVENTS_KEPT = 300;
 const LOG_KEPT = 500;
@@ -99,6 +101,16 @@ const ERRORS = {
   not_uploaded: "That clip didn't arrive. Try again.",
   no_video: "That clip isn't kept.",
   side_changed: "Your team changed, so that message wasn't sent.",
+  // v1.3
+  no_checkpoints: 'Set up at least 2 checkpoints first.',
+  bad_checkpoints: "Those checkpoints don't work. Check them again.",
+  safe_zone: "That hider is in the checkpoint's safe zone.",
+  cp_closed: 'That checkpoint is closed.',
+  cp_done: 'You already did this checkpoint.',
+  cp_outside: 'Get inside the checkpoint first.',
+  cp_photo: "That photo didn't work. Try again.",
+  cp_full: "There's no room for more photos in this game.",
+  no_photo: "That photo isn't kept.",
 };
 
 // A sentence for an error code (any unknown code gets a general one).
@@ -110,52 +122,13 @@ function err(code, message) {
   return { error: { code, message: message || errorText(code) } };
 }
 
-// Letters that only cause trouble in a name or a message: control characters, zero-width spaces, and the
-// direction marks that can flip text around (U+061C and U+180E too). The joiner U+200D is kept only between
-// two visible letters, where it holds an emoji or some scripts together; alone it would make a blank name.
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b\u200c\u200e\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
-const ZWJ = '\u200d';
-// (Unicode property escapes, no look-behind: this file also runs in the page, and iPhones before iOS 16.4
-// can't even read a regular expression with a look-behind in it.)
-const VISIBLE_NEXT_TO_ZWJ = /[\p{L}\p{M}\p{N}\p{S}]/u;
-// What two names are compared by: the letters a person sees. Fillers that draw nothing (the Hangul fillers,
-// the blank braille cell, variation selectors, tag letters, the joiner...) and spaces don't count.
-const NOT_SEEN = /[\p{Default_Ignorable_Code_Point}\u2800\s]/gu;
-const SEEN_LETTER = /[\p{L}\p{N}\p{S}\p{P}]/u;
-
-function withoutLoneJoiners(text) {
-  if (!text.includes(ZWJ)) return text;
-  const a = Array.from(text);
-  let out = '';
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] === ZWJ && !(i > 0 && i < a.length - 1 && VISIBLE_NEXT_TO_ZWJ.test(a[i - 1]) && VISIBLE_NEXT_TO_ZWJ.test(a[i + 1]))) continue;
-    out += a[i];
-  }
-  return out;
-}
-
-function tidy(text) {
-  if (typeof text !== 'string') return '';
-  return withoutLoneJoiners(text.normalize('NFC').replace(INVISIBLE, ' ')).replace(/\s+/g, ' ').trim();
-}
-
-// A name or message as it is compared: what can be seen, in lower case ('' = nothing visible at all).
-export function nameKey(text) {
-  if (typeof text !== 'string') return '';
-  return text.normalize('NFKC').replace(NOT_SEEN, '').toLowerCase();
-}
-
-function seenAtAll(text) {
-  return SEEN_LETTER.test(nameKey(text));
-}
+// (The text helpers live in rules.js, shared with the checkpoints' names and tasks.)
+const tidy = tidyText;
+const cut = cutText;
+export { nameKey };
 
 function letters(text) {
   return Array.from(text).length;
-}
-
-function cut(text, most) {
-  const a = Array.from(text);
-  return a.length > most ? a.slice(0, most).join('') : text;
 }
 
 // A name as it will be shown: one line, no invisible letters, at most LIMITS.name letters ('' = no name,
@@ -285,6 +258,8 @@ function extrasOf(settings) {
   const out = { ...(settings || {}) };
   for (const k of EXTRA_KEYS) if (typeof out[k] !== 'boolean') out[k] = DEFAULTS[k];
   for (const [k, list] of Object.entries(EXTRA_CHOICES)) if (!list.includes(out[k])) out[k] = DEFAULTS[k];
+  // v1.3: the Checkpoints settings too.
+  fixCheckpointSettings(out);
   return out;
 }
 
@@ -393,6 +368,9 @@ function fillIn(s) {
     if (s.cam.mode !== 'everything') s.cam.mode = 'highlights';
   }
   for (const c of s.radio.clips) if (c.side !== 'hiders') c.side = 'hunters';
+  // v1.3
+  if (!Array.isArray(s.checkpoints)) s.checkpoints = [];
+  fillCp(s);
   return s;
 }
 
@@ -528,6 +506,9 @@ export function newGame({ code, hostId, hostName, secretHash, now }) {
     radio: freshRadio(),
     // v1.2
     cam: null,                               // live/over with settings.cam: who is filmed and their moments
+    // v1.3
+    checkpoints: [],                         // the host's checkpoints (any phase; kept across rounds)
+    cp: null,                                // live/over in Checkpoints: this round's plan, visits and dones
   };
 }
 
@@ -592,6 +573,7 @@ function catchHider(s, hider, hunterId, how, t, record) {
   hider.sprintUntil = null;
   hider.outsideSince = null;
   hider.outsideShown = false;
+  if (cpGame(s)) cpEndVisit(s, hider.id, t.clock, 'gone', t);
   if (turned) {
     hider.team = 'hunter';
     hider.turnedAt = t.clock;
@@ -677,13 +659,31 @@ function endGame(s, reason, t) {
   s.catches = s.catches.filter((c) => c.state !== 'pending');
   s.endClock = t.clock;
   endPickups(s, () => true, t);
+  // v1.3: every checkpoint visit ends (its safe time added); nothing more is told.
+  cpEndAll(s, t, 'end');
   s.phase = 'over';
   s.radar = null;
-  const winners = winnersOf(s, reason);
-  const mvp = mvpOf(s, reason, winners);
+  const cw = cpWinners(s);
+  const winners = cw ? cw.winners : winnersOf(s, reason);
+  const mvp = cw ? mvpOf(s, 'time', winners) : mvpOf(s, reason, winners);
   s.result = { reason, winners, mvp };
+  const text = overText(s, reason, winners, cw);
+  s.overEventId = emit(s, t, 'over', 'all', text, { reason, winners: winners.slice() }).id;
+  addMoment(s, t, 'over', ordered(s).filter((p) => p.status === 'in' || p.status === 'caught').map((p) => p.id));
+  note(s, { kind: 'over', clock: t.clock, text });
+  // A summary without routes right away, so the end screen always has one; the server builds the full one
+  // with the stored routes and puts it in place of this one.
+  s.summary = summarize(s, []);
+}
+
+// The line the game ends with (also written again when the host strikes a photo after the end).
+function overText(s, reason, winners, cw) {
   let text;
-  if (reason === 'time') {
+  if (cw) {
+    const lead = reason === 'time' ? "Time's up!" : reason === 'caught'
+      ? (s.catches.some((c) => c.state === 'done') ? "Everyone's caught." : 'No hiders left.') : 'The host ended the game.';
+    text = `${lead} ${cpWinWords(s, winners, cw.count)}`;
+  } else if (reason === 'time') {
     text = winners.length ? `Time's up! ${winWords(s, winners, 'hiders')}` : "Time's up!";
   } else if (reason === 'caught') {
     const anyCaught = s.catches.some((c) => c.state === 'done');
@@ -693,12 +693,7 @@ function endGame(s, reason, t) {
     const win = winWords(s, winners, 'hiders');
     text = `The host ended the game.${win ? ` ${win}` : ''}`;
   }
-  s.overEventId = emit(s, t, 'over', 'all', text, { reason, winners: winners.slice() }).id;
-  addMoment(s, t, 'over', ordered(s).filter((p) => p.status === 'in' || p.status === 'caught').map((p) => p.id));
-  note(s, { kind: 'over', clock: t.clock, text });
-  // A summary without routes right away, so the end screen always has one; the server builds the full one
-  // with the stored routes and puts it in place of this one.
-  s.summary = summarize(s, []);
+  return text;
 }
 
 // Open pickups that should end (the game ended, the driver went, the asker left) become 'ended'.
@@ -760,6 +755,7 @@ function removePlayer(s, p, status, t) {
   p.sprintUntil = null;
   p.outsideSince = null;
   p.outsideShown = false;
+  if (s.phase === 'live' && cpGame(s)) cpEndVisit(s, p.id, t.clock, 'gone', t);
   s.catches = s.catches.filter((c) => !(c.hider === p.id && c.state === 'pending'));
   if (status === 'kicked') emit(s, t, 'kick', 'all', `${p.name} was removed from the game.`, { id: p.id });
   else emit(s, t, 'leave', 'all', `${p.name} left the game.`, { id: p.id });
@@ -953,6 +949,7 @@ function nextDue(s, sch, ctx, clockNow) {
   }
   if (sch.closingMs > 0 && !s.flags.closing) offer(sch.closingStartMs, 8, { type: 'closing' });
   offer(endAt(s, sch), 9, { type: 'end' });
+  cpDue(s, sch, offer);
   return best;
 }
 
@@ -1059,6 +1056,7 @@ function runDue(s, item, ctx) {
       endGame(s, freeHiders(s).length ? 'time' : 'caught', t);
       break;
     default:
+      if (cpGame(s)) cpRunDue(s, item, t, ctx);
       break;
   }
 }
@@ -1081,7 +1079,7 @@ export function advance(state, { now, positions = {}, rand } = {}) {
   const sch = schedule(state.settings);
   const clockNow = clockOf(s, now);
   const ctx = { now, positions: positions || {}, rand: randOf(rand, state, now) };
-  if (!s.flags || !Array.isArray(s.log)) own();
+  if (!s.flags || !Array.isArray(s.log) || cpUnfilled(s)) own();
   for (let guard = 0; guard < 10000 && s.phase === 'live'; guard++) {
     const item = nextDue(s, sch, ctx, clockNow);
     if (!item || item.clock > clockNow) break;
@@ -1146,12 +1144,24 @@ export function onPosition(state, playerId, pos, { now } = {}) {
     }
   }
 
-  // Out of the ring (hiders, during the hunt, while the clock runs).
+  // v1.3: checkpoint visits (free hiders, while the clock runs, before time's up).
+  let inCheckpoint = false;
+  if (isFree(p) && cpGame(s) && s.pausedAt === null) {
+    const clock = clockOf(s, now);
+    if (clock < schedule(s.settings).endMs) {
+      if (cpOnFix(s, p, pos, now, clock)) changed = true;
+      const slot = cpActive(s, clock);
+      inCheckpoint = !!slot && cpHere(s, p.id, slot, { [p.id]: pos }, now);
+    }
+  }
+
+  // Out of the ring (hiders, during the hunt, while the clock runs). In Checkpoints, inside the active
+  // checkpoint counts as inside the ring (a checkpoint left outside a shrinking ring never catches anyone).
   if (isFree(p) && s.ring && s.pausedAt === null) {
     const clock = clockOf(s, now);
     const sch = schedule(s.settings);
     if (clock >= sch.headStartMs && clock < sch.endMs) {
-      const by = outsideByM(ringAt(s, clock), point);
+      const by = inCheckpoint ? 0 : outsideByM(ringAt(s, clock), point);
       const margin = Math.max(OUT_MARGIN_MIN_M, Math.min(OUT_MARGIN_MAX_M, acc));
       const t = { now, clock, at: now };
       if (p.outsideSince === null && by > margin) {
@@ -1310,6 +1320,8 @@ function shuffled(list, R) {
 
 function cmdStart(s, actor, cmd, t) {
   if (!s.ring || ringProblem(s.ring)) return err('no_ring');
+  const cpWrong = cpCheckStart(s);
+  if (cpWrong) return cpWrong;
   const players = ordered(s).filter((p) => p.status === 'in');
   if (players.length < 2) return err('too_few');
   const want = huntersFor(s.settings, players.length);
@@ -1369,6 +1381,8 @@ function cmdStart(s, actor, cmd, t) {
     near: {},
     have: {},
   } : null;
+  // v1.3: this round's checkpoints (shuffled after the teams and the driver were picked).
+  s.cp = s.settings.mode === 'checkpoints' ? cpMake(s, t.rand) : null;
   const headStartMs = schedule(s.settings).headStartMs;
   const t0 = { now: t.now, clock: 0, at: t.now };
   const text = `Game on! Hiders have ${fmtClock(headStartMs)} to hide.`;
@@ -1379,6 +1393,7 @@ function cmdStart(s, actor, cmd, t) {
     emit(s, t0, 'driver', 'all', `${driver.name} is driving.`, { id: driver.id });
     note(s, { kind: 'driver', clock: 0, id: driver.id, text: `${driver.name} is driving.` });
   }
+  if (s.cp) note(s, { kind: 'cp-plan', clock: 0, text: `${s.cp.plan.length} checkpoints tonight.` });
   return null;
 }
 
@@ -1478,6 +1493,25 @@ function cmdTag(s, actor, cmd, t) {
   if (!isHunter(actor)) return err('not_your_turn', 'Only hunters can tag.');
   const target = playerOf(s, cmd.target);
   if (!isFree(target)) return err('bad_target', "That player isn't hiding right now.");
+  // v1.3: inside the open checkpoint with safe time left, nobody can tag them. The first refusal a minute for a
+  // pair is noted (a close call); the refusal carries the state so the note can be saved.
+  const safe = cpProtected(s, target, t.positions, t.now, t.clock);
+  if (safe) {
+    const key = `${actor.id}|${target.id}`;
+    const last = s.cp.refused[key];
+    let keep = false;
+    if (!Number.isFinite(last) || t.clock - last >= TIMING.CP_TOLD_GAP_MS) {
+      s.cp.refused[key] = t.clock;
+      note(s, { kind: 'cp-safe', clock: t.clock, hunter: actor.id, hider: target.id, k: safe.k });
+      keep = true;
+    }
+    // Only a hunter who may see the checkpoint and stands near it hears why: otherwise a tag from anywhere
+    // would tell where a checkpoint is before its time, or who is in it right now.
+    const hp = cpWhere({ p: safe.p, r: safe.r }, posFrom(t.positions, actor.id), t.now);
+    const near = cpHuntersSee(s, safe, t.clock) && !!hp && hp.d <= safe.r + TIMING.CP_TAG_NEAR_M;
+    const e = near ? err('safe_zone', `${target.name} is in the checkpoint's safe zone.`) : err('bad_target', CP_TAG_NOT_NOW);
+    return { ...e, keep };
+  }
   if (s.catches.some((c) => c.hider === target.id && c.state === 'pending')) {
     return err('bad_target', `${target.name} already has a tag waiting.`);
   }
@@ -1535,6 +1569,8 @@ function cmdTagged(s, actor, cmd, t) {
     if (!isFree(hider)) return err('bad_target', "That player isn't hiding right now.");
   } else if (!isFree(hider)) {
     return err('not_your_turn', "You're not hiding right now.");
+  } else if (cpProtected(s, hider, t.positions, t.now, t.clock)) {
+    return err('safe_zone', "You're in the checkpoint's safe zone, so you can't be caught here.");
   }
   let hunterId = null;
   if (cmd.by !== undefined && cmd.by !== null && cmd.by !== '') {
@@ -1626,6 +1662,7 @@ function cmdAgain(s, actor, cmd, t) {
   s.radio = freshRadio();
   s.watchJoins = 0;
   s.cam = null;
+  s.cp = null;
   emit(s, { now: t.now, clock: 0, at: t.now }, 'again', 'all', 'New round! Back to the lobby.');
   return null;
 }
@@ -1727,6 +1764,9 @@ const COMMANDS = {
   unwatch: { host: true, phases: ANY, run: cmdUnwatch },
   // v1.2
   camok: { phases: ['lobby'], run: cmdCamok },
+  // v1.3
+  checkpoints: { host: true, phases: ['lobby'], run: cmdCheckpoints },
+  cpstrike: { host: true, phases: ['live', 'over'], run: cmdCpStrike },
 };
 
 function phaseError(phases) {
@@ -1749,7 +1789,14 @@ export function apply(state, actorId, cmd, { now, positions = {}, rand } = {}) {
   const actor = s.players[actorId];
   const t = { now, clock: clockOf(s, now), at: now, positions: positions || {}, rand: randOf(rand, state, now) };
   const out = command.run(s, actor, cmd, t);
-  if (out && out.error) return out;
+  if (out && out.error) {
+    // (A refusal that still changed something worth keeping, like a safe-zone note, carries the state.)
+    if (out.keep) {
+      s.updatedAt = now;
+      return { error: out.error, state: s };
+    }
+    return { error: out.error };
+  }
   if (playerOf(s, actorId)) s.players[actorId].lastSeen = now;
   s.updatedAt = now;
   return { state: s };
@@ -1998,8 +2045,9 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
     if (live && e.clock > T) break;
     lastEventId = e.id;
     if (e.kind === 'chat' || !SIDE_WORDS.has(e.to)) continue;
-    // (A hider's own power news stays hidden until the game is over: a hunter watching would learn of a Decoy.)
-    if (live && e.kind === 'power' && e.to === 'hiders') continue;
+    // (A hider's own power news stays hidden until the game is over: a hunter watching would learn of a Decoy.
+    // So do the hiders' checkpoint news: a hunter's second phone learns nothing early.)
+    if (live && (e.kind === 'power' || e.kind === 'checkpoint') && e.to === 'hiders') continue;
     const out = { id: e.id, at: e.at, clock: e.clock, kind: e.kind, to: e.to, side: sideOf(e.to), text: e.text };
     if (e.from) out.from = e.from;
     if (e.data) out.data = copy(e.data);
@@ -2042,6 +2090,7 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
     watchers: [],
     driverPick: null,
     cam: !lobby && s.cam && Array.isArray(s.cam.ids) ? { on: true, mode: s.cam.mode, filmed: s.cam.ids.slice() } : null,
+    cp: cpWatchFor(s, T),
   };
 }
 
@@ -2208,6 +2257,10 @@ function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, expos
     if (spot && distanceM(nearFrom, spot) <= TIMING.DRIVER_NEAR_M) {
       return { ...base, kind: 'near', p: spot, r: 0, age: ageOf(pos, now) };
     }
+  }
+  // v1.3: safe time ran out at a checkpoint, or back at one already done: live, the real spot (never Sprint's).
+  if (!paused && pos && current(pos, now) && cpExposed(s, h, clock)) {
+    return { ...base, kind: 'overstay', p: pos.p, r: 0, age: ageOf(pos, now) };
   }
   if (!paused && pos && h.outsideSince !== null && clock - h.outsideSince >= TIMING.OUTSIDE_SHOW_MS) {
     return { ...base, kind: 'outside', p: pos.p, r: 0, age: ageOf(pos, now) };
@@ -2451,6 +2504,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     drive,
     radio,
     cam,
+    cp: cpViewFor(s, me, { clock, now, positions }),
   };
 }
 
@@ -2526,6 +2580,915 @@ function driveFor(s, me, { now, positions, parked, marks }) {
     drivenM: Math.round(d.stats.drivenM || 0),
     done: d.stats.pickups || 0,
   };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// v1.3: Checkpoints (see the contract's "v1.3: Checkpoints"). One checkpoint ("slot") is active at a time,
+// for the free hiders from `at` and for everyone else from `show`. A free hider whose fresh fix is inside the
+// active slot has an open visit there: safe from tags for the safe time (per checkpoint, in total), then
+// shown live to the hunters until they leave. Everything is decided here, from stored fixes only.
+
+const CP_SPARE_MS = 15000;      // a visit that ends with this little safe time left (1 s or more) is a close call
+const CP_NEAR_WINDOW_MS = 15000;
+const CP_PHOTO_ID = /^[0-9a-f]{16}$/;
+const CP_TAG_NOT_NOW = "That tag can't count right now. Sort it out in person.";
+
+function freshCp(plan, unopened, openMs, leadMs, safeMs) {
+  return {
+    plan, unopened, openMs, leadMs, safeMs,
+    stage: { opened: 0, shown: 0, closed: 0 },
+    done: [],
+    next: 1,
+    visits: {},
+    used: {},
+    toldAt: {},
+    refused: {},
+    photos: { count: 0, bytes: 0, lastAt: {} },
+  };
+}
+
+// (Fills in what an older or hand-made state.cp lacks; on a copy we own.)
+function fillCp(s) {
+  if (s.cp === undefined || (s.cp !== null && (typeof s.cp !== 'object' || !Array.isArray(s.cp.plan)))) s.cp = null;
+  if (!s.cp) return;
+  const cp = s.cp;
+  const plan = cpPlan(s.settings, cp.plan.length);
+  if (!Number.isFinite(cp.unopened)) cp.unopened = 0;
+  if (!Number.isFinite(cp.openMs)) cp.openMs = plan.openMs;
+  if (!Number.isFinite(cp.leadMs)) cp.leadMs = plan.leadMs;
+  if (!Number.isFinite(cp.safeMs)) cp.safeMs = plan.safeMs;
+  if (!cp.stage || typeof cp.stage !== 'object') cp.stage = { opened: 0, shown: 0, closed: 0 };
+  for (const k of ['opened', 'shown', 'closed']) if (!Number.isInteger(cp.stage[k])) cp.stage[k] = 0;
+  if (!Array.isArray(cp.done)) cp.done = [];
+  for (const d of cp.done) if (!Array.isArray(d.hist)) d.hist = d.struck ? [[Number.isFinite(d.struckAt) ? d.struckAt : d.clock, true]] : [];
+  if (!Number.isFinite(cp.next)) cp.next = cp.done.reduce((m, d) => Math.max(m, d.n || 0), 0) + 1;
+  for (const k of ['visits', 'used', 'toldAt', 'refused']) {
+    if (!cp[k] || typeof cp[k] !== 'object' || Array.isArray(cp[k])) cp[k] = {};
+  }
+  if (!cp.photos || typeof cp.photos !== 'object') cp.photos = { count: 0, bytes: 0, lastAt: {} };
+  if (!Number.isFinite(cp.photos.count)) cp.photos.count = 0;
+  if (!Number.isFinite(cp.photos.bytes)) cp.photos.bytes = 0;
+  if (!cp.photos.lastAt || typeof cp.photos.lastAt !== 'object') cp.photos.lastAt = {};
+}
+
+function cpGame(s) {
+  const cp = s && s.cp;
+  return !!cp && typeof cp === 'object' && Array.isArray(cp.plan) && !!cp.stage && Array.isArray(cp.done)
+    && !!cp.visits && !!cp.used && !!cp.toldAt && !!cp.refused && !!cp.photos;
+}
+
+// A state.cp that needs fillIn's help (older or hand-made).
+function cpUnfilled(s) {
+  return !!s && !!s.cp && !cpGame(s);
+}
+
+// Counted checkpoints of one player: each slot once (a struck one done again, then counted again, is one).
+function cpCountOf(dones, pid) {
+  return new Set(dones.filter((d) => d && d.pid === pid && !d.struck).map((d) => d.k)).size;
+}
+
+function cpSafeOf(s) {
+  return Number.isFinite(s.cp.safeMs) ? s.cp.safeMs : cpPlan(s.settings, s.cp.plan.length).safeMs;
+}
+
+// A stored fix as the checkpoints read it, or null. `got` = when the server stored it (else `at`).
+function cpFix(pos) {
+  if (!pos || typeof pos !== 'object' || !isPoint(pos.p)) return null;
+  const at = Number.isFinite(pos.at) ? pos.at : null;
+  return {
+    p: [pos.p[0], pos.p[1]],
+    at,
+    got: Number.isFinite(pos.got) ? pos.got : at,
+    acc: Number.isFinite(pos.acc) && pos.acc >= 0 ? pos.acc : 0,
+    clock: Number.isFinite(pos.clock) ? pos.clock : null,
+  };
+}
+
+// A fix that says something about inside or outside: fresh (CP_FRESH_MS, by the phone's time and by when the
+// server got it) and no worse than CP_ACC_MAX_M. Poor fixes change nothing.
+function cpDecisive(pos, now) {
+  const f = cpFix(pos);
+  if (!f || f.at === null || f.got === null) return null;
+  if (now - f.at > TIMING.CP_FRESH_MS || now - f.got > TIMING.CP_FRESH_MS) return null;
+  return f.acc <= TIMING.CP_ACC_MAX_M ? f : null;
+}
+
+function cpWithin(slot, f) {
+  return distanceM(slot.p, f.p) <= slot.r + Math.min(f.acc, TIMING.CP_ACC_SLACK_M);
+}
+
+// Is this fix inside this checkpoint right now? (Exported for tests; a page never decides it.)
+export function cpInside(cp, pos, now) {
+  if (!cp || typeof cp !== 'object' || !isPoint(cp.p) || !Number.isFinite(cp.r)) return false;
+  const f = cpDecisive(pos, now);
+  return !!f && cpWithin(cp, f);
+}
+
+function posFrom(positions, id) {
+  return positions && typeof positions === 'object' && typeof id === 'string' && has(positions, id) ? positions[id] : null;
+}
+
+// How a fresh fix stands to a checkpoint: { f, where }. where 'in' (a good fix inside: opens or keeps a visit),
+// 'near' (a poor fix, as indoors, whose centre is close: keeps an open visit going, opens none), 'out' (a good fix
+// clearly outside even allowing for its accuracy: ends a visit), or null (it says nothing either way). Null
+// when the fix isn't fresh.
+function cpWhere(slot, pos, now) {
+  const f = cpFix(pos);
+  if (!f || f.at === null || f.got === null) return null;
+  if (now - f.at > TIMING.CP_FRESH_MS || now - f.got > TIMING.CP_FRESH_MS) return null;
+  const d = distanceM(slot.p, f.p);
+  if (f.acc <= TIMING.CP_ACC_MAX_M) {
+    if (d <= slot.r + Math.min(f.acc, TIMING.CP_ACC_SLACK_M)) return { f, d, where: 'in' };
+    return { f, d, where: d - f.acc > slot.r ? 'out' : null };
+  }
+  return { f, d, where: d <= slot.r + Math.min(f.acc, TIMING.CP_POOR_SLACK_M) ? 'near' : null };
+}
+
+// A visit kept going by a fix this recently (server time; the fix's own time if older).
+function cpHeld(v, now) {
+  return !!v && Number.isFinite(v.got) && now - v.got <= TIMING.CP_HOLD_MS;
+}
+
+// Is this hider at this (active) checkpoint now, for the photo, the stay and the ring? Their newest fix inside,
+// or an open visit there kept going recently, unless the newest fix is clearly outside.
+function cpHere(s, pid, slot, positions, now) {
+  const w = cpWhere(slot, posFrom(positions, pid), now);
+  if (w && w.where === 'out') return false;
+  if (w && w.where === 'in') return true;
+  const v = cpVisit(s, pid);
+  return !!v && v.k === slot.k && cpHeld(v, now);
+}
+
+// The active slot at this clock (live only): at <= clock < close.
+function cpActive(s, clock) {
+  if (!cpGame(s) || s.phase !== 'live') return null;
+  return s.cp.plan.find((a) => a.at <= clock && clock < a.close) || null;
+}
+
+const cpKey = (pid, k) => `${pid}|${k}`;
+
+function cpUsed(s, pid, k) {
+  const v = s.cp.used[cpKey(pid, k)];
+  return Number.isFinite(v) ? v : 0;
+}
+
+function cpCounted(s, pid, k) {
+  return s.cp.done.find((d) => d.pid === pid && d.k === k && !d.struck) || null;
+}
+
+function cpVisit(s, pid) {
+  return has(s.cp.visits, pid) ? s.cp.visits[pid] : null;
+}
+
+function taskWords(task) {
+  if (typeof task !== 'string' || !task) return '';
+  return /[.!?]$/.test(task) ? task : `${task}.`;
+}
+
+function cpCountWords(n) {
+  return n === 1 ? '1 checkpoint' : `${n} checkpoints`;
+}
+
+// May the hunters see what happens at this checkpoint yet? Not during the head start, nor before its `show`
+// (the server never gives a checkpoint's place away early, not even by a hider shown standing in it).
+function cpHuntersSee(s, slot, clock) {
+  return clock >= schedule(s.settings).headStartMs && clock >= slot.show;
+}
+
+function cpTellHunters(s, p, why, t) {
+  if (why === 'time') emit(s, t, 'checkpoint', 'hunters', `${p.name} stayed at the checkpoint too long: live on your map.`, { what: 'overstay', id: p.id });
+  else emit(s, t, 'checkpoint', 'hunters', `${p.name} went back to a checkpoint they already did: live on your map.`, { what: 'again', id: p.id });
+}
+
+// Safe time ran out (or the visit opened with none left, or on a checkpoint already done): the hunters see
+// this hider live until they leave. Before the hunters may see the checkpoint they aren't told (cpShow tells
+// them then, if it's still so).
+function cpExposeNews(s, p, slot, why, t) {
+  const N = slot.k + 1;
+  if (why === 'time') {
+    emit(s, t, 'checkpoint', p.id, 'Your safe time is up. The hunters can see you until you leave the checkpoint.', { what: 'overstay', k: slot.k });
+    note(s, { kind: 'cp-overstay', clock: t.clock, id: p.id, k: slot.k, text: `${p.name} stayed at checkpoint ${N} too long.` });
+  } else {
+    emit(s, t, 'checkpoint', p.id, "You already did this checkpoint, so you're not safe here. The hunters can see you until you leave.", { what: 'again', k: slot.k });
+    note(s, { kind: 'cp-again', clock: t.clock, id: p.id, k: slot.k, text: `${p.name} went back to checkpoint ${N}.` });
+  }
+  if (cpHuntersSee(s, slot, t.clock)) cpTellHunters(s, p, why, t);
+  addMoment(s, t, 'overstay', [p.id]);
+}
+
+// A visit ends at game clock `end`. Safe time spent in it is added up (an exposed visit adds nothing more).
+// why: 'out' (a fix outside), 'stale' (no fix inside for CP_FRESH_MS), 'close', 'gone', 'end'.
+function cpEndVisit(s, pid, end, why, t) {
+  const v = cpVisit(s, pid);
+  if (!v) return;
+  delete s.cp.visits[pid];
+  // (Back in within CP_BACK_MS after leaving: the same visit goes on, so GPS jitter at the edge is never 'again'.)
+  if (why === 'out' || why === 'stale') {
+    if (!s.cp.back || typeof s.cp.back !== 'object') s.cp.back = {};
+    s.cp.back[pid] = { k: v.k, clock: t.clock, exposed: v.exposed || null };
+  }
+  const until = Math.max(v.since, end);
+  if (!v.exposed) {
+    const key = cpKey(pid, v.k);
+    const used = cpUsed(s, pid, v.k);
+    const left = Math.max(0, cpSafeOf(s) - used);
+    const spent = Math.min(until - v.since, left);
+    s.cp.used[key] = used + spent;
+    const spare = left - spent;
+    if ((why === 'out' || why === 'stale') && spare >= 1000 && spare <= CP_SPARE_MS) {
+      note(s, { kind: 'cp-left', clock: until, id: pid, k: v.k, spare });
+    }
+  } else if (why === 'out' || why === 'stale') {
+    emit(s, t, 'checkpoint', pid, 'You left the checkpoint.', { what: 'left', k: v.k });
+  }
+}
+
+function cpEndAll(s, t, why, which = () => true) {
+  if (!cpGame(s)) return;
+  for (const pid of Object.keys(s.cp.visits)) {
+    const v = s.cp.visits[pid];
+    if (v && which(v)) cpEndVisit(s, pid, t.clock, why, t);
+  }
+}
+
+// A checkpoint counts (a photo, or a stay with photos off).
+function cpRecord(s, p, slot, how, photo, t, bytes) {
+  const cp = s.cp;
+  const told = t.clock >= slot.show;
+  const d = {
+    n: cp.next++, k: slot.k, pid: p.id, clock: t.clock, how, photo: how === 'photo' ? photo : null,
+    struck: false, struckAt: null, told, hist: [],
+  };
+  cp.done.push(d);
+  if (how === 'photo') {
+    cp.photos.count += 1;
+    if (Number.isInteger(bytes) && bytes > 0) cp.photos.bytes += bytes;
+    cp.photos.lastAt[p.id] = t.now;
+  }
+  const text = `${p.name} did checkpoint ${slot.k + 1}: ${slot.name}.`;
+  emit(s, t, 'checkpoint', told ? 'all' : 'hiders', text, { what: 'done', n: d.n, k: slot.k, pid: p.id, photo: d.photo, how });
+  addMoment(s, t, 'checkpoint', [p.id]);
+  note(s, { kind: 'cp-done', clock: t.clock, id: p.id, k: slot.k, n: d.n, text });
+  return d;
+}
+
+// A free hider's fix (onPosition): visits open, go on and end. Returns whether anything changed.
+function cpOnFix(s, p, raw, now, clock) {
+  const cp = s.cp;
+  const slot = cpActive(s, clock);
+  const t = { now, clock, at: now };
+  let changed = false;
+  let v = cpVisit(s, p.id);
+  if (v && (!slot || v.k !== slot.k)) {
+    cpEndVisit(s, p.id, clock, 'close', t);
+    v = null;
+    changed = true;
+  }
+  if (!slot) return changed;
+  const w = cpWhere(slot, raw, now);
+  if (!w || !w.where) return changed;
+  const f = w.f;
+  if (w.where === 'out') {
+    // Charged up to now (when the server heard it), never to a time the phone says: that could take it back.
+    if (v) {
+      cpEndVisit(s, p.id, clock, 'out', t);
+      changed = true;
+    }
+    return changed;
+  }
+  // The fix's own clock (when it was taken), never ahead of now nor before the slot opened.
+  const at = Math.max(slot.at, f.clock !== null ? Math.min(f.clock, clock) : clock);
+  const got = Math.min(f.got, f.at, now);
+  if (w.where === 'near' && !v) return changed; // a poor fix opens nothing
+  if (v) {
+    if (at > v.at) v.at = at;
+    if (!(Number.isFinite(v.got) && v.got >= got)) v.got = got;
+    changed = true;
+  } else {
+    const safeMs = cpSafeOf(s);
+    const back = cp.back && has(cp.back, p.id) ? cp.back[p.id] : null;
+    const resumed = !!back && back.k === slot.k && clock - back.clock <= TIMING.CP_BACK_MS;
+    if (back) delete cp.back[p.id];
+    const outOfTime = cpUsed(s, p.id, slot.k) >= safeMs ? 'time' : null;
+    const exposed = resumed ? (back.exposed || outOfTime) : cpCounted(s, p.id, slot.k) ? 'again' : outOfTime;
+    v = { k: slot.k, since: at, at, got, exposed, exposedAt: exposed ? at : null, stayTried: false };
+    cp.visits[p.id] = v;
+    changed = true;
+    if (exposed) {
+      cpExposeNews(s, p, slot, exposed, t);
+    } else if (!exposed) {
+      const key = cpKey(p.id, slot.k);
+      const last = cp.toldAt[key];
+      if (!Number.isFinite(last) || clock - last >= TIMING.CP_TOLD_GAP_MS) {
+        cp.toldAt[key] = clock;
+        const left = Math.max(0, safeMs - cpUsed(s, p.id, slot.k));
+        const how = s.settings.cpPhoto ? 'Take the photo.' : `Stay ${Math.round(TIMING.CP_STAY_MS / 1000)} seconds to count it.`;
+        emit(s, t, 'checkpoint', p.id, `You're at the checkpoint. You're safe here for ${fmtClock(left)}. ${how}`, { what: 'at', k: slot.k, safeMs: left });
+      }
+    }
+  }
+  // Photos off: inside long enough in this visit counts it (also checked by advance's 'cpStay').
+  if (!s.settings.cpPhoto && !v.exposed && !cpCounted(s, p.id, slot.k) && v.at - v.since >= TIMING.CP_STAY_MS) {
+    v.stayTried = true;
+    cpRecord(s, p, slot, 'stay', null, t);
+    changed = true;
+  }
+  return changed;
+}
+
+// Protected from tags right now: an open, unexposed visit on the active slot, inside on a fresh fix, with safe
+// time left. Returns the slot, or null.
+// The visit must have been kept going by a fix in the last CP_HOLD_MS (a phone gone quiet, locked or out of
+// signal, isn't safe for long), and a good newest fix must be inside the circle the hunters see (the accuracy
+// slack only helps a checkpoint count; a poor fix, as indoors, may be a little off).
+function cpProtected(s, h, positions, now, clock) {
+  if (!cpGame(s) || !isFree(h)) return null;
+  const slot = cpActive(s, clock);
+  const v = cpVisit(s, h.id);
+  if (!slot || !v || v.k !== slot.k || v.exposed) return null;
+  const pos = posFrom(positions, h.id);
+  if (Number.isFinite(v.got)) {
+    if (!cpHeld(v, now)) return null;
+  } else if (!cpInside(slot, pos, now)) {
+    return null; // (a visit from before v.got was kept)
+  }
+  const w = cpWhere(slot, pos, now);
+  if (w && (w.where === 'out' || (w.f.acc <= TIMING.CP_ACC_MAX_M && w.d > slot.r))) return null;
+  if (cpUsed(s, h.id, slot.k) + (clock - v.since) >= cpSafeOf(s)) return null;
+  return slot;
+}
+
+// A free hider the hunters see live because of a checkpoint (an exposed visit), once the hunters may see that
+// checkpoint (`clock` given: the hunters' map).
+function cpExposed(s, h, clock) {
+  if (!cpGame(s) || !isFree(h)) return false;
+  const v = cpVisit(s, h.id);
+  if (!v || !v.exposed) return false;
+  if (clock === undefined) return true;
+  const slot = s.cp.plan[v.k];
+  return !!slot && cpHuntersSee(s, slot, clock);
+}
+
+// The due items (advance), after the existing ones at the same clock.
+function cpDue(s, sch, offer) {
+  if (!cpGame(s)) return;
+  const cp = s.cp;
+  const plan = cp.plan;
+  const E = sch.endMs;
+  // (A slot closes as the next one opens, at the same clock: the close goes first.)
+  if (cp.stage.closed < plan.length - 1 && cp.stage.closed < cp.stage.opened) {
+    const sl = plan[cp.stage.closed];
+    if (sl.close < E) offer(sl.close, 10, { type: 'cpClose', k: sl.k });
+  }
+  if (cp.stage.opened < plan.length) {
+    const sl = plan[cp.stage.opened];
+    if (sl.at < E) offer(sl.at, 11, { type: 'cpOpen', k: sl.k });
+  }
+  if (cp.stage.shown < plan.length && cp.stage.shown < cp.stage.opened) {
+    const sl = plan[cp.stage.shown];
+    if (sl.show < E) offer(sl.show, 12, { type: 'cpShow', k: sl.k });
+  }
+  const safeMs = cpSafeOf(s);
+  for (const p of ordered(s)) {
+    const v = cpVisit(s, p.id);
+    if (!v) continue;
+    // An exposed visit never goes stale: it ends only on a good fix outside (or the close, a catch, the end),
+    // so going quiet never takes a hider off the hunters' map (the offline rule takes over in time).
+    if (v.exposed) continue;
+    // (At the same clock: the stay counts first, then the stale end, then the safe time.)
+    if (!s.settings.cpPhoto && !v.stayTried && !cpCounted(s, p.id, v.k)) {
+      const stay = v.since + TIMING.CP_STAY_MS;
+      if (stay < E) offer(stay, 13, { type: 'cpStay', id: p.id });
+    }
+    if (v.at + TIMING.CP_FRESH_MS < E) offer(v.at + TIMING.CP_FRESH_MS, 14, { type: 'cpStale', id: p.id });
+    const out = v.since + Math.max(0, safeMs - cpUsed(s, p.id, v.k));
+    if (out < E) offer(out, 15, { type: 'cpSafeOut', id: p.id });
+  }
+}
+
+function cpRunDue(s, item, t, ctx) {
+  const cp = s.cp;
+  const total = cp.plan.length;
+  switch (item.type) {
+    case 'cpClose': {
+      const slot = cp.plan[cp.stage.closed];
+      cp.stage.closed += 1;
+      cpEndAll(s, t, 'close', (v) => v.k === slot.k);
+      emit(s, t, 'checkpoint', 'all', `Checkpoint ${slot.k + 1} is closed.`, { what: 'close', k: slot.k });
+      return true;
+    }
+    case 'cpOpen': {
+      const slot = cp.plan[cp.stage.opened];
+      cp.stage.opened += 1;
+      const huntersIn = Math.max(0, slot.show - t.clock);
+      const task = taskWords(slot.task);
+      let text = `New checkpoint (${slot.k + 1} of ${total}): ${slot.name}.${task ? ` ${task}` : ''}`;
+      if (huntersIn > 0) text += ` The hunters see it in ${fmtClock(huntersIn)}.`;
+      emit(s, t, 'checkpoint', 'hiders', text, {
+        what: 'open', k: slot.k, id: slot.id, name: slot.name, task: slot.task, p: [slot.p[0], slot.p[1]], r: slot.r, total, huntersIn,
+      });
+      if (slot.show > slot.at) {
+        emit(s, t, 'checkpoint', 'hunters', `The hiders have checkpoint ${slot.k + 1}. You see it in ${fmtClock(huntersIn)}.`,
+          { what: 'soon', k: slot.k, total, inMs: huntersIn });
+      }
+      return true;
+    }
+    case 'cpShow': {
+      const slot = cp.plan[cp.stage.shown];
+      cp.stage.shown += 1;
+      emit(s, t, 'checkpoint', 'hunters', `New checkpoint (${slot.k + 1} of ${total}): ${slot.name}. Wait outside: no running or yelling inside stores.`, {
+        what: 'show', k: slot.k, id: slot.id, name: slot.name, task: slot.task, p: [slot.p[0], slot.p[1]], r: slot.r, total,
+      });
+      note(s, { kind: 'cp-open', clock: t.clock, k: slot.k, text: `Checkpoint ${slot.k + 1} opened: ${slot.name}.` });
+      // Hiders shown there before the hunters could see it: the hunters are told now (the map shows them now).
+      if (cpHuntersSee(s, slot, t.clock)) {
+        for (const p of ordered(s)) {
+          const v = cpVisit(s, p.id);
+          if (v && v.k === slot.k && v.exposed && isFree(p)) cpTellHunters(s, p, v.exposed, t);
+        }
+      }
+      // Checkpoints done in the hiders' head start on it are told to the hunters now (struck ones aren't).
+      for (const d of cp.done) {
+        if (d.k !== slot.k || d.told) continue;
+        d.told = true;
+        if (d.struck) continue;
+        const p = playerOf(s, d.pid);
+        emit(s, t, 'checkpoint', 'hunters', `${p ? p.name : 'Someone'} did checkpoint ${slot.k + 1}: ${slot.name}.`,
+          { what: 'done', n: d.n, k: d.k, pid: d.pid, photo: d.photo, how: d.how, late: true });
+      }
+      return true;
+    }
+    case 'cpStale': {
+      // Safe time counts up to the last fix that kept the visit going, not up to now.
+      const v = cpVisit(s, item.id);
+      if (v && !v.exposed) cpEndVisit(s, item.id, Math.min(v.at, item.clock), 'stale', t);
+      return true;
+    }
+    case 'cpSafeOut': {
+      const v = cpVisit(s, item.id);
+      const p = playerOf(s, item.id);
+      if (!v || v.exposed || !p) return true;
+      // Nothing kept the visit going lately: they may well have left, so nobody is shown; the visit ends there.
+      if (item.clock - v.at > TIMING.CP_HOLD_MS) {
+        cpEndVisit(s, item.id, v.at, 'stale', t);
+        return true;
+      }
+      v.exposed = 'time';
+      v.exposedAt = item.clock;
+      cp.used[cpKey(item.id, v.k)] = cpSafeOf(s);
+      cpExposeNews(s, p, cp.plan[v.k], 'time', t);
+      return true;
+    }
+    case 'cpStay': {
+      const v = cpVisit(s, item.id);
+      const p = playerOf(s, item.id);
+      if (!v || !p) return true;
+      v.stayTried = true;
+      const slot = cp.plan[v.k];
+      const w = cpWhere(slot, posFrom(ctx.positions, p.id), ctx.now);
+      if (!v.exposed && isFree(p) && !cpCounted(s, p.id, v.k) && !s.settings.cpPhoto && !(w && w.where === 'out')) {
+        cpRecord(s, p, slot, 'stay', null, t);
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+// cmdStart's part in Checkpoints: an error, or the round's state.cp (made only once everything else passed).
+function cpCheckStart(s) {
+  if (s.settings.mode !== 'checkpoints') return null;
+  const list = Array.isArray(s.checkpoints) ? s.checkpoints : [];
+  if (list.length < LIMITS.checkpointsLeast) return err('no_checkpoints');
+  const problem = checkpointProblem(list, s.ring);
+  if (problem) return err('bad_checkpoints', problem);
+  if (cpPlan(s.settings, list.length).slots.length < LIMITS.checkpointsLeast) {
+    return err('no_checkpoints', 'The game is too short for 2 checkpoints. Make it longer or set the open time to Auto.');
+  }
+  return null;
+}
+
+function cpMake(s, R) {
+  const list = s.checkpoints;
+  const order = s.settings.cpOrder === 'shuffle' ? shuffled(list, R) : list.slice();
+  const plan = cpPlan(s.settings, order.length);
+  const slots = plan.slots.map((sl) => {
+    const c = order[sl.k];
+    return { k: sl.k, id: c.id, name: c.name, task: c.task, p: [c.p[0], c.p[1]], r: c.r, at: sl.at, show: sl.show, close: sl.close };
+  });
+  return freshCp(slots, plan.skipped, plan.openMs, plan.leadMs, plan.safeMs);
+}
+
+function cmdCheckpoints(s, actor, cmd) {
+  const list = cmd.list;
+  if (!Array.isArray(list)) return err('bad_checkpoints', 'Add the checkpoints again.');
+  if (list.length > LIMITS.checkpoints) return err('bad_checkpoints', `At most ${LIMITS.checkpoints} checkpoints.`);
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (!c || typeof c !== 'object' || Array.isArray(c) || !isPoint(c.p)) return err('bad_checkpoints', `Checkpoint ${i + 1} is off the map.`);
+  }
+  const clean = cleanCheckpoints(list);
+  const problem = checkpointProblem(clean, s.ring);
+  if (problem) return err('bad_checkpoints', problem);
+  s.checkpoints = clean;
+  return null;
+}
+
+// Who may see a slot: a free hider from `at`; everyone else from `show`; everyone once over (if it opened).
+function cpSeesSlot(s, me, slot, clock) {
+  if (s.phase === 'over') return slot.k < s.cp.stage.opened || slot.at <= clock;
+  return isFree(me) ? slot.at <= clock : slot.show <= clock;
+}
+
+function cpSeesDone(s, me, d, clock) {
+  if (s.phase === 'over') return true;
+  if (me && d.pid === me.id) return true;
+  const slot = s.cp.plan[d.k];
+  return !!slot && cpSeesSlot(s, me, slot, clock);
+}
+
+// struck as of a clock (spectators): the last change at or before it.
+function struckAt(d, T) {
+  let out = false;
+  for (const [clock, struck] of d.hist || []) if (clock <= T) out = struck;
+  return out;
+}
+
+function cmdCpStrike(s, actor, cmd, t) {
+  if (!cpGame(s)) return err('bad_cmd');
+  if (!Number.isInteger(cmd.n) || typeof cmd.struck !== 'boolean') return err('bad_cmd');
+  const over = s.phase === 'over';
+  const d = s.cp.done.find((x) => x.n === cmd.n);
+  if (!d || (!over && !cpSeesDone(s, actor, d, t.clock))) return err('bad_target', "That checkpoint isn't on your screen yet.");
+  if (d.struck === cmd.struck) return null;
+  if (!cmd.struck && cpCounted(s, d.pid, d.k)) {
+    const p0 = playerOf(s, d.pid);
+    return err('bad_target', `${p0 ? p0.name : 'They'} did checkpoint ${d.k + 1} again, and that one counts already.`);
+  }
+  const at = over && Number.isFinite(s.endClock) ? s.endClock : t.clock;
+  d.struck = cmd.struck;
+  d.struckAt = at;
+  d.hist.push([at, cmd.struck]);
+  const p = playerOf(s, d.pid);
+  const name = p ? p.name : 'Someone';
+  const N = d.k + 1;
+  const text = cmd.struck ? `The host didn't count ${name}'s checkpoint ${N}.` : `The host counts ${name}'s checkpoint ${N} again.`;
+  const data = { what: 'strike', n: d.n, pid: d.pid, struck: cmd.struck };
+  const te = { now: t.now, clock: at, at: t.now };
+  note(s, { kind: 'cp-strike', clock: at, id: d.pid, n: d.n, text });
+  if (over) {
+    data.winners = cpRejudge(s);
+    if (s.summary && Array.isArray(s.summary.events)) s.summary.events.push({ clock: at, text });
+  }
+  emit(s, te, 'checkpoint', over || d.told ? 'all' : 'hiders', text, data);
+  return null;
+}
+
+// The scores: one row per player who started as a hider (not kicked), best first. `asOf` (spectators): a catch
+// after that clock doesn't count yet.
+export function cpScores(state, dones, { asOf } = {}) {
+  if (!state || !state.players) return [];
+  const list = Array.isArray(dones) ? dones : [];
+  const rows = ordered(state).filter((p) => p.startTeam === 'hider' && p.status !== 'kicked').map((p) => {
+    const mine = list.filter((d) => d && d.pid === p.id && !d.struck);
+    // (The newest counted one per slot: each slot counts once.)
+    const firsts = new Map();
+    for (const d of mine) if (!firsts.has(d.k) || d.clock < firsts.get(d.k)) firsts.set(d.k, d.clock);
+    const last = firsts.size ? Math.max(...firsts.values()) : null;
+    const caughtAt = Number.isFinite(p.caughtAt) ? p.caughtAt : null;
+    const caught = caughtAt !== null && (!Number.isFinite(asOf) || caughtAt <= asOf);
+    // Someone who left the game stays on the board but can't win, and ties like someone caught.
+    const left = p.status === 'left' && (!Number.isFinite(asOf) || !Number.isFinite(p.leftAt) || p.leftAt <= asOf);
+    return { pid: p.id, name: p.name, count: firsts.size, last, caught, left };
+  });
+  rows.sort((a, b) => (b.count - a.count) || (Number(a.caught || a.left) - Number(b.caught || b.left))
+    || ((a.last === null ? Infinity : a.last) - (b.last === null ? Infinity : b.last))
+    || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || (a.pid < b.pid ? -1 : a.pid > b.pid ? 1 : 0));
+  return rows;
+}
+
+// The winners by checkpoints, or null when nobody has one counted.
+function cpWinners(s) {
+  if (!cpGame(s)) return null;
+  const rows = cpScores(s, s.cp.done).filter((r) => !r.left);
+  const top = rows[0];
+  if (!top || top.count <= 0) return null;
+  const same = rows.filter((r) => r.count === top.count && r.caught === top.caught && r.last === top.last);
+  return { winners: ordered(s).filter((p) => same.some((r) => r.pid === p.id)).map((p) => p.id), count: top.count };
+}
+
+function cpWinWords(s, ids, count) {
+  const names = ids.map((id) => s.players[id].name);
+  if (names.length === 1) return `${names[0]} wins with ${cpCountWords(count)}.`;
+  const who = names.length > 4 ? `${names.length} hiders` : listNames(names);
+  return `${who} win with ${cpCountWords(count)} each.`;
+}
+
+// After a strike while over: the winners, MVP and the summary's checkpoint parts again (routes, close calls kept).
+function cpRejudge(s) {
+  const reason = s.result ? s.result.reason : 'host';
+  const cw = cpWinners(s);
+  const winners = cw ? cw.winners : winnersOf(s, reason);
+  const mvp = cw ? mvpOf(s, 'time', winners) : mvpOf(s, reason, winners);
+  s.result = { ...(s.result || { reason }), winners: winners.slice(), mvp };
+  // The end line says the winners as they are now: the 'over' event, its play-by-play line and the summary's.
+  const text = overText(s, reason, winners, cw);
+  let old = null;
+  const ev = s.events.find((e) => e.id === s.overEventId && e.kind === 'over');
+  if (ev) {
+    old = ev.text;
+    ev.text = text;
+    ev.data = { ...(ev.data || {}), winners: winners.slice() };
+  }
+  for (let i = s.log.length - 1; i >= 0; i--) {
+    if (s.log[i] && s.log[i].kind === 'over') {
+      if (old === null) old = s.log[i].text;
+      s.log[i] = { ...s.log[i], text };
+      break;
+    }
+  }
+  if (s.summary && typeof s.summary === 'object' && Array.isArray(s.summary.events) && old !== null && old !== text) {
+    s.summary.events = s.summary.events.map((e) => (e && e.text === old ? { ...e, text } : e));
+  }
+  if (s.summary && typeof s.summary === 'object') {
+    s.summary.winners = winners.slice();
+    s.summary.mvp = mvp;
+    if (s.summary.checkpoints && typeof s.summary.checkpoints === 'object') {
+      s.summary.checkpoints.done = cpDoneRows(s);
+      s.summary.checkpoints.scores = cpScores(s, s.cp.done);
+    }
+    if (Array.isArray(s.summary.players)) {
+      for (const row of s.summary.players) {
+        if (row && row.startTeam === 'hider') row.checkpoints = cpCountOf(s.cp.done, row.id);
+      }
+    }
+  }
+  return winners.slice();
+}
+
+function cpDoneRows(s) {
+  return s.cp.done.map((d) => ({ n: d.n, k: d.k, pid: d.pid, clock: d.clock, how: d.how, photo: d.photo, struck: !!d.struck }));
+}
+
+function cpSlotView(sl) {
+  return { k: sl.k, id: sl.id, name: sl.name, task: sl.task, p: [sl.p[0], sl.p[1]], r: sl.r };
+}
+
+function cpLobbyView(s, host) {
+  const list = Array.isArray(s.checkpoints) ? s.checkpoints : [];
+  const plan = cpPlan(s.settings, list.length);
+  let problem = checkpointProblem(list, s.ring);
+  // (Its words name the checkpoints: only the host knows them.)
+  if (problem && !host) problem = 'The host needs to fix the checkpoints.';
+  if (!problem && list.length < LIMITS.checkpointsLeast) problem = errorText('no_checkpoints');
+  else if (!problem && plan.slots.length < LIMITS.checkpointsLeast) {
+    problem = 'The game is too short for 2 checkpoints. Make it longer or set the open time to Auto.';
+  }
+  return {
+    lobby: true,
+    count: list.length,
+    list: host ? copy(list) : null,
+    problem,
+    plan: { openMs: plan.openMs, leadMs: plan.leadMs, safeMs: plan.safeMs, fits: plan.slots.length, skipped: plan.skipped },
+  };
+}
+
+// view.cp for a player (see the contract's "View additions").
+function cpViewFor(s, me, { clock, now, positions }) {
+  if (!s.settings || s.settings.mode !== 'checkpoints') return null;
+  if (s.phase === 'lobby') return cpLobbyView(s, !!me && s.hostId === me.id);
+  if (!cpGame(s)) return null;
+  const cp = s.cp;
+  const live = s.phase === 'live';
+  const hider = live && isFree(me);
+  const sees = (sl) => cpSeesSlot(s, me, sl, clock);
+  const act = live ? cpActive(s, clock) : null;
+  const list = cp.plan.filter(sees).map((sl) => ({ ...cpSlotView(sl), state: act && act.k === sl.k ? 'active' : 'closed' }));
+  let active = null;
+  let waiting = null;
+  if (act) {
+    if (sees(act)) active = { ...cpSlotView(act), closesIn: act.close - clock, huntersIn: hider ? Math.max(0, act.show - clock) : 0 };
+    else waiting = { k: act.k, inMs: act.show - clock };
+  }
+  let next = null;
+  if (live) {
+    const opens = (sl) => (hider ? sl.at : sl.show);
+    const nx = cp.plan.find((sl) => opens(sl) > clock && (!waiting || sl.k !== waiting.k));
+    if (nx) next = { k: nx.k, inMs: opens(nx) - clock };
+  }
+  let mine = null;
+  if (hider && act) {
+    const safeMs = cpSafeOf(s);
+    const v = cpVisit(s, me.id);
+    const on = v && v.k === act.k ? v : null;
+    const used = cpUsed(s, me.id, act.k);
+    const ongoing = on && !on.exposed ? Math.max(0, clock - on.since) : 0;
+    const left = Math.max(0, safeMs - used - ongoing);
+    const did = !!cpCounted(s, me.id, act.k);
+    mine = {
+      k: act.k,
+      did,
+      inside: cpHere(s, me.id, act, positions, now),
+      safeLeft: on && !on.exposed ? left : null,
+      exposed: on ? on.exposed : null,
+      canPhoto: !!s.settings.cpPhoto && cpPhotoProblem(s, me.id, { k: act.k, now, positions }) === null,
+      stay: !s.settings.cpPhoto && on && !on.exposed && !did ? Math.max(0, clock - on.since) : null,
+      left,
+    };
+  }
+  const seen = cp.done.filter((d) => cpSeesDone(s, me, d, clock));
+  const name = (id) => (playerOf(s, id) ? s.players[id].name : '');
+  return {
+    lobby: false,
+    total: cp.plan.length,
+    unopened: cp.unopened,
+    openMs: cp.openMs,
+    leadMs: cp.leadMs,
+    safeMs: cpSafeOf(s),
+    photo: !!s.settings.cpPhoto,
+    list,
+    active,
+    waiting,
+    next,
+    mine,
+    done: seen.map((d) => ({ n: d.n, k: d.k, pid: d.pid, name: name(d.pid), clock: d.clock, how: d.how, photo: d.photo, struck: !!d.struck })),
+    scores: cpScores(s, seen),
+  };
+}
+
+// view.cp for a spectator: the game as of the delayed clock T.
+function cpWatchFor(s, T) {
+  if (!s.settings || s.settings.mode !== 'checkpoints') return null;
+  if (s.phase === 'lobby') {
+    const lv = cpLobbyView(s, false);
+    return { ...lv, problem: '' };
+  }
+  if (!cpGame(s)) return null;
+  const cp = s.cp;
+  const live = s.phase === 'live';
+  if (!live) {
+    const over = cpViewFor(s, null, { clock: T, now: 0, positions: {} });
+    return over ? { ...over, mine: null } : null;
+  }
+  const act = cp.plan.find((a) => a.at <= T && T < a.close) || null;
+  const list = cp.plan.filter((sl) => sl.show <= T).map((sl) => ({ ...cpSlotView(sl), state: act && act.k === sl.k ? 'active' : 'closed' }));
+  let active = null;
+  let waiting = null;
+  if (act) {
+    if (act.show <= T) active = { ...cpSlotView(act), closesIn: act.close - T, huntersIn: 0 };
+    else waiting = { k: act.k, inMs: act.show - T };
+  }
+  const nx = cp.plan.find((sl) => sl.show > T && (!waiting || sl.k !== waiting.k));
+  const seen = cp.done
+    .filter((d) => d.clock <= T && cp.plan[d.k] && cp.plan[d.k].show <= T)
+    .map((d) => ({ ...d, struck: struckAt(d, T) }));
+  const name = (id) => (playerOf(s, id) ? s.players[id].name : '');
+  return {
+    lobby: false,
+    total: cp.plan.length,
+    unopened: cp.unopened,
+    openMs: cp.openMs,
+    leadMs: cp.leadMs,
+    safeMs: cpSafeOf(s),
+    photo: !!s.settings.cpPhoto,
+    list,
+    active,
+    waiting,
+    next: nx ? { k: nx.k, inMs: nx.show - T } : null,
+    mine: null,
+    done: seen.map((d) => ({ n: d.n, k: d.k, pid: d.pid, name: name(d.pid), clock: d.clock, how: d.how, photo: d.photo, struck: d.struck })),
+    scores: cpScores(s, seen, { asOf: T }),
+  };
+}
+
+// Why this player can't take a checkpoint's photo now (null = they can), in the contract's order.
+export function cpPhotoProblem(state, playerId, { k, now, positions } = {}) {
+  return cpProblem(state, playerId, { k, now, positions, how: 'photo' });
+}
+
+function cpProblem(state, playerId, { k, now, positions, how }) {
+  const no = (code, message) => err(code, message).error;
+  if (!state || state.phase !== 'live') return no('not_live');
+  if (!state.settings || state.settings.mode !== 'checkpoints' || !cpGame(state)) return no('bad_cmd');
+  if (state.pausedAt !== null && state.pausedAt !== undefined) return no('paused');
+  const clock = clockOf(state, now);
+  if (clock >= schedule(state.settings).endMs) return no('cooldown', "Time's up.");
+  const p = playerOf(state, playerId);
+  if (!isFree(p)) return no('not_your_turn', 'Only hiders who are still free can do checkpoints.');
+  const slot = cpActive(state, clock);
+  if (!Number.isInteger(k) || !slot || slot.k !== k) return no('cp_closed');
+  if (state.cp.done.some((d) => d.pid === p.id && d.k === k && !d.struck)) return no('cp_done');
+  if (!cpHere(state, p.id, slot, positions, now)) return no('cp_outside');
+  if (how !== 'photo') return state.settings.cpPhoto ? no('bad_cmd') : null;
+  const photos = state.cp.photos || { count: 0, lastAt: {} };
+  if ((photos.count || 0) >= LIMITS.cpPhotos) return no('cp_full');
+  const last = photos.lastAt && Number.isFinite(photos.lastAt[p.id]) ? photos.lastAt[p.id] : null;
+  if (last !== null && now - last >= 0 && now - last < TIMING.CP_PHOTO_GAP_MS) return no('cooldown', 'Wait a moment before the next photo.');
+  if (!state.settings.cpPhoto) return no('bad_cmd', "This game doesn't need photos.");
+  return null;
+}
+
+// A checkpoint counts for this player (the handler, after storing the photo). The visit goes on: the rest of
+// its safe time still protects them.
+export function doCheckpoint(state, playerId, { k, photo, now, positions, how = 'photo', bytes } = {}) {
+  if (how !== 'photo' && how !== 'stay') return err('bad_cmd');
+  const problem = cpProblem(state, playerId, { k, now, positions, how });
+  if (problem) return { error: problem };
+  if (how === 'photo' && (typeof photo !== 'string' || !CP_PHOTO_ID.test(photo) || state.cp.done.some((d) => d.photo === photo))) {
+    return err('cp_photo');
+  }
+  const s = fillIn(copy(state));
+  const t = { now, clock: clockOf(s, now), at: now };
+  const p = s.players[playerId];
+  const d = cpRecord(s, p, s.cp.plan[k], how, how === 'photo' ? photo : null, t, bytes);
+  const v = cpVisit(s, playerId);
+  if (v && v.k === k) v.stayTried = true;
+  p.lastSeen = now;
+  s.updatedAt = now;
+  return { state: s, done: { n: d.n, k: d.k } };
+}
+
+// May `who` ({ player: id } or { watcher: id }) see this photo?
+export function canSeePhoto(state, who, photoId, now) {
+  if (!state || !cpGame(state) || !who || typeof who !== 'object' || typeof photoId !== 'string' || !CP_PHOTO_ID.test(photoId)) return false;
+  const d = state.cp.done.find((x) => x.photo === photoId);
+  if (!d) return false;
+  const live = state.phase === 'live';
+  if (!live && state.phase !== 'over') return false;
+  if (typeof who.player === 'string') {
+    const p = playerOf(state, who.player);
+    if (!p || p.status === 'kicked') return false;
+    if (!live) return true;
+    return active(p) && cpSeesDone(state, p, d, clockOf(state, now));
+  }
+  if (typeof who.watcher === 'string') {
+    if (!has(watchersOf(state), who.watcher)) return false;
+    if (!live) return true;
+    const T = watchClock(state, now);
+    const slot = state.cp.plan[d.k];
+    return d.clock <= T && !!slot && slot.show <= T;
+  }
+  return false;
+}
+
+// summary.checkpoints (Checkpoints mode only).
+function cpSummaryOf(s, tracks) {
+  if (!cpGame(s)) return null;
+  return {
+    plan: copy(s.cp.plan),
+    unopened: s.cp.unopened,
+    done: cpDoneRows(s),
+    scores: cpScores(s, s.cp.done),
+    closeCalls: cpCloseCalls(s, tracks),
+  };
+}
+
+function cpCloseCalls(s, tracks) {
+  const calls = [];
+  const name = (id) => (playerOf(s, id) ? s.players[id].name : 'Someone');
+  const plan = s.cp.plan;
+  const driverId = driverIdOf(s);
+  const seenSafe = new Set();
+  for (const e of s.log) {
+    if (e.kind === 'cp-safe') {
+      const key = `${e.hunter}|${e.hider}|${e.k}`;
+      if (seenSafe.has(key)) continue;
+      seenSafe.add(key);
+      calls.push({
+        kind: 'cpsafe', clock: e.clock, ids: [e.hider, e.hunter], score: -1,
+        text: `${name(e.hunter)} reached ${name(e.hider)} at checkpoint ${e.k + 1}, but ${name(e.hider)} was in the safe zone.`,
+      });
+    } else if (e.kind === 'cp-left') {
+      calls.push({
+        kind: 'cpspare', clock: e.clock, ids: [e.id], ms: e.spare, score: e.spare / CP_SPARE_MS,
+        text: `${name(e.id)} left checkpoint ${e.k + 1} with ${seconds(e.spare)} s of safe time left.`,
+      });
+    }
+  }
+  const players = ordered(s).filter((p) => p.startTeam && p.status !== 'kicked');
+  for (const d of s.cp.done) {
+    if (d.struck || !plan[d.k]) continue;
+    let best = null;
+    for (const h of players) {
+      if (h.id === d.pid || h.id === driverId || sideAt(h, d.clock) !== 'hunter') continue;
+      const ht = tracks[h.id];
+      if (!ht) continue;
+      for (let j = firstFrom(ht, d.clock - CP_NEAR_WINDOW_MS); j < ht.length && ht[j].clock <= d.clock + CP_NEAR_WINDOW_MS; j++) {
+        const m = distanceM(plan[d.k].p, ht[j].p);
+        if (m <= TIMING.CP_NEAR_CALL_M && (!best || m < best.m)) best = { m, h };
+      }
+    }
+    if (best) {
+      const metres = Math.max(1, Math.round(best.m));
+      calls.push({
+        kind: 'cpnear', clock: d.clock, ids: [d.pid, best.h.id], m: metres, score: best.m / TIMING.CP_NEAR_CALL_M,
+        text: `${name(d.pid)} did checkpoint ${d.k + 1} with ${best.h.name} ${metres} m away.`,
+      });
+    }
+  }
+  calls.sort((a, b) => (a.score - b.score) || (a.clock - b.clock));
+  return calls.slice(0, CLOSE_CALLS_KEPT).map(({ score, ...rest }) => rest);
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -2719,6 +3682,7 @@ export function summarize(state, trails = []) {
       row.drivenM = Math.round(p.stats.drivenM || 0);
       row.pickups = p.stats.pickups || 0;
     }
+    if (cpGame(s) && p.startTeam === 'hider') row.checkpoints = cpCountOf(s.cp.done, p.id);
     return row;
   });
   const driverRow = players.find((x) => x.driver) || null;
@@ -2742,6 +3706,7 @@ export function summarize(state, trails = []) {
     radioSaved: radioSaved,
     radio: radioSaved && clips.length ? clips : null,
     cam: camSummaryOf(s),
+    checkpoints: cpSummaryOf(s, tracks),
   };
 }
 

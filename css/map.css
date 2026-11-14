@@ -591,3 +591,103 @@ button.nmark-hit:active .face { transform: scale(0.94); }
 }
 .map-btn:active { background: var(--raised); }
 /* v1.2 end PAGE-MAP */
+/* v1.3 PAGE-SETUP: checkpoint spots (map.setSpots): a zone in metres, a round numbered badge, the name */
+.nmap-spots {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nspot-zone { fill: none; stroke: var(--cp); stroke-width: 3; }
+.nspot-zone.s-active { fill: rgba(199, 146, 255, 0.18); }
+.nspot-zone.s-soon { fill: rgba(199, 146, 255, 0.05); stroke-dasharray: 7 6; }
+.nspot-zone.s-done, .nspot-zone.s-closed { opacity: 0.4; fill: rgba(199, 146, 255, 0.06); }
+.nspot-zone.s-draft { fill: rgba(230, 235, 242, 0.08); stroke: var(--text); stroke-dasharray: 7 6; }
+.nspot-zone.s-suggest { display: none; }
+.nmap-spot-pins {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nspot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+.nspot.unplaced { visibility: hidden; }
+.nspot-hit {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.nspot.tap .nspot-hit { pointer-events: auto; cursor: pointer; }
+.nspot-hit:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; border-radius: 50%; }
+.nspot-badge {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--cp);
+  color: var(--on-cp);
+  font: 700 13px/1 var(--mono);
+  box-shadow: 0 0 0 2px var(--bg), 0 2px 8px rgba(0, 0, 0, 0.6);
+  animation: nmap-in 200ms var(--ease) both;
+}
+.nspot-badge .icon { width: 16px; height: 16px; stroke-width: 3; }
+.nspot.s-done .nspot-badge, .nspot.s-closed .nspot-badge { opacity: 0.45; }
+.nspot.s-draft .nspot-badge { background: var(--text); color: var(--bg); }
+.nspot.s-soon .nspot-badge { background: var(--bg); color: var(--cp); box-shadow: 0 0 0 2px var(--cp), 0 2px 8px rgba(0, 0, 0, 0.6); }
+.nspot.s-suggest .nspot-badge {
+  width: 18px;
+  height: 18px;
+  background: rgba(7, 9, 13, 0.85);
+  box-shadow: 0 0 0 3px var(--cp), 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+.nspot-name {
+  position: absolute;
+  left: 0;
+  top: 17px;
+  transform: translateX(-50%);
+  max-width: 140px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: rgba(7, 9, 13, 0.82);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.nspot.s-suggest .nspot-name { top: 12px; color: var(--text-2); font-weight: 500; }
+.nspot-name[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .nspot-badge { animation: none; }
+}
+/* v1.3 end PAGE-SETUP */
+/* v1.3 PAGE-PLAY: a hider live at a checkpoint (stayed too long, or back at one they did): drawn like 'outside',
+   with the checkpoint's violet edge */
+.nmark.k-overstay { --mc: var(--cp, #c792ff); --mc-soft: rgba(199, 146, 255, 0.32); z-index: 6; }
+.nmark.k-overstay .face { border-color: var(--cp, #c792ff); }
+.nmark-chip[data-kind='cp'] { background: var(--cp, #c792ff); color: var(--on-cp, #160a24); text-shadow: none; }
+/* v1.3 end PAGE-PLAY */

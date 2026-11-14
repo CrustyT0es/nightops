@@ -19,6 +19,7 @@ import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js';
 import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js'; // v1.1 PAGE-RADIO
 import { createTray } from '../ui/tray.js'; // v1.2 PAGE-MAP
 import { attachCamParts, confirmAgain } from './camparts.js'; // v1.2 PAGE-CAM
+import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js'; // v1.3 PAGE-AFTER
 
 // v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
 // clip scheduler (js/radio.js)
@@ -146,7 +147,11 @@ export function overFacts(view) {
   const driverRow = rows.find((r) => r.driver) || null;
 
   const reason = [sum && sum.reason, res && res.reason].find((r) => typeof r === 'string' && REASONS[r]) || null;
-  const winnerList = sum && Array.isArray(sum.winners) ? sum.winners : res && Array.isArray(res.winners) ? res.winners : [];
+  // v1.3 PAGE-AFTER: in Checkpoints the result's winners lead (they change when the host doesn't count a photo)
+  const cpF = cpFacts(v);
+  const cpRes = cpF && res && Array.isArray(res.winners) ? res.winners : null;
+  // v1.3 end PAGE-AFTER
+  const winnerList = cpRes || (sum && Array.isArray(sum.winners) ? sum.winners : res && Array.isArray(res.winners) ? res.winners : []); // v1.3 PAGE-AFTER: cpRes
   // (Ids nobody here knows are left out: "Someone wins!" says nothing.)
   const winners = [...new Set(winnerList.filter(isId))].filter((id) => names.has(id) || byId.has(id));
   const winnerSet = new Set(winners);
@@ -229,6 +234,10 @@ export function overFacts(view) {
   else if (winnerSide === 'hunter') title = 'The hunters win!';
   else if (winnerSide === 'hider') title = 'The hiders win!';
   else title = `${listNames([...winnerNames.slice(0, 3), `${winners.length - 3} more`])} win!`;
+  // v1.3 PAGE-AFTER: "Ava wins with 4 checkpoints" (Classic's words when no checkpoint counted)
+  const cpWords = cpF ? cpTitle(winners, cpF) : '';
+  if (cpWords) title = winners.length <= MOST_NAMES ? `${cpWords}!` : title;
+  // v1.3 end PAGE-AFTER
 
   // The MVP: most catches when the hunters' catches decided it, else the one who covered the most ground.
   const mvpId = isId(sum && sum.mvp) ? sum.mvp : isId(res && res.mvp) ? res.mvp : null;
@@ -285,6 +294,7 @@ export function overFacts(view) {
     marks: arr(v.marks).filter((m) => isObj(m) && isPoint(m.p)),
     partial: !sum,
     driver: driverRow ? { id: driverRow.id, drivenM: driverRow.drivenM, pickups: driverRow.pickups } : null,
+    cp: cpF, cpTicks: cpTicks(sum, cpF), // v1.3 PAGE-AFTER
   };
 }
 
@@ -350,6 +360,10 @@ export function shareText(facts) {
   else if (ids.length <= MOST_NAMES) line = `Night Ops: ${listNames(ids.map((id) => (f.nameOf ? f.nameOf(id) : 'Someone')))} won${after}.`;
   else line = `Night Ops: the ${f.winnerSide === 'hunter' ? 'hunters' : 'hiders'} won${after}.`;
   if (f.mvp && f.mvp.short) line += ` ${f.mvp.short}.`;
+  // v1.3 PAGE-AFTER: "Checkpoints: Ava 4, Mia 3, Noah 1"
+  const cpLine = f.cp ? cpShareLine(f.cp) : '';
+  if (cpLine) line += ` ${cpLine}.`;
+  // v1.3 end PAGE-AFTER
   return line;
 }
 
@@ -363,6 +377,7 @@ export function ticksFor(facts, endS) {
   if (facts.headStartMs > 0) add(facts.headStartMs / 1000, 'start', 'Head start over');
   for (const r of facts.rows) if (r.caughtAt !== null) add(r.caughtAt / 1000, 'catch', `${r.name} caught`);
   for (const c of facts.closeCalls) if (c.clock !== null) add(c.clock / 1000, 'close', c.text);
+  for (const t of arr(facts.cpTicks)) add(t.clockS, 'checkpoint', t.label); // v1.3 PAGE-AFTER
   return out;
 }
 
@@ -397,6 +412,7 @@ function factsSig(f) {
     f.rows.map((r) => [r.id, r.name, r.startTeam, r.team, r.status, r.caughtBy, r.caughtAt, r.catches, r.distanceM, r.powers]),
     f.closeCalls.map((c) => [c.text, c.clock]),
     f.events.length, f.events.length ? f.events[f.events.length - 1].text : '',
+    f.cp ? f.cp.done.map((d) => [d.n, d.struck]) : null, // v1.3 PAGE-AFTER
   ]);
 }
 
@@ -506,7 +522,8 @@ export function mount(root, app) {
   });
   const track = h('div.over-track', ticks, range);
   const legend = h('p.over-legend', { 'aria-hidden': 'true' },
-    h('span.over-key.k-catch', 'Catch'), h('span.over-key.k-close', 'Close call'));
+    h('span.over-key.k-catch', 'Catch'), h('span.over-key.k-close', 'Close call'),
+    h('span.over-key.k-checkpoint', 'Checkpoint')); // v1.3 PAGE-AFTER: Checkpoint
   const fullBtn = h('button.g-more.over-full', { type: 'button', 'aria-label': 'Close the replay' }, icon('close', 22));
   const ovHud = h('header.ov-hud', h('div.ov-hud-row', caption, clockBox, fullBtn));
   const videoSlot = h('div.ov-video-slot'); // v1.2: PAGE-CAM's video window
@@ -553,7 +570,17 @@ export function mount(root, app) {
   const leaveBtn = h('button.btn.ghost.over-leave', { type: 'button' }, icon('door', 20), h('span', 'Leave'));
   const foot = h('div.over-foot', leaveBtn, chatBtn, waitLine, againBtn);
 
-  const body = h('div.over-body', hero, poster, camSlot, calls, board, pbp);
+  // v1.3 PAGE-AFTER: the Checkpoints card right after the hero, and the replay's zones and pulses
+  const cpSlot = h('div.over-cp-slot');
+  const cpUi = cpCard({
+    app,
+    canWatch: () => hasReplay(),
+    onWatch: (c) => watchCall({ ...c, kind: 'near' }, -1),
+  });
+  cpSlot.appendChild(cpUi.el);
+  const cpR = cpReplay({ map: () => R.map });
+  // v1.3 end PAGE-AFTER
+  const body = h('div.over-body', hero, cpSlot, poster, camSlot, calls, board, pbp); // v1.3 PAGE-AFTER: cpSlot
   const page = h('div.over', body, foot);
   fill(root, page, replay); // v1.2 PAGE-MAP: the replay layer sits over the page
   S.camSlot = camSlot; // v1.2: for PAGE-CAM
@@ -630,6 +657,13 @@ export function mount(root, app) {
     if (f.hidersStarted > 0) cells.push(['Caught', `${Math.min(f.caught, f.hidersStarted)} of ${f.hidersStarted}`]);
     else if (f.caught > 0) cells.push(['Caught', String(f.caught)]);
     if (f.totalM !== null && f.totalM > 0) cells.push(['Covered', fmtDistance(f.totalM)]);
+    // v1.3 PAGE-AFTER: "Done": the checkpoints done, in the distance's place (four cells don't fit a phone)
+    if (f.cp && f.cp.plan.length) {
+      const i = cells.findIndex((c) => c[0] === 'Covered');
+      if (i >= 0) cells.splice(i, 1);
+      cells.splice(1, 0, ['Done', String(f.cp.done.filter((d) => !d.struck).length)]);
+    }
+    // v1.3 end PAGE-AFTER
     fill(stats, cells.map(([k, val]) => h('div.over-stat', h('dt', k), h('dd', val))));
     stats.hidden = !cells.length;
   }
@@ -837,6 +871,7 @@ export function mount(root, app) {
           R.ringQ = 'now';
           map.setRing(null, f.ringNow);
         }
+        cpR.frame({ clockMs: atS * 1000, map }); // v1.3 PAGE-AFTER: checkpoint zones open and close
         if (hasReplay()) {
           map.setRoutes(f.routes, atS, { players: f.rows, faces: faces() });
         } else {
@@ -915,6 +950,7 @@ export function mount(root, app) {
     fill(ticks, list.map((t) => h(`span.over-tick.k-${t.kind}`, { style: { left: `${t.pct}%` } })));
     legend.querySelector('.k-catch').hidden = !list.some((t) => t.kind === 'catch');
     legend.querySelector('.k-close').hidden = !list.some((t) => t.kind === 'close');
+    legend.querySelector('.k-checkpoint').hidden = !list.some((t) => t.kind === 'checkpoint'); // v1.3 PAGE-AFTER
     legend.hidden = !usable || !list.some((t) => t.kind !== 'start');
 
     if (!usable) {
@@ -1257,6 +1293,11 @@ export function mount(root, app) {
     const changed = sig !== S.sig;
     S.facts = f;
     try { camUi.update(view); } catch (e) { console.error(e); } // v1.2 PAGE-CAM
+    // v1.3 PAGE-AFTER: the Checkpoints card and the replay's zones
+    try { cpUi.update(view); cpR.setData(view.summary, f.cp); } catch (e) { console.error(e); }
+    const cpTickSig = JSON.stringify(f.cpTicks);
+    if (cpTickSig !== S.cpTickSig) { S.cpTickSig = cpTickSig; S.routesSig = ''; } // (a strike moves the ticks)
+    // v1.3 end PAGE-AFTER
     // v1.1 PAGE-RADIO: the clips (summary.radio) and whether the walkie-talkie was saved
     try {
       const clips = replayClips(view.summary);
@@ -1299,6 +1340,7 @@ export function mount(root, app) {
     S.chat = null;
     try { RR.destroy(); } catch { /* ignore */ } // v1.1 PAGE-RADIO
     try { camUi.destroy(); } catch { /* ignore */ } // v1.2 PAGE-CAM
+    try { cpUi.destroy(); cpR.destroy(); } catch { /* ignore */ } // v1.3 PAGE-AFTER
     dropMap();
   }
 

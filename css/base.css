@@ -59,6 +59,10 @@
   --on-driver: #1a1200;
   --warn: #ffb020;
   --ok: #7ee0b0;
+  /* v1.3 PAGE-SETUP: checkpoint violet (zones, chips, moments) */
+  --cp: #c792ff;
+  --on-cp: #160a24;
+  /* v1.3 end PAGE-SETUP */
   --radius: 14px;
   --radius-sm: 10px;
   --radius-lg: 22px;

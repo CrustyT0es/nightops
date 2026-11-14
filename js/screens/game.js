@@ -24,6 +24,7 @@ import { openChat, renderLines, quickFor, sendChat } from './chat.js';
 import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js'; // v1.1 PAGE-DRIVER
 import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js'; // v1.2 PAGE-MAP
 import { gameCamParts } from './camparts.js'; // v1.2 PAGE-CAM
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js'; // v1.3 PAGE-PLAY
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -354,6 +355,7 @@ export function lastSeenWords(view, id, d = 0) {
     case 'exposure': return 'Exact spot from Exposure';
     case 'outside': return 'Outside the ring, live';
     case 'offline': return `Offline, last seen ${fmtAgo(age)}`;
+    case 'overstay': return 'Live: stayed at the checkpoint'; // v1.3 PAGE-PLAY
     default: return '';
   }
 }
@@ -482,6 +484,13 @@ export function linesFor(view, c, cd, { connection = 'ok', location = 'ok', mode
 export function hudNote(view, cd, mode = modeOf(view)) {
   if (!view || view.phase !== 'live') return '';
   if (view.paused) return 'Paused';
+  // v1.3 PAGE-PLAY: Checkpoints leads with the open checkpoint ("CP 2: 7-Eleven 4:10"), then the rest
+  if (cpOf(view) && !(cd && cd.cpDone)) {
+    const lead = cpHud(view, cd ? cd.d : 0);
+    const rest = hudNote(view, { ...(cd || {}), cpDone: true }, mode);
+    if (lead) return rest ? `${lead} · ${rest}` : lead;
+  }
+  // v1.3 end PAGE-PLAY
   const radar = view.radar;
   if (radar && cd && cd.radar !== null && cd.radar !== undefined) {
     return radar.state === 'live' ? `Radar live ${fmtClock(cd.radar)}` : `Radar in ${fmtClock(cd.radar)}`;
@@ -501,6 +510,7 @@ export function effectOf(e, view) {
   const words = String(e.text || '');
   const say = (kind, b = null, bp = null) => ({ ...none, banner: words ? [words, kind] : null, buzz: b, beep: bp });
   switch (e.kind) {
+    case 'checkpoint': return cpEffect(e, view); // v1.3 PAGE-PLAY
     case 'start':
     case 'again':
     case 'turned':
@@ -714,6 +724,7 @@ export function mount(root, app) {
   const camParts = gameCamParts({ app });
   S.hudSlot.appendChild(camParts.hud);
   // v1.2 end PAGE-CAM
+  const cpp = cpParts({ app }); // v1.3 PAGE-PLAY: the Checkpoints card and "Take the photo"
   const topBar = h('div.g-topbar', teamPill, leftBox, pingBox, S.hudSlot, sosBtn, moreBtn);
   const hidersLabel = h('span.g-hiders-label');
   const hidersFaces = h('div.g-hfaces');
@@ -948,6 +959,20 @@ export function mount(root, app) {
     // v1.2 PAGE-CAM: Record this (main row for hunters, in the more rows for the rest)
     { const rp = camParts.recordPart(role); if (rp) parts.push(rp); }
     // v1.2 end PAGE-CAM
+    // v1.3 PAGE-PLAY: Checkpoints: the card in the more rows (every role); a free hider inside the open checkpoint
+    // gets "Take the photo" in place of the status chip (cpSwap keeps it right as they come and go)
+    P.cpParts = null;
+    if (cpOf(view)) {
+      parts.push({ el: cpp.card, main: false, order: 6 });
+      if (role === 'hider' && P.chip) {
+        const i = parts.findIndex((x) => x.el === P.chip.btn);
+        P.cpMain = cpp.wantsMain(view);
+        P.cpSlots = { i, chip: parts[i], main: { el: cpp.main, main: true, grow: true, order: 10 } };
+        if (i >= 0 && P.cpMain) parts[i] = P.cpSlots.main;
+      }
+      P.cpParts = parts;
+    }
+    // v1.3 end PAGE-PLAY
     parts.push({ el: P.chatBtn, main: true, order: 90 });
     // The last chat lines and the quick buttons.
     parts.push({ el: P.talk, main: false, order: 80 });
@@ -1129,6 +1154,7 @@ export function mount(root, app) {
     const mode = S.mode;
     const head = inHeadStart(view, cd);
     const live = view.phase === 'live';
+    cpSwap(view, c); // v1.3 PAGE-PLAY
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
@@ -1207,7 +1233,7 @@ export function mount(root, app) {
           n ? 'Tap to see who' : parked ? 'Hiders near the car show live' : '', 'car', n ? 'warn' : 'info');
       }
     } else if (P.mode === 'hider') {
-      const st = hiderStatus(view, c, cd, { stale: S.stale });
+      const st = cpStatusOr(hiderStatus(view, c, cd, { stale: S.stale }), view, c); // v1.3 PAGE-PLAY: cpStatusOr
       if (P.status.dataset.tone !== st.tone) P.status.dataset.tone = st.tone;
       if (P.statusIcon.dataset.icon !== st.icon) {
         P.statusIcon.dataset.icon = st.icon;
@@ -1252,6 +1278,29 @@ export function mount(root, app) {
     if (S.sosShown) paintSosDistance(view);
   }
 
+  // v1.3 PAGE-PLAY: the checkpoint parts follow the view and the clock; the main row swaps "Take the photo" and the
+  // status chip; the hider's chip says when a checkpoint matters more (exposed, safe inside) than the usual status.
+  function cpSwap(view, c) {
+    if (!P.cpParts) return;
+    cpp.update(view, c);
+    const slots = P.cpSlots;
+    if (!slots || slots.i < 0) return;
+    const want = cpp.wantsMain(view);
+    if (want === P.cpMain) return;
+    P.cpMain = want;
+    P.cpParts[slots.i] = want ? slots.main : slots.chip;
+    const { main } = splitParts(P.cpParts);
+    tray.setMain(main.map((p) => ({ el: p.el, grow: !!p.grow })));
+    placeBanners();
+  }
+  function cpStatusOr(st, view, c) {
+    if (!P.cpParts || !st || st.key === 'outside' || st.key === 'headstart') return st;
+    const cs = cpp.status(view, c);
+    if (!cs) return st;
+    return cs.tone === 'danger' || st.tone === 'ok' || st.tone === 'info' ? cs : st;
+  }
+  // v1.3 end PAGE-PLAY
+
   function tick() {
     if (S.dead) return;
     S.hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
@@ -1285,6 +1334,16 @@ export function mount(root, app) {
     } catch (e) {
       console.error(e);
     }
+    // v1.3 PAGE-PLAY: the checkpoints this phone may see (open, closed, the hider's own done ones ticked)
+    if (typeof map.setSpots === 'function' && (cpOf(view) || S.cpSpotsKey)) {
+      const spots = spotsFor(view);
+      const key = JSON.stringify(spots);
+      if (key !== S.cpSpotsKey) {
+        S.cpSpotsKey = key;
+        try { map.setSpots(spots); } catch (e) { console.error(e); }
+      }
+    }
+    // v1.3 end PAGE-PLAY
   }
 
   function myPoint() {
@@ -1658,6 +1717,7 @@ export function mount(root, app) {
       body: [
         h('span.label', mode === 'hunter' ? "You're a hunter" : mode === 'hider' ? "You're a hider" : "You're sitting out"),
         ...(HELP[mode] || []).map((p) => h('p', p)),
+        ...(cpOf(S.view) ? (HELP_CP[mode] || []).map((p) => h('p.g-help-cp', p)) : []), // v1.3 PAGE-PLAY
         h('p.g-help-sos', HELP_ALL),
       ],
       actions: [{ label: 'Got it', kind: 'primary' }],
@@ -2076,6 +2136,7 @@ export function mount(root, app) {
     if (S.away && !(last && last.phase === 'live' && modeOf(last) === 'hider')) keepAway(null);
     if (S.chat) { try { S.chat.close(); } catch { /* ignore */ } }
     try { camParts.destroy(); } catch { /* ignore */ } // v1.2 PAGE-CAM
+    try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER

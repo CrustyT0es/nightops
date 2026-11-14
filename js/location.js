@@ -27,6 +27,8 @@ export function createLocation({
   perms = globalThis.navigator?.permissions,
   every = (fn, ms) => setInterval(fn, ms),
   stopEvery = (t) => clearInterval(t),
+  after = (fn, ms) => setTimeout(fn, ms),
+  cancelAfter = (t) => clearTimeout(t),
 } = {}) {
   let state = geo ? 'off' : 'unavailable';
   let last = null;
@@ -170,10 +172,29 @@ export function createLocation({
     setState(geo ? 'off' : 'unavailable');
   }
 
+  // v1.3: wait (at most waitMs) for a fix taken after `newerThan` and no older than maxAgeMs, asking for one now.
+  // The checkpoint photo uses it: while the phone's own camera covers the page, no fixes come, so the last one is
+  // from before the camera opened. -> Promise<latest() | null>: what it has at the end (maybe still old). Never
+  // rejects.
+  function waitFix({ newerThan = -Infinity, maxAgeMs = Infinity, waitMs = 8000 } = {}) {
+    const good = () => !!last && last.at > newerThan && now() - last.at <= maxAgeMs;
+    const copy = () => (last ? { p: last.p.slice(), acc: last.acc, speed: last.speed, at: last.at } : null);
+    if (good() || !running || !geo || state === 'denied') return Promise.resolve(copy());
+    return new Promise((resolve) => {
+      let timer = null;
+      const off = () => { fns.delete(onChange); if (timer !== null) cancelAfter(timer); };
+      const onChange = () => { if (good()) { off(); resolve(copy()); } };
+      fns.add(onChange);
+      timer = after(() => { off(); resolve(copy()); }, Math.max(0, waitMs));
+      try { geo.getCurrentPosition(onFix, () => {}, FAST_FRESHEN); } catch { /* ignore */ }
+    });
+  }
+
   return {
     start,
     stop,
     setFast,
+    waitFix,
     fast: () => fast,
     latest: () => (last ? { p: last.p.slice(), acc: last.acc, speed: last.speed, at: last.at } : null),
     status: () => state,

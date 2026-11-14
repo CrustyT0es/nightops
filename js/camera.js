@@ -6,7 +6,7 @@
 //   camera.start()   open the camera (from a tap, or on its own once the game screen shows)
 //   camera.stopRecording()   "Stop filming" for the rest of this round (what's kept stays)
 //   camera.stream()  the MediaStream while it's on (the walkie-talkie records from its audio: app.mic())
-//   camera.mark()    "Record this": a moment at the game clock now
+//   camera.mark(kind)  "Record this" ('mark'), or 'checkpoint' at the photo's tap: a moment at the game clock now
 //   camera.take(view)  moments told by the server (n > app.camSince); starts / ends filming with the game
 //   camera.held()    { count, bytes } of this round's clips on the phone (as last counted)
 //   camera.on(name, fn)  'state' | 'clip' | 'error' -> off()
@@ -709,10 +709,14 @@ export function createCamera({
       S.stoppedKey = S.key;
       finishRound('stopped');
     },
-    mark() {
+    // kind 'checkpoint' (v1.3): "Take the photo" was tapped. An iPhone mutes this camera while its own camera is
+    // open (and a phone stops it while the page is hidden), so the clip with the lead-in is claimed now, at the tap;
+    // the server's moment later (once the photo counts) only finds the recorders started after the camera came back.
+    mark(kind = 'mark') {
       const c = clockNow();
+      const k = kind === 'checkpoint' ? 'checkpoint' : 'mark';
       if (!S.plan || c === null) return false;
-      S.queue.push({ clock: c, kind: 'mark', local: { at: now(), until: now(), kind: 'mark' } });
+      S.queue.push({ clock: c, kind: k, local: { at: now(), until: now(), kind: k } });
       step();
       return true;
     },

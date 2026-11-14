@@ -1,0 +1,186 @@
+/* Night Ops v1.3 (PAGE-PLAY): Checkpoints while playing. The tray's Checkpoints card, "Take the photo" in the
+   main row (or "Stay here: 0:12 of 0:20" with photos off), the checkpoint kind of moments and banners, photo
+   thumbnails in the chat, a photo shown big, and the driver's checkpoint line. Violet (--cp) is the checkpoint
+   colour everywhere; the rest is the game screen's look. */
+
+/* ---- the tray's card ---- */
+/* (With the card the more rows often scroll: their rows keep their own height then, never squeezed, as the hider's
+   status line has min-height 0 there.) */
+.tray-more:has(> .cp-card) { grid-auto-rows: max-content; }
+.cp-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(199, 146, 255, 0.4);
+  border-radius: var(--radius);
+  background: var(--card);
+  min-width: 0;
+}
+.cp-card[hidden] { display: none; }
+.cp-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cp-card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(199, 146, 255, 0.14);
+  color: var(--cp, #c792ff);
+}
+.cp-card-title {
+  min-width: 0;
+  font-size: 17px;
+  line-height: 1.2;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.cp-card[data-state='waiting'] .cp-card-title,
+.cp-card[data-state='next'] .cp-card-title,
+.cp-card[data-state='none'] .cp-card-title { color: var(--text-2); }
+.cp-card-task {
+  margin: 0;
+  padding-left: 42px;
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--cp, #c792ff);
+  overflow-wrap: anywhere;
+}
+.cp-card-task[hidden] { display: none; }
+.cp-card-lines { display: grid; gap: 2px; padding-left: 42px; min-width: 0; }
+.cp-line {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.cp-line[data-tone='ok'] { color: var(--ok); font-weight: 700; }
+.cp-line[data-tone='warn'] { color: var(--warn); font-weight: 700; }
+.cp-line[data-tone='danger'] { color: var(--hunter); font-weight: 700; }
+.cp-line[data-tone='info'] { color: var(--muted); }
+.cp-card-scores {
+  margin: 4px 0 0;
+  padding: 6px 0 0 42px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- the main row: "Take the photo" / "Stay here" ---- */
+.cp-mainbox { display: flex; min-width: 0; flex: 1 1 auto; }
+.cp-mainbox > * { flex: 1 1 auto; min-width: 0; }
+.btn.cp-main {
+  min-height: 56px;
+  gap: 10px;
+  background: var(--cp, #c792ff);
+  border-color: var(--cp, #c792ff);
+  color: var(--on-cp, #160a24);
+  font-size: 18px;
+  font-weight: 700;
+}
+.btn.cp-main:active:not([aria-disabled='true']) { filter: brightness(0.92); }
+.btn.cp-main.busy { opacity: 0.75; }
+.btn.cp-main[hidden], .cp-stay[hidden] { display: none; }
+.cp-main-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-stay {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 2px solid var(--cp, #c792ff);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--cp, #c792ff);
+  font-weight: 700;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.cp-stay > svg, .cp-stay-words { position: relative; }
+.cp-stay-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-stay-fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(199, 146, 255, 0.18);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 250ms linear;
+}
+
+/* ---- moments and banners of the checkpoint kind ---- */
+.moment.m-checkpoint { --k: var(--cp, #c792ff); }
+.banner.b-checkpoint { --k: var(--cp, #c792ff); }
+
+/* ---- photos: thumbnails, and one shown big ---- */
+.cp-thumb {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(199, 146, 255, 0.5);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--cp, #c792ff);
+  cursor: pointer;
+  touch-action: manipulation;
+  vertical-align: middle;
+}
+.cp-thumb::after {
+  /* (a 44px tap area round a smaller thumbnail) */
+  content: '';
+  position: absolute;
+  inset: min(0px, calc((100% - 44px) / 2));
+}
+.cp-thumb:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cp-thumb-pic { display: grid; place-items: center; width: 100%; height: 100%; }
+.cp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chat-event-photo { display: flex; justify-content: center; margin-top: 6px; }
+
+.photo-sheet .photo-wrap { display: grid; gap: 10px; }
+.photo-frame {
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: #000;
+  overflow: hidden;
+}
+.photo-big {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+  max-height: 70dvh;
+  object-fit: contain;
+}
+.photo-none { margin: 0; padding: 40px 16px; color: var(--muted); text-align: center; }
+.photo-line { margin: 0; color: var(--text-2); font-size: 15px; line-height: 1.4; }
+
+/* ---- the Driving layer's checkpoint line ---- */
+.drive-cp {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(199, 146, 255, 0.45);
+  border-radius: var(--radius);
+  background: rgba(199, 146, 255, 0.08);
+  color: var(--cp, #c792ff);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.drive-cp[hidden] { display: none; }
+
+/* ---- How to play (the game's menu) ---- */
+.g-help-cp { color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-stay-fill { transition: none; }
+}

@@ -16,6 +16,7 @@ export const BANNER_KINDS = {
   sos: 'sos',
   win: 'trophy',
   chat: 'chat',
+  checkpoint: 'flag', // v1.3 PAGE-PLAY: checkpoint violet (css/cpplay.css)
 };
 const MOST = 3;
 const OUT_MS = 220;

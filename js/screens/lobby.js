@@ -10,6 +10,7 @@ import { banner } from '../ui/banner.js';
 import { qrSvg } from '../qr.js';
 import { createMap } from '../map.js';
 import { ringProblem } from '../../shared/geo.js';
+import { cpCard } from './extras/cpcard.js'; // v1.3 PAGE-SETUP
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
@@ -71,6 +72,18 @@ export function startProblem(view) {
   if (!view) return 'Waiting for the game.';
   const host = !!(view.me && view.me.host);
   if (!view.ring || ringProblem(view.ring)) return host ? 'Draw the ring first.' : 'The host still has to draw the ring.';
+  // v1.3 PAGE-SETUP: Checkpoints needs its checkpoints
+  if (view.settings && view.settings.mode === 'checkpoints' && view.cp && view.cp.problem) {
+    if (host) return view.cp.problem;
+    // The checkpoints are there but the game is too short for them: it's the game's length or open time.
+    const least = Number(LIMITS.checkpointsLeast) || 2;
+    const fits = view.cp.plan && Number.isFinite(view.cp.plan.fits) ? view.cp.plan.fits : null;
+    if (Number(view.cp.count) >= least && fits !== null && fits < least) {
+      return 'The game is too short for the checkpoints. The host can make it longer or change the open time.';
+    }
+    return 'The host still has to set up the checkpoints.';
+  }
+  // v1.3 end PAGE-SETUP
   const plan = teamPlan(view.settings, view.players);
   if (plan.n < 2) return 'You need at least 2 players. Share the code with your friends.';
   if (!plan.hunters) return 'Nobody is hunting. Set someone to Hunter or Auto.';
@@ -1019,6 +1032,14 @@ export function mount(root, app) {
       buildTop(),
       h('div.lobby-body', w.code.el, w.players.el, w.mode.el, w.ring.el, w.time.el, w.powers.el, w.extras.el), // v1.1 PAGE-WATCH: extras
       w.foot.el));
+    // v1.3 PAGE-SETUP: the Checkpoints card, right after the ring card (it shows itself in Checkpoints mode)
+    if (S.cpCard) { try { S.cpCard.destroy(); } catch { /* ignore */ } }
+    S.cpCard = null;
+    try {
+      S.cpCard = cpCard({ app, host, setSetting: (key, value, wait) => setSetting(key, value, wait) });
+      w.ring.el.after(S.cpCard.el);
+    } catch (e) { console.error(e); S.cpCard = null; }
+    // v1.3 end PAGE-SETUP
   }
 
   // Keep what's on screen in place while things above it change (a row appears, a setting shows).
@@ -1063,6 +1084,9 @@ export function mount(root, app) {
       for (const part of [w.code, w.players, w.mode, w.ring, w.time, w.powers, w.extras, w.foot]) { // v1.1 PAGE-WATCH: extras
         try { part.update(v); } catch (e) { console.error(e); }
       }
+      // v1.3 PAGE-SETUP
+      if (S.cpCard) { try { S.cpCard.update({ ...v, settings: settingsNow() }); } catch (e) { console.error(e); } }
+      // v1.3 end PAGE-SETUP
     });
   }
 
@@ -1097,6 +1121,7 @@ export function mount(root, app) {
   S.offs.push(app.on('faces', () => { if (!S.destroyed && S.view) render(); }));
   S.offs.push(listen(window, 'resize', () => {
     if (S.map && S.map.resize) S.map.resize();
+    if (S.cpCard && S.cpCard.resize) S.cpCard.resize(); // v1.3 PAGE-SETUP
   }));
 
   // The screen stays on while waiting here, so nobody's phone has gone to sleep when the host starts (a locked
@@ -1117,6 +1142,11 @@ export function mount(root, app) {
       S.view = view;
       // A refused Start's words stay until something that matters for starting changes.
       if (S.startError && startSig(view) !== S.startErrorSig) S.startError = '';
+      // v1.3 PAGE-SETUP: ...and when the checkpoints change
+      const cpSig = view.cp ? `${view.cp.count}|${view.cp.problem}` : '';
+      if (S.startError && S.cpSig !== undefined && cpSig !== S.cpSig) S.startError = '';
+      S.cpSig = cpSig;
+      // v1.3 end PAGE-SETUP
       render();
     },
     destroy() {
@@ -1129,6 +1159,7 @@ export function mount(root, app) {
       for (const off of S.offs.splice(0)) { try { off(); } catch { /* ignore */ } }
       if (S.map) { try { S.map.destroy(); } catch { /* ignore */ } }
       S.map = null;
+      if (S.cpCard) { try { S.cpCard.destroy(); } catch { /* ignore */ } } // v1.3 PAGE-SETUP
       html.style.overflowAnchor = oldAnchor;
       try { app.alerts?.keepAwake?.(false, 'lobby'); } catch { /* ignore */ }
     },

@@ -7,6 +7,7 @@
 import { h } from '../dom.js';
 
 export const MOMENT_KINDS = ['hunter', 'hider', 'ping', 'caught', 'radar', 'win', 'sos'];
+MOMENT_KINDS.push('checkpoint'); // v1.3 PAGE-PLAY: checkpoint violet (css/cpplay.css)
 const OUT_MS = 200;
 const NS = 'http://www.w3.org/2000/svg';
 

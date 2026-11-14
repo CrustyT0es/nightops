@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org; media-src 'self' blob:; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<!-- v1.3 PAGE-SETUP: connect-src gains https://overpass-api.de (the checkpoint editor's store finder) -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org https://overpass-api.de; media-src 'self' blob:; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#07090d">
 <meta name="color-scheme" content="dark">
@@ -23,6 +24,9 @@
 <link rel="stylesheet" href="../css/watch.css"><!-- v1.1 PAGE-WATCH -->
 <link rel="stylesheet" href="../css/radio.css"><!-- v1.1 PAGE-RADIO (and media-src in the CSP) -->
 <link rel="stylesheet" href="../css/cam.css"><!-- v1.2 PAGE-CAM -->
+<link rel="stylesheet" href="../css/cpplay.css"><!-- v1.3 PAGE-PLAY -->
+<link rel="stylesheet" href="../css/cpsetup.css"><!-- v1.3 PAGE-SETUP -->
+<link rel="stylesheet" href="../css/cpafter.css"><!-- v1.3 PAGE-AFTER -->
 <script src="../config.js"></script>
 <script src="../vendor/qrcode.js"></script>
 <script type="module" src="preview.js"></script>
