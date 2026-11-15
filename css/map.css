@@ -153,6 +153,7 @@
 .nmark.unplaced, .ncorner.unplaced { visibility: hidden; }
 .nmark.t-hider { --mc: var(--hider); --mc-soft: rgba(78, 168, 255, 0.32); }
 .nmark.t-hunter { --mc: var(--hunter); --mc-soft: rgba(255, 90, 90, 0.32); }
+.nmark.k-route.t-hider.caught { --mc: #ff2d2d; --mc-soft: rgba(255, 45, 45, 0.4); } /* a caught hider in the replay */
 .nmark.me { --half: 24px; z-index: 8; }
 .nmark.k-seen { z-index: 1; }
 .nmark.k-ping { z-index: 2; }

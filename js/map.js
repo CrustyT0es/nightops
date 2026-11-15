@@ -2045,7 +2045,9 @@ export function createMap(container, { interactive = true } = {}) {
       } else {
         revive(rec);
       }
-      const className = `nmark k-route t-${desc.team}${rec.shown ? '' : ' unplaced'}`
+      // A hider goes red from the moment they're caught (caughtAt: game ms, from the round's results).
+      const caught = person && Number.isFinite(person.caughtAt) && person.caughtAt <= clockSeconds * 1000 ? ' caught' : '';
+      const className = `nmark k-route t-${desc.team}${caught}${rec.shown ? '' : ' unplaced'}`
         + `${rec.el.classList.contains('grouped') ? ' grouped' : ''}${rec.off ? ' spread' : ''}`; // v1.2
       if (rec.el.className !== className) rec.el.className = className;
       setFace(rec, desc, faceSrc(faces, id));

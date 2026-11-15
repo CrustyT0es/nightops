@@ -33,6 +33,8 @@ const PATHS = {
   trash: [['path', { d: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3' }]],
   play: [['path', { d: 'M7 4v16l13-8L7 4z' }]],
   pause: [['path', { d: 'M8 5v14M16 5v14' }]],
+  skipback: [['path', { d: 'M4 12a8 8 0 1 0 2.3-5.6' }], ['path', { d: 'M4 3v5h5' }]], // the 10 s buttons
+  skipfwd: [['path', { d: 'M20 12a8 8 0 1 1-2.3-5.6' }], ['path', { d: 'M20 3v5h-5' }]],
   moon: [['path', { d: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z' }]],
   door: [['path', { d: 'M14 4H6v16h8' }], ['path', { d: 'M10 12h10M17 9l3 3-3 3' }]],
   camera: [['path', { d: 'M4 8h3l2-3h6l2 3h3v11H4V8z' }], ['circle', { cx: 12, cy: 13, r: 3.5 }]],

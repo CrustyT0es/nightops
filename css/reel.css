@@ -66,3 +66,7 @@
 .cc-mini-acts .btn { width: 100%; }
 /* v1.4: render.js records the player out of sight (still in the page, so phones decode its videos) */
 .reel-layer.reel-recording { opacity: 0; pointer-events: none; z-index: -1; }
+
+/* 10 s back / forward beside play */
+.reel-skip { position: relative; }
+.reel-skip-n { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; font-weight: 700; pointer-events: none; padding-top: 1px; }

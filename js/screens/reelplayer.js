@@ -93,6 +93,8 @@ export function openReel({
   // ---- the layer ----
   const canvas = h('canvas.reel-canvas', { 'aria-hidden': 'true' });
   const playBtn = h('button.reel-btn.reel-play', { type: 'button', 'aria-label': 'Pause' }, icon('pause', 26));
+  const backBtn = h('button.reel-btn.reel-skip', { type: 'button', 'aria-label': 'Back 10 seconds' }, icon('skipback', 22), h('span.reel-skip-n', { 'aria-hidden': 'true' }, '10'));
+  const fwdBtn = h('button.reel-btn.reel-skip', { type: 'button', 'aria-label': 'Forward 10 seconds' }, icon('skipfwd', 22), h('span.reel-skip-n', { 'aria-hidden': 'true' }, '10'));
   const closeBtn = h('button.reel-btn.reel-close', { type: 'button', 'aria-label': 'Close' }, icon('close', 24));
   const timeEl = h('span.reel-time', '0:00');
   const nowEl = h('p.reel-now.sr-only', { 'aria-live': 'polite' });
@@ -113,7 +115,7 @@ export function openReel({
   const el = h('div.reel-layer', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
     canvas,
     h('div.reel-top', h('span.reel-name', title), timeEl, closeBtn),
-    h('div.reel-foot', playBtn, bar),
+    h('div.reel-foot', backBtn, playBtn, fwdBtn, bar),
     nowEl);
   if (record) el.classList.add('reel-recording');
   doc.body.append(el);
@@ -422,6 +424,8 @@ export function openReel({
     emit('close');
   }
   playBtn.addEventListener('click', () => (state.playing ? pause() : play()));
+  backBtn.addEventListener('click', () => seek(now() - 10000));
+  fwdBtn.addEventListener('click', () => seek(now() + 10000));
   closeBtn.addEventListener('click', close);
   canvas.addEventListener('click', () => (state.playing ? pause() : play()));
 

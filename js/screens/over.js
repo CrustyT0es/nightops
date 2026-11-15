@@ -513,6 +513,9 @@ export function mount(root, app) {
   const mapBox = h('div.over-map.ov-map');
   const caption = h('p.over-caption');
   const playBtn = h('button.btn.icon-only.over-play', { type: 'button', 'aria-label': 'Play the replay' }, icon('play', 22));
+  // 10 s back / forward: 10 s of what you're watching (game time at the replay's speed)
+  const backBtn = h('button.btn.icon-only.over-skip.over-back10', { type: 'button', 'aria-label': 'Back 10 seconds' }, icon('skipback', 20), h('span.over-skip-n', { 'aria-hidden': 'true' }, '10'));
+  const fwdBtn = h('button.btn.icon-only.over-skip.over-fwd10', { type: 'button', 'aria-label': 'Forward 10 seconds' }, icon('skipfwd', 20), h('span.over-skip-n', { 'aria-hidden': 'true' }, '10'));
   const clockNow = h('span.over-now', '0:00');
   const clockEnd = h('span.over-sub');
   const clockPhase = h('span.over-sub.over-phase');
@@ -546,7 +549,7 @@ export function mount(root, app) {
   const ovBtns = h('div.ov-mapbtns', zoomIn, zoomOut, ovFit);
   const rTray = createTray({ label: 'Replay controls', onState: () => placeLayer() });
   rTray.el.classList.add('ov-tray');
-  rTray.setMain([playBtn, { el: track, grow: true }]);
+  rTray.setMain([backBtn, playBtn, fwdBtn, { el: track, grow: true }]);
   const moreParts = [controls, follow.el, legend]; // v1.4 PAGE-REEL: follow.el
   rTray.setMore(moreParts);
   const mapWrap = h('div.over-map-wrap.ov-map-wrap', mapBox);
@@ -1247,6 +1250,9 @@ export function mount(root, app) {
 
   shareBtn.addEventListener('click', () => { share().catch((e) => console.error(e)); });
   playBtn.addEventListener('click', () => (R.playing ? stop() : play()));
+  const skip = (dir) => { if (hasReplay()) jumpTo(R.clock + dir * 10 * (Number(R.speed) || 1), { keepWatch: true }); };
+  backBtn.addEventListener('click', () => skip(-1));
+  fwdBtn.addEventListener('click', () => skip(1));
   const fitEveryone = () => {
     const f = S.facts;
     if (!R.map || !f) return;
