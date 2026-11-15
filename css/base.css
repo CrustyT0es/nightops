@@ -800,3 +800,9 @@ html.pocket-on, html.pocket-on body { overflow: hidden; }
   .moment-sweep { animation: none; }
   .app-spinner { animation: none; border-top-color: var(--muted); }
 }
+
+/* v1.4 Hacker: the hacked hider's flash */
+.hack-flash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #b00020; color: #fff; pointer-events: none; animation: hack-blink 0.4s steps(2) infinite; }
+.hack-flash strong { font-size: 64px; letter-spacing: 0.1em; }
+@keyframes hack-blink { 50% { background: #000; } }
+@media (prefers-reduced-motion: reduce) { .hack-flash { animation: none; } }

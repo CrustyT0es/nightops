@@ -32,7 +32,14 @@ RANK.checkpoint = 2;
 SCENE_KINDS.add('checkpoint');
 SCENE_KINDS.add('overstay');
 const sceneWhy = (kind) => (kind === 'near' ? 'near' : kind === 'checkpoint' || kind === 'overstay' ? 'checkpoint' : 'tag');
-const weighty = (why) => why === 'talk' || why === 'tag' || why === 'near' || why === 'checkpoint';
+// v1.4 PAGE-REEL: a hack and a tap are rule 4 moments too (why 'hack' / 'tap')
+RANK.hack = 2;
+RANK.tap = 2;
+SCENE_KINDS.add('hack');
+SCENE_KINDS.add('tap');
+const sceneWhy14 = (kind) => (kind === 'hack' || kind === 'tap' ? kind : sceneWhy(kind));
+// v1.4 end PAGE-REEL
+const weighty = (why) => why === 'hack' || why === 'tap' || why === 'talk' || why === 'tag' || why === 'near' || why === 'checkpoint';
 // v1.3 end PAGE-AFTER
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
@@ -46,7 +53,12 @@ export function fileTimeAt(clip, clock) {
   const end = num(clip.end);
   if (start === null || end === null || c < start || c > end) return null;
   const length = num(clip.ms) !== null ? clip.ms / 1000 : (end - start) / 1000;
-  const list = Array.isArray(clip.clocks) ? clip.clocks.filter((x) => num(x) !== null) : [];
+  let list = Array.isArray(clip.clocks) ? clip.clocks.filter((x) => num(x) !== null) : [];
+  // v1.4 PAGE-REEL: t0, the clock measured at the file's first frame, is the exact start (clocks[0] is rounded)
+  const t0 = num(clip.t0);
+  if (t0 !== null && list.length >= 2) { const d = list[0] - t0; list = list.map((x) => x - d); }
+  if (t0 !== null && list.length < 2) return Math.max(0, Math.min(length, (c - t0) / 1000));
+  // v1.4 end PAGE-REEL
   if (list.length < 2) return Math.max(0, Math.min(length, (c - start) / 1000));
   if (c < list[0]) return 0;
   for (let i = 0; i < list.length - 1; i += 1) {
@@ -177,7 +189,7 @@ export function direct({ clips, talk, moments, routes, from, to, follow = null }
           // Holding the current person when they're one of them, until the shot's time is up.
           let c = people[turn];
           if (cur && people.some((p) => p.id === cur.id) && t - cur.since < SHOT_MS) c = people.find((p) => p.id === cur.id);
-          want = { clip: c, why: sceneWhy(scene.kind) }; // v1.3 PAGE-AFTER: sceneWhy
+          want = { clip: c, why: sceneWhy14(scene.kind) }; // v1.3 PAGE-AFTER: sceneWhy (v1.4: sceneWhy14)
         }
       }
     }
@@ -233,23 +245,64 @@ export function movieWindows({ cuts, moments, talk, most = 480000 } = {}) {
   }
   const total = merged.reduce((s, w) => s + (w.to - w.from), 0);
   if (total <= most) return merged.map(({ from, to }) => ({ from, to }));
-  // Too long: keep the windows around moments and talk first, then the busiest, trimming the last one kept.
-  const marks = [...scenesOf(moments).map((m) => m.clock), ...talkOf(talk).map((x) => x.clock)];
-  const scored = merged.map((w, i) => ({
-    i, w, s: w.weight / Math.max(1, w.to - w.from) + marks.filter((k) => k >= w.from && k < w.to).length * 10,
-  })).sort((a, b) => (b.s - a.s) || (a.i - b.i));
-  let left = most;
-  const keep = [];
-  for (const x of scored) {
-    if (left <= 0) break;
-    const len = x.w.to - x.w.from;
-    if (len <= left) {
-      keep.push({ from: x.w.from, to: x.w.to });
-      left -= len;
-    } else if (left >= 5000) {
-      keep.push({ from: x.w.from, to: x.w.from + left });
-      left = 0;
+  // Too long (v1.4): never "the first minutes of a window". Long footage is cut into short scenes (one round
+  // each moment and each walkie message, then even slices of the rest), and the budget is spread over the
+  // beginning, middle and end of the game, the best scenes of each part first, then shown in game order.
+  return pickScenes(merged, [...scenesOf(moments).map((m) => ({ at: m.clock, ms: 0, s: 30 })),
+    ...talkOf(talk).map((x) => ({ at: x.clock, ms: x.ms, s: 20 }))], most);
+}
+
+export const SCENE_BEFORE = 6000;   // a moment's scene starts this long before it
+export const SCENE_AFTER = 10000;   // ... and runs this long after it (a walkie message: after its end)
+export const SLICE_MS = 20000;      // filler scenes of plain footage
+export const SCENE_MOST = 25000;    // a scene is at most this long (a long walkie message keeps going whole)
+
+function pickScenes(windows, marks, most) {
+  const inside = (t) => windows.find((w) => t >= w.from && t < w.to);
+  const cands = [];
+  for (const m of marks) {
+    const w = inside(m.at);
+    if (!w) continue;
+    const from = Math.max(w.from, m.at - SCENE_BEFORE);
+    const to = Math.min(w.to, Math.max(m.at + m.ms + SCENE_AFTER, Math.min(from + SCENE_MOST, m.at + m.ms + 1000)));
+    cands.push({ from, to, s: m.s });
+  }
+  for (const w of windows) {
+    for (let t = w.from; t < w.to; t += SLICE_MS * 3) {
+      cands.push({ from: t, to: Math.min(w.to, t + SLICE_MS), s: 1 });
     }
   }
-  return keep.sort((a, b) => a.from - b.from);
+  if (!cands.length) return [];
+  const lo = Math.min(...windows.map((w) => w.from));
+  const hi = Math.max(...windows.map((w) => w.to));
+  const third = Math.max(1, (hi - lo) / 3);
+  const part = (c) => Math.min(2, Math.floor(((c.from + c.to) / 2 - lo) / third));
+  const queues = [[], [], []];
+  for (const c of cands) queues[part(c)].push(c);
+  for (const q of queues) q.sort((a, b) => (b.s - a.s) || (a.from - b.from));
+  const keep = [];
+  const used = () => keep.reduce((n, k) => n + (k.to - k.from), 0);
+  const overlaps = (c) => keep.some((k) => c.from < k.to && c.to > k.from);
+  let going = true;
+  while (going) {
+    going = false;
+    for (const q of queues) {
+      while (q.length) {
+        const c = q.shift();
+        if (overlaps(c)) continue;
+        if (used() + (c.to - c.from) > most) continue; // a scene is whole or not at all
+        keep.push({ from: c.from, to: c.to });
+        going = true;
+        break;
+      }
+    }
+  }
+  keep.sort((a, b) => a.from - b.from);
+  const out = [];
+  for (const k of keep) {
+    const last = out[out.length - 1];
+    if (last && k.from <= last.to) last.to = Math.max(last.to, k.to);
+    else out.push({ ...k });
+  }
+  return out;
 }

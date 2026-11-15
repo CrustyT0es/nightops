@@ -263,11 +263,35 @@ export function clipShape(c, { mode = 'highlights' } = {}) {
 
 // What the server keeps of a clip (cam-upload's `clip`).
 export function uploadMeta(rec) {
-  return {
+  const out = {
     id: rec.id, round: rec.round, type: baseVideoType(rec.type), bytes: rec.bytes, ms: rec.ms, start: rec.start,
     end: rec.end, kinds: rec.kinds.slice(0, 12), clocks: rec.clocks, loud: rec.loud, bright: rec.bright,
   };
+  // v1.4 PAGE-DEVICES: the clock at the file's first frame, and the loudness every 250 ms (clips made before v1.4
+  // have neither)
+  if (Number.isInteger(rec.t0) && rec.t0 >= rec.start - 2000 && rec.t0 <= rec.start + 2000) out.t0 = rec.t0;
+  if (Array.isArray(rec.loudQ) && rec.loudQ.length) out.loudQ = rec.loudQ;
+  // v1.4 end PAGE-DEVICES
+  return out;
 }
+
+// v1.4 PAGE-DEVICES: per-250 ms loudness fitted to the file's length (ceil(ms / 250) entries, 0..100).
+export const LOUDQ_MS = 250;
+export function fitQuarters(list, ms) {
+  const want = Math.max(1, Math.ceil(ms / LOUDQ_MS));
+  const out = (Array.isArray(list) ? list : []).slice(0, want).map((x) => Math.max(0, Math.min(100, Math.round(Number(x) || 0))));
+  while (out.length < want) out.push(out.length ? out[out.length - 1] : 0);
+  return out;
+}
+// The file's first frame on the game clock: the clock at the recorder's 'start', moved on by the first chunk's
+// timecode where the browser gives a sensible one (else 0). Kept within 2 s of `start` (the server's rule).
+export function firstFrameClock({ startClock, timecodeMs = 0, start }) {
+  const base = Number.isFinite(startClock) ? startClock : start;
+  const lat = Number.isFinite(timecodeMs) && timecodeMs > 0 && timecodeMs < 1500 ? timecodeMs : 0;
+  const t0 = Math.round(base + lat);
+  return Math.max(start - 2000, Math.min(start + 2000, t0));
+}
+// v1.4 end PAGE-DEVICES
 
 // ---- the camera -----------------------------------------------------------------------------------------------
 
@@ -282,6 +306,7 @@ export function createCamera({
   now = () => (globalThis.performance ? performance.now() : Date.now()),
   wall = () => Date.now(),
   timers = { set: (fn, ms) => setInterval(fn, ms), clear: (id) => clearInterval(id) },
+  shared = app && app.media ? app.media : null, // v1.4 PAGE-DEVICES: the one shared stream (media.js)
 } = {}) {
   if (typeof Recorder !== 'function' || !media || typeof media.getUserMedia !== 'function') return null;
   const type = pickType(Recorder);
@@ -363,16 +388,26 @@ export function createCamera({
     if (S.state === 'on' || S.state === 'asking') setState('off');
   }
 
-  async function open() {
+  async function open(byTap = false) {
     if (S.stream && alive(S.stream)) return S.stream;
     if (S.stream) letGo();
     if (S.asked) return S.asked;
     setState('asking');
     S.asked = (async () => {
       try {
-        const stream = await media.getUserMedia(CONSTRAINTS);
+        // v1.4 PAGE-DEVICES: the shared stream (asked for by media.js; a tap here is media.restore())
+        let stream;
+        if (shared) {
+          const held = shared.stream();
+          stream = held && alive(held) && held.getVideoTracks().length ? held : (byTap ? await shared.restore() : await shared.get());
+          if (!stream) {
+            setState(shared.state.cam === 'denied' ? 'denied' : 'off');
+            return null;
+          }
+        } else stream = await media.getUserMedia(CONSTRAINTS);
+        // v1.4 end PAGE-DEVICES
         if (!S.want) {
-          for (const tr of stream.getTracks()) try { tr.stop(); } catch { /* ignore */ }
+          if (!shared) for (const tr of stream.getTracks()) try { tr.stop(); } catch { /* ignore */ }
           setState('off');
           return null;
         }
@@ -446,7 +481,9 @@ export function createCamera({
       S.analyser.getFloatTimeDomainData(S.buf);
       let s = 0;
       for (let i = 0; i < S.buf.length; i += 1) s += S.buf[i] * S.buf[i];
-      S.loudMax = Math.max(S.loudMax, loudOf(Math.sqrt(s / S.buf.length)));
+      const lv = loudOf(Math.sqrt(s / S.buf.length));
+      S.loudMax = Math.max(S.loudMax, lv);
+      for (const rec of S.live.values()) rec.loudQ.push(lv); // v1.4 PAGE-DEVICES
     } catch { /* ignore */ }
   }
 
@@ -459,7 +496,7 @@ export function createCamera({
   }
 
   function letGo() {
-    if (S.stream) for (const tr of S.stream.getTracks()) try { tr.stop(); } catch { /* ignore */ }
+    if (S.stream && !shared) for (const tr of S.stream.getTracks()) try { tr.stop(); } catch { /* ignore */ } // v1.4: never the shared one
     S.stream = null;
     if (S.video) { try { S.video.srcObject = null; S.video.remove(); } catch { /* ignore */ } }
     S.video = null;
@@ -476,11 +513,29 @@ export function createCamera({
     const rec = {
       planId, chunks: [], t0: now(), clock0: clock === null ? 0 : clock, clocks: [], loud: [], bright: [],
       r: null, drop: false, done: false, mime: type,
+      startClock: null, timecode: null, loudQ: [], // v1.4 PAGE-DEVICES
     };
     try {
       const r = new Recorder(S.stream, { mimeType: type, videoBitsPerSecond: VIDEO_BITS, audioBitsPerSecond: AUDIO_BITS });
-      r.ondataavailable = (e) => { if (!rec.drop && e && e.data && e.data.size) rec.chunks.push(e.data); };
-      r.onerror = (e) => emit('error', e && e.error ? e.error : e);
+      r.ondataavailable = (e) => {
+        if (rec.timecode === null && e && Number.isFinite(e.timecode)) rec.timecode = e.timecode; // v1.4 PAGE-DEVICES
+        if (!rec.drop && e && e.data && e.data.size) rec.chunks.push(e.data);
+      };
+      // v1.4 PAGE-DEVICES: the clock at the recorder's start (t0), and an error saves what's there and asks again
+      r.onstart = () => { if (rec.startClock === null) { const c = clockNow(); rec.startClock = c === null ? rec.clock0 : c; } };
+      const recStream = S.stream;
+      r.onerror = (e) => {
+        emit('error', e && e.error ? e.error : e);
+        if (S.stream !== recStream) return; // a recorder of a stream already replaced: nothing to do
+        if (S.recErrored) return;
+        S.recErrored = true;
+        stopAll(true);
+        letGo();
+        if (S.state === 'on') setState('off');
+        if (shared) shared.reacquire('recorder');
+        if (S.want && !S.hidden) setTimeout(() => { if (!S.plan && S.state !== 'full') begun(); }, 1500);
+      };
+      // v1.4 end PAGE-DEVICES
       rec.r = r;
       if (r.mimeType) rec.mime = r.mimeType;
       r.start(1000);
@@ -527,6 +582,10 @@ export function createCamera({
     const start = Math.max(0, Math.round(rec.clock0));
     const endClock = Math.max(start, Math.round(clock1 === null ? start + ms : clock1));
     const fitted = fitSeconds({ ms, clocks: rec.clocks, loud: rec.loud, bright: rec.bright, end: endClock });
+    // v1.4 PAGE-DEVICES
+    fitted.t0 = firstFrameClock({ startClock: rec.startClock === null ? rec.clock0 : rec.startClock, timecodeMs: rec.timecode, start });
+    fitted.loudQ = fitQuarters(rec.loudQ, ms);
+    // v1.4 end PAGE-DEVICES
     const clip = {
       id: newClipId(), code: S.code, round: S.round, pid: S.pid, mode: S.mode, type: vtype,
       bytes: blob.size, ms, start, end: endClock, kinds: [...new Set(kinds)].slice(0, 12), ...fitted,
@@ -567,6 +626,13 @@ export function createCamera({
 
   function step() {
     if (!S.plan) return;
+    // v1.4 PAGE-DEVICES: the shared stream went away under us: save what's claimed and wait for media.js's new one
+    // (never end the round's filming for it)
+    if (shared && !S.stream && !S.ending) {
+      stopAll(true);
+      if (S.state === 'on') setState('off');
+      return;
+    }
     const t = now();
     const moments = S.queue.splice(0).map((m) => (m.local ? m.local : toLocal(m)));
     let actions;
@@ -650,11 +716,12 @@ export function createCamera({
     setState(state);
   }
 
-  async function begun() {
+  async function begun(byTap = false) {
     if (!S.want || S.stoppedKey === S.key || S.hidden) return;
-    const stream = await open();
+    const stream = await open(byTap);
     if (stream && S.want && !S.hidden) {
       if (S.state !== 'on') setState('on');
+      S.recErrored = false; // v1.4 PAGE-DEVICES
       run();
     }
   }
@@ -694,6 +761,30 @@ export function createCamera({
     }).catch(() => {});
   }
 
+  // v1.4 PAGE-DEVICES: the shared stream was replaced (re-acquired after a drop): what's claimed is saved, and
+  // filming starts again on the new stream into new clips.
+  const offShared = shared && typeof shared.on === 'function' ? shared.on('stream', (fresh) => {
+    if (fresh && S.stream === fresh) return;
+    if (S.plan) stopAll(true);
+    if (S.video) { try { S.video.srcObject = null; S.video.remove(); } catch { /* ignore */ } }
+    S.video = null;
+    if (S.audio) { try { S.audio.close(); } catch { /* ignore */ } }
+    S.audio = null;
+    S.analyser = null;
+    S.stream = null;
+    const ok = !!fresh && alive(fresh) && fresh.getVideoTracks().length > 0;
+    if (ok && S.want && !S.hidden && S.stoppedKey !== S.key && S.state !== 'full' && S.state !== 'done') {
+      // straight onto the new stream (no waiting: a second swap can't land in between)
+      S.stream = fresh;
+      watchTracks(fresh);
+      measure(fresh);
+      S.recErrored = false;
+      setState('on');
+      run();
+    } else if (S.state === 'on' || S.state === 'asking') setState('off');
+  }) : () => {};
+  // v1.4 end PAGE-DEVICES
+
   const camera = {
     get state() { return S.state; },
     get mode() { return S.mode; },
@@ -703,7 +794,7 @@ export function createCamera({
     start() {
       if (S.state === 'full' || S.stoppedKey === S.key) return Promise.resolve(null);
       if (!S.want) return Promise.resolve(null);
-      return begun();
+      return begun(true); // v1.4 PAGE-DEVICES: a tap
     },
     stopRecording() {
       S.stoppedKey = S.key;
@@ -788,6 +879,7 @@ export function createCamera({
     destroy() {
       camera.stop();
       fns.clear();
+      offShared(); // v1.4 PAGE-DEVICES
       try { if (doc && typeof doc.removeEventListener === 'function') doc.removeEventListener('visibilitychange', onVisibility); } catch { /* ignore */ }
       try {
         if (win && typeof win.removeEventListener === 'function') {

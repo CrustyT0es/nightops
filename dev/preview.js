@@ -254,6 +254,12 @@ const fakeLocation = {
   status: () => 'ok',
   running: () => true,
   on: () => () => {},
+  // v1.4 PAGE-DEVICES: &loc=denied|off|timeout|stale|ok is the watchdog's word (the fix-it layer shows for the first three)
+  health: () => params.loc || 'ok',
+  accuracy: () => 8,
+  retry() { say('location', 'retry'); },
+  test: () => Promise.resolve(params.loc && params.loc !== 'ok' ? { ok: false, acc: null, ms: 900, why: params.loc } : { ok: true, acc: 8, ms: 900, why: null }),
+  // v1.4 end PAGE-DEVICES
 };
 
 // A screen that doesn't exist yet: say so, and show what the sample view holds.
@@ -374,3 +380,12 @@ if (screen === 'over' && params.replay === '1') {
   setTimeout(openReplay, 300);
 }
 // v1.2 end PAGE-MAP
+
+// v1.4 PAGE-DEVICES: &help=<kind>&part=location|camera|mic|sound&why=denied opens the help layer for that phone
+// (kinds: ios-safari, ios-app, ios-chrome, ios-other, android-chrome, android-other, other)
+if (params.help) {
+  import('../js/ui/fixit.js').then((fx14) => setTimeout(() => fx14.openHelp({
+    part: params.part || 'location', why: params.why || 'denied', kind: params.help, onTry: () => 'Still looking.',
+  }), 600)).catch((e) => console.error(e));
+}
+// v1.4 end PAGE-DEVICES

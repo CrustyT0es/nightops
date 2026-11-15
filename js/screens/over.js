@@ -20,6 +20,13 @@ import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radi
 import { createTray } from '../ui/tray.js'; // v1.2 PAGE-MAP
 import { attachCamParts, confirmAgain } from './camparts.js'; // v1.2 PAGE-CAM
 import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js'; // v1.3 PAGE-AFTER
+// v1.4 PAGE-REEL: the map camera, the scene player, the Movies card, the close calls' mini maps
+import { createMapCam } from '../mapcam.js';
+import { openReel } from './reelplayer.js';
+import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js';
+import { scenes as reelScenes } from '../scenes.js';
+import { keepRow } from './keeprow.js'; // v1.4 PAGE-RENDER
+// v1.4 end PAGE-REEL
 
 // v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
 // clip scheduler (js/radio.js)
@@ -213,6 +220,7 @@ export function overFacts(view) {
       text: clean(c.text, 240),
       clock: nonNeg(c.clock),
       ids: arr(c.ids).filter(isId).slice(0, 6),
+      raw: c.track && c.gap ? c : null, // v1.4 PAGE-REEL: for the close call's mini map
     }));
 
   // The replay's end: the view's clock (the end clock once over), or the latest thing we know of, if later.
@@ -515,7 +523,11 @@ export function mount(root, app) {
   }, n === 1 ? 'Real time' : `${n}x`)); // v1.1 PAGE-RADIO
   const speedSeg = h('div.seg.over-speed', { role: 'radiogroup', 'aria-label': 'Replay speed' }, speedBtns);
   const fitBtn = h('button.btn.small.over-fit', { type: 'button' }, icon('fit', 18), h('span', 'Fit everyone'));
-  const controls = h('div.over-controls', speedSeg, fitBtn);
+  // v1.4 PAGE-REEL: Follow beside Fit everyone, and the faces row it opens
+  const followBtn = h('button.btn.small.over-follow.mapcam-btn', { type: 'button', 'aria-pressed': 'false', 'aria-expanded': 'false' }, icon('locate', 18), h('span', 'Follow'));
+  const follow = followRow({ onPick: (id) => pickFollow(id) });
+  // v1.4 end PAGE-REEL
+  const controls = h('div.over-controls', speedSeg, fitBtn, followBtn); // v1.4 PAGE-REEL: followBtn
   const ticks = h('div.over-ticks', { 'aria-hidden': 'true' });
   const range = h('input.over-range', {
     type: 'range', min: '0', max: '1', step: '1', value: '0', 'aria-label': 'Replay time',
@@ -535,7 +547,7 @@ export function mount(root, app) {
   const rTray = createTray({ label: 'Replay controls', onState: () => placeLayer() });
   rTray.el.classList.add('ov-tray');
   rTray.setMain([playBtn, { el: track, grow: true }]);
-  const moreParts = [controls, legend];
+  const moreParts = [controls, follow.el, legend]; // v1.4 PAGE-REEL: follow.el
   rTray.setMore(moreParts);
   const mapWrap = h('div.over-map-wrap.ov-map-wrap', mapBox);
   const replay = h('section.over-replay.ov-layer', { hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'ov-title' },
@@ -580,7 +592,17 @@ export function mount(root, app) {
   cpSlot.appendChild(cpUi.el);
   const cpR = cpReplay({ map: () => R.map });
   // v1.3 end PAGE-AFTER
-  const body = h('div.over-body', hero, cpSlot, poster, camSlot, calls, board, pbp); // v1.3 PAGE-AFTER: cpSlot
+  // v1.4 PAGE-REEL: the Movies card after the replay's poster, and the keep row's place under the hero
+  const keepSlot = h('div.over-keep-slot'); // its content is PAGE-RENDER's
+  const movies = moviesCard({
+    onWatch: (kind, reel) => watchMovie(kind, reel),
+    onDownload: (kind, reel) => downloadMovie(kind, reel),
+    onReplay: () => { if (hasReplay()) { setFull(true); if (R.clock >= R.end - 0.5) R.clock = 0; play(); } },
+  });
+  S.keepSlot = keepSlot;
+  const keepUi = keepRow({ app }); keepSlot.append(keepUi.el); // v1.4 PAGE-RENDER: the keep row's content
+  // v1.4 end PAGE-REEL
+  const body = h('div.over-body', hero, keepSlot, cpSlot, poster, movies.el, camSlot, calls, board, pbp); // v1.3 PAGE-AFTER: cpSlot; v1.4 PAGE-REEL: keepSlot, movies.el
   const page = h('div.over', body, foot);
   fill(root, page, replay); // v1.2 PAGE-MAP: the replay layer sits over the page
   S.camSlot = camSlot; // v1.2: for PAGE-CAM
@@ -678,6 +700,18 @@ export function mount(root, app) {
           icon('play', 16), h('span', 'Watch'))
         : null;
       if (watch) watch.addEventListener('click', () => watchCall(c, i));
+      // v1.4 PAGE-REEL: a near call with its track: the still mini map, Watch = its scene, the replay under it
+      const raw = c.raw || null;
+      const mini = raw && raw.track && raw.gap
+        ? callMini(raw, { summary: S.keptSummary, faces: loadFaces(app), onWatch: (x) => watchCallScene(x), onShow: watch ? () => watchCall(c, i) : null })
+        : null;
+      if (mini) {
+        return h(`li.over-call.k-${c.kind}.has-mini`,
+          h('div.over-call-text',
+            h('span.over-call-kind', CALL_KIND[c.kind] || 'Close call', c.clock !== null ? ` · ${fmtClock(c.clock)}` : ''),
+            h(`p#${textId}.over-call-line`, c.text), mini));
+      }
+      // v1.4 end PAGE-REEL
       return h(`li.over-call.k-${c.kind}`,
         h('span.over-call-icon', { 'aria-hidden': 'true' }, icon(CALL_ICON[c.kind] || 'users', 20)),
         h('div.over-call-text',
@@ -734,6 +768,19 @@ export function mount(root, app) {
   // ---- the footer ----
 
   function drawFoot(view) {
+    // v1.4 PAGE-REEL: a past game (Your games): no Play again, and Back home in place of Leave
+    const past = !!(view && view.past);
+    cls(page, 'over-past', past);
+    if (past) {
+      againBtn.hidden = true;
+      waitLine.hidden = false;
+      text(waitLine, view.past.current === false ? 'The clips and photos went when they played again.' : '');
+      waitLine.hidden = !waitLine.textContent;
+      fill(leaveBtn, icon('back', 20), h('span', 'Back home'));
+      chatBtn.hidden = true;
+      return;
+    }
+    // v1.4 end PAGE-REEL
     const host = !!(view && view.me && view.me.host);
     againBtn.hidden = !host;
     waitLine.hidden = host;
@@ -784,6 +831,10 @@ export function mount(root, app) {
         };
         map.ready.then(zoomBtns);
         map.onMode(zoomBtns);
+        // v1.4 PAGE-REEL: once the person moves this map, nothing fits it again until a button says so
+        R.cam = createMapCam(map, { fitAll: () => { placeMap(null); return true; }, pointOf: (id) => followPoint(id) });
+        R.cam.on('mode', () => paintFollow());
+        // v1.4 end PAGE-REEL
         placeLayer();
       }
     } catch (e) {
@@ -810,7 +861,7 @@ export function mount(root, app) {
     if (R.map) { try { R.map.setInsets({ top: video.top, left: video.left, right, bottom: Math.max(0, vh - trayTop) }); } catch { /* ignore */ } }
     // The video window came (or changed size): the routes are fitted again into what's left.
     const sig = `${video.top}|${video.left}`;
-    if (R.videoSig !== undefined && R.videoSig !== sig && R.map) placeMap(null);
+    if (R.videoSig !== undefined && R.videoSig !== sig && R.map) autoFit('video'); // v1.4 PAGE-REEL: autoFit
     R.videoSig = sig;
   }
 
@@ -835,6 +886,7 @@ export function mount(root, app) {
   }
 
   function dropMap() {
+    if (R.cam) { try { R.cam.destroy(); } catch { /* ignore */ } R.cam = null; } // v1.4 PAGE-REEL
     if (!R.map) return;
     try { R.map.destroy(); } catch (e) { console.error(e); }
     R.map = null;
@@ -896,6 +948,7 @@ export function mount(root, app) {
       text(clockPhase, ph);
     }
     drawCaption();
+    if (R.cam && R.full) R.cam.frame(); // v1.4 PAGE-REEL: Follow
     hook('frame'); // v1.2 PAGE-MAP
   }
 
@@ -1067,14 +1120,15 @@ export function mount(root, app) {
       const at = routeAt(r, c.clock / 1000);
       if (at.head) pts.push(at.head);
     }
+    if (!R.full) showReplay(); // v1.4 PAGE-REEL: open first, so its first fit can't undo the centring below
     if (R.map && pts.length) {
       try {
         if (pts.length === 1) R.map.center(pts[0], 16.5);
         else R.map.fit(pts, { padding: 80, maxZoom: 17 });
       } catch (e) { console.error(e); }
+      if (R.cam) { R.cam.mode = 'free'; R.cam.following = null; paintFollow(); } // v1.4 PAGE-REEL: a person's choice: it stays put
     }
     play();
-    if (!R.full) showReplay();
   }
 
   function markWatching() {
@@ -1112,10 +1166,10 @@ export function mount(root, app) {
     dropMap();
     if (keep) { /* (the layer's view isn't kept for the poster) */ }
     ensureMap();
-    placeMap(null);
+    if (on) autoFit('open'); else placeMap(null); // v1.4 PAGE-REEL: autoFit
     if (on) {
       placeLayer();
-      requestAnimationFrame(() => { if (R.full) { placeLayer(); placeMap(null); drawReplay(); } });
+      requestAnimationFrame(() => { if (R.full) { placeLayer(); autoFit('open'); drawReplay(); } }); // v1.4 PAGE-REEL
     } else {
       stop();
     }
@@ -1196,6 +1250,8 @@ export function mount(root, app) {
   const fitEveryone = () => {
     const f = S.facts;
     if (!R.map || !f) return;
+    if (R.cam) { R.cam.mode = 'auto'; } // v1.4 PAGE-REEL: Fit everyone puts the map back on its own
+    paintFollow(); // v1.4 PAGE-REEL
     if (!R.map.fitAll({ ring: f.ring || f.ringNow })) {
       const box = whole();
       if (box) R.map.fit(box, { padding: 40 });
@@ -1212,6 +1268,14 @@ export function mount(root, app) {
     play();
   });
   posterWrap.addEventListener('click', () => { if (hasReplay()) setFull(true); });
+  // v1.4 PAGE-REEL: Follow opens the faces row
+  followBtn.addEventListener('click', () => {
+    const open = follow.el.hidden;
+    follow.el.hidden = !open;
+    followBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) paintFollow();
+  });
+  // v1.4 end PAGE-REEL
   zoomIn.addEventListener('click', () => { if (R.map) R.map.zoomBy(1); });
   zoomOut.addEventListener('click', () => { if (R.map) R.map.zoomBy(-1); });
   try {
@@ -1259,6 +1323,12 @@ export function mount(root, app) {
   });
   leaveBtn.addEventListener('click', () => {
     stop();
+    // v1.4 PAGE-REEL: Back home from a past game
+    if (app && app.view && app.view.past) {
+      try { if (typeof app.closePast === 'function') app.closePast(); else app.leave(); } catch (e) { console.error(e); }
+      return;
+    }
+    // v1.4 end PAGE-REEL
     try { app.leave(); } catch (e) { console.error(e); }
   });
   chatBtn.addEventListener('click', () => { openChatSheet(); });
@@ -1269,6 +1339,80 @@ export function mount(root, app) {
     }
   }));
   if (app && typeof app.on === 'function') offs.push(app.on('event', onEvent));
+
+  // ---- v1.4 PAGE-REEL: the map camera, Follow, the movies ----
+
+  function autoFit(reason) {
+    if (!R.map) return;
+    if (R.cam) R.cam.auto(reason);
+    else placeMap(null);
+  }
+  function followPoint(id) {
+    const f = S.facts;
+    const r = f && f.routes ? f.routes[id] : null;
+    if (!r) return null;
+    const at = routeAt(r, R.clock);
+    return at && at.head ? at.head : null;
+  }
+  function pickFollow(id) {
+    if (!R.cam) return;
+    if (id) R.cam.follow(id); else R.cam.follow(null);
+    paintFollow();
+  }
+  function paintFollow() {
+    const f = S.facts;
+    const following = R.cam && R.cam.mode === 'follow' ? R.cam.following : null;
+    followBtn.setAttribute('aria-pressed', following ? 'true' : 'false');
+    if (!f || follow.el.hidden) return;
+    const players = f.rows.filter((r) => f.routes && f.routes[r.id]);
+    follow.set(players, following, f.meId, faces);
+  }
+  function movieClips() {
+    const l = camUi && camUi.list ? camUi.list.list : null;
+    return l && Array.isArray(l.clips) ? l.clips.filter((c) => c && (c.state === undefined || c.state === 'done' || c.state === 'up')) : [];
+  }
+  function paintMovies() {
+    const sum = S.keptSummary;
+    // (a summary from before v1.4 has no endClock: the replay's end stands in)
+    const withEnd = sum && !Number.isFinite(sum.endClock) && S.facts ? { ...sum, endClock: S.facts.endMs } : sum;
+    try { movies.set({ summary: withEnd, clips: movieClips() }); } catch (e) { console.error(e); }
+  }
+  if (camUi && camUi.list && typeof camUi.list.on === 'function') offs.push(camUi.list.on(() => paintMovies()));
+  function watchMovie(kind, reel, sceneIndex = null) {
+    const r = reel || movies.reel(kind);
+    if (!r) return;
+    stop();
+    try { if (S.reel) S.reel.close(); } catch { /* fine */ }
+    S.reel = openReel({ app, list: movieClips(), summary: S.keptSummary, kind, reel: r, ring: S.facts ? S.facts.ring || S.facts.ringNow : null, sceneIndex });
+    S.reel.on('close', () => { S.reel = null; });
+  }
+  // A close call's Watch: that call's scene (the highlights' one when it's there, else a reel of that call alone).
+  function watchCallScene(call) {
+    const clock = call.gap ? call.gap.clock : call.clock;
+    let r = movies.reel('highlights');
+    let i = r ? r.scenes.findIndex((sc) => sc.kind === 'near' && sc.start !== null && sc.start <= clock && sc.end >= clock) : -1;
+    if (i < 0) {
+      r = reelScenes({ summary: { ...S.keptSummary, closeCalls: [call], cam: null, hacks: [], taps: [], radio: null,
+        players: (S.keptSummary.players || []).map((p) => ({ ...p, caughtAt: null })) }, clips: movieClips(), kind: 'highlights' });
+      i = r.scenes.findIndex((sc) => sc.kind === 'near');
+    }
+    if (i < 0) return;
+    watchMovie('highlights', r, i);
+  }
+  async function downloadMovie(kind, reel) {
+    const r = reel || movies.reel(kind);
+    if (!r) return;
+    let mod = null;
+    try { mod = await import('../render.js'); } catch { mod = null; }
+    if (!mod || typeof mod.downloadReel !== 'function') {
+      banner("Downloads aren't ready on this phone yet. Watch it here for now.", 'warn', 5000);
+      return;
+    }
+    try { await mod.downloadReel({ app, reel: r, summary: S.keptSummary, list: movieClips(), ring: S.facts ? S.facts.ring || S.facts.ringNow : null }); } catch (e) {
+      if (!(e && e.name === 'AbortError')) banner(e && e.message ? e.message : "The download didn't work. Try again.", 'warn', 6000);
+    }
+  }
+  // v1.4 end PAGE-REEL
 
   // ---- update / destroy ----
 
@@ -1293,6 +1437,8 @@ export function mount(root, app) {
     const changed = sig !== S.sig;
     S.facts = f;
     try { camUi.update(view); } catch (e) { console.error(e); } // v1.2 PAGE-CAM
+    try { keepUi.update(view); } catch (e) { console.error(e); } // v1.4 PAGE-RENDER
+    paintMovies(); // v1.4 PAGE-REEL
     // v1.3 PAGE-AFTER: the Checkpoints card and the replay's zones
     try { cpUi.update(view); cpR.setData(view.summary, f.cp); } catch (e) { console.error(e); }
     const cpTickSig = JSON.stringify(f.cpTicks);
@@ -1341,6 +1487,7 @@ export function mount(root, app) {
     try { RR.destroy(); } catch { /* ignore */ } // v1.1 PAGE-RADIO
     try { camUi.destroy(); } catch { /* ignore */ } // v1.2 PAGE-CAM
     try { cpUi.destroy(); cpR.destroy(); } catch { /* ignore */ } // v1.3 PAGE-AFTER
+    try { if (S.reel) S.reel.close(); } catch { /* ignore */ } // v1.4 PAGE-REEL
     dropMap();
   }
 

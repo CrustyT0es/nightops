@@ -401,7 +401,7 @@ export function strikeActions(app, n) {
     let res = null;
     try { res = await app.cmd({ type: 'cpstrike', n, struck }); } catch (e) { console.error(e); }
     if (res && !(res instanceof Error) && !res.error) {
-      banner(struck ? `${d.name}'s checkpoint ${d.k + 1} doesn't count now.` : `${d.name}'s checkpoint ${d.k + 1} counts again.`, 'info');
+      try { banner(struck ? `${d.name}'s checkpoint ${d.k + 1} doesn't count now.` : `${d.name}'s checkpoint ${d.k + 1} counts again.`, 'info'); } catch (e) { console.error(e); }
     }
   };
   return [d.struck

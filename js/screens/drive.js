@@ -1,17 +1,17 @@
-// Night Ops: the driver (v1.1, PAGE-DRIVER).
+// Night Ops: the driver (v1.1, PAGE-DRIVER; v1.4 PAGE-PLAY: the driver only sees hunters).
 //
 //   mountDrive(container, app, { onSos, onMenu }) -> { update(view), destroy(), shown() }
-//       The Driving layer: a full-screen layer over the game screen's map and panel, shown while this phone is
-//       the driver and the server says the car isn't parked. No map: the time left, one big line per free hider
-//       ("Ava: 400 m north-east, 1 min ago"), pickups with On my way / Picked up, the walkie-talkie, a voice
-//       switch. It also speaks (speechSynthesis) whenever this phone is the driver, parked or not: new pings,
-//       pickups, catches, closing in, 5 and 1 minutes left. Nothing needs a tap while moving.
+//       The Driving screen: one calm map like a nav app, moving or parked, shown while this phone is the driver
+//       (live). The car in the middle (Follow; a pan leaves it, "Follow me" brings it back), the hunters' faces,
+//       team pins and pickups as big pins, the ring. A pickup draws a straight line from the car with the
+//       distance; a tap on it: On my way / Picked up. A slim top bar (time left, voice, SOS, menu) and a bottom
+//       bar (the walkie-talkie and the open pickups). It speaks pickups, pins, catches, closing in and the time
+//       calls; never where a hider is (the server never tells the driver).
 //   pickMeUp(app) -> { el, update(view) }      a hunter's "Pick me up" (and Waiting / coming / Cancel)
-//   driverCard(app) -> { el, update(view) }    the parked driver's part of the hunter panel (pickups, words)
+//   driverCard(app) -> { el, update(view) }    the driver's part of the hunter panel (pickups, words)
 //   driverReveal(words, view)                  the reveal screen's words for the driver (and the others)
 //
-// Parked or moving is the server's call (view.drive.parked, from the fixes it stored); this page never says.
-// Pure helpers are exported for tests (tests/page-driver.test.mjs).
+// Pure helpers are exported for tests (tests/page-driver.test.mjs, tests/page-play14.test.mjs).
 import { h, fill, text, cls, listen } from '../dom.js';
 import { icon } from '../ui/icons.js';
 import { holdInert } from '../ui/inert.js';
@@ -19,27 +19,27 @@ import { fmtClock, fmtDistance } from '../../shared/rules.js';
 import { directionWords, isPoint } from '../../shared/geo.js';
 import { speechReady } from '../alerts.js';
 import { cpSpeech, cpDriveLine } from './cpplay.js'; // v1.3 PAGE-PLAY
+import { createMap } from '../map.js';
+import { createMapCam } from '../mapcam.js';
+import { openSheet } from '../ui/sheet.js';
+import { pinsFor, createPinTool } from './pins.js';
 
 export const VOICE_KEY = 'nightops-drive-voice';   // 'off' = the driver muted the voice
 export const DRIVE_STALE_MS = 120000;              // events older than this aren't spoken (a phone that slept)
-export const FRESH_PING_MS = 45000;                // a ping mark this young came with the ping just heard
-export const LIVE_KINDS = ['near', 'radar', 'exposure', 'outside'];
-LIVE_KINDS.push('overstay'); // v1.3 PAGE-PLAY: a hider live at a checkpoint
 export const TIME_CALLS = [[300000, '5 minutes left.'], [60000, '1 minute left.']];
 export const QUEUE_MOST = 6;                       // things waiting to be said; older ones go first
 const TICK_MS = 500;
 const WAIT_MS = 400;                               // how often a waiting voice looks again (a clip playing)
 const TAP_LINE = 'Tap anywhere once to turn the voice on.';
-const PARK_LINE = 'Parked? Stop for 5 seconds to see the map.';
 
 const perfNow = () => (globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now());
 
 // ---- reading the view (pure) ----------------------------------------------------------------------------
 
-// Show the Driving layer? Only for the driver, live, while the car isn't parked.
+// Show the Driving screen? The driver, live, in the game (moving or parked: v1.4).
 export function showsDrive(view) {
   return !!view && view.phase === 'live' && !!view.me && !!view.me.driver && view.me.status === 'in'
-    && !!view.drive && !!view.drive.me && !view.drive.parked;
+    && !!view.drive && !!view.drive.me;
 }
 
 // This phone is the driver right now (live).
@@ -74,40 +74,11 @@ export function spokenDistance(m) {
   return `${s} ${s === '1' ? 'kilometre' : 'kilometres'}`;
 }
 
-function hidersIn(view) {
-  return ((view && view.players) || []).filter((p) => p && p.team === 'hider' && p.status === 'in');
-}
-
-function markOf(view, id) {
-  return ((view && view.marks) || []).find((m) => m && m.id === id && m.kind !== 'sos' && m.kind !== 'seen') || null;
-}
-
 // How far and which way, as screen words ("400 m north-east") or '' without both spots.
 function whereWords(from, to) {
   if (!isPoint(from) || !isPoint(to)) return '';
   const d = directionWords(from, to);
   return d.m < 20 ? 'right here' : `${fmtDistance(d.m)} ${d.dir}`;
-}
-
-// One line per free hider: [{ id, name, kind, live, text, m }]. d = ms since the view came (ages tick on).
-export function hiderLines(view, d = 0) {
-  const from = driverSpot(view);
-  const extra = Math.max(0, Number(d) || 0);
-  return hidersIn(view).map((p) => {
-    const name = String(p.name || 'Someone');
-    const m = markOf(view, p.id);
-    if (!m || !isPoint(m.p)) return { id: p.id, name, kind: null, live: false, text: `${name}: no ping yet`, m: null };
-    const live = LIVE_KINDS.includes(m.kind);
-    const where = whereWords(from, m.p);
-    const age = Math.max(0, (Number(m.age) || 0) + (live ? 0 : extra));
-    let when;
-    if (live) when = m.kind === 'near' ? 'live, near the car' : 'live';
-    else if (m.kind === 'offline') when = `offline, ${agoWords(age)}`;
-    else when = agoWords(age);
-    const words = where ? `${where}, ${when}` : (live ? when : `pinged ${when}`);
-    const dist = from ? directionWords(from, m.p).m : null;
-    return { id: p.id, name, kind: m.kind, live, text: `${name}: ${words}`, m: dist };
-  });
 }
 
 // The driver's open pickups: [{ id, by, name, state, text }] oldest first.
@@ -146,19 +117,21 @@ export function speechFor(e, view) {
   const me = view.me || {};
   switch (e.kind) {
     case 'checkpoint': return cpSpeech(e, view, driverSpot(view)); // v1.3 PAGE-PLAY
-    case 'ping': {
-      if (e.to !== 'hunters') return null;
-      const from = driverSpot(view);
-      const parts = [];
-      for (const p of hidersIn(view)) {
-        const m = markOf(view, p.id);
-        if (!m || !isPoint(m.p) || !from) continue;
-        const fresh = LIVE_KINDS.includes(m.kind) || (m.kind === 'ping' && Number(m.age) <= FRESH_PING_MS);
-        if (!fresh) continue;
-        const d = directionWords(from, m.p);
-        parts.push(d.m < 20 ? `${p.name}, right here.` : `${p.name}, ${spokenDistance(d.m)} ${d.dir}.`);
+    // v1.4 PAGE-PLAY: pins the driver should hear (never a hider's spot: "Hider seen" is said without where)
+    case 'pin': {
+      if (data.by === me.id) return null;
+      const pin = ((view.pins) || []).find((x) => x && x.id === data.pinId);
+      const who = (pin && pin.name) || String(words.split(':')[0] || 'A hunter');
+      if (data.kind === 'driver') {
+        const from = driverSpot(view);
+        if (pin && from && isPoint(pin.p)) {
+          const d = directionWords(from, pin.p);
+          const where = d.m < 20 ? 'right here' : `${spokenDistance(d.m)} ${d.dir}`;
+          return `${who}: go here, ${where}.${pin.note ? ` ${pin.note}.` : ''}`;
+        }
+        return words || null;
       }
-      return parts.length ? `Ping. ${parts.join(' ')}` : (words || null);
+      return `New pin from ${who}.`;
     }
     case 'pickup': {
       if (data.state === 'open') {
@@ -175,9 +148,6 @@ export function speechFor(e, view) {
       if (data.state === 'cancelled') return words || null;
       return null;
     }
-    case 'outside':
-    case 'radar-live':
-      return e.to === 'hunters' ? (words || null) : null;
     case 'caught':
     case 'closing':
     case 'over':
@@ -206,8 +176,8 @@ export function driverReveal(words, view) {
       ...words,
       title: 'Driver',
       sub: '',
-      line: "You drive the car and give the hunters rides. You never tag and can't be caught.",
-      keep: 'Eyes on the road: Night Ops talks to you while you drive. Stop for 5 seconds to see the map.',
+      line: "You drive the car and give the hunters rides. You only see the hunters: they tell you where to go.",
+      keep: 'Eyes on the road: Night Ops talks to you while you drive. Your map shows the hunters and their pins.',
       matesLabel: 'Riding with you',
     };
   }
@@ -392,7 +362,7 @@ export function _resetUnlock() { unlockedOnce = false; }
 // The pickup rows with their buttons, shared by the Driving layer and the parked card. Rows are made again only
 // when the pickups or their states change; the words (distances) are updated in place, so a finger on a button
 // never loses it. -> { el, update(lines) }
-function pickupList(app, big) {
+function pickupList(app, big, onSent = null) {
   const el = h('div.drive-pk-list');
   const S = { key: '', rows: new Map(), busy: false };
   function row(line) {
@@ -405,6 +375,7 @@ function pickupList(app, big) {
       Promise.resolve(app.cmd({ type: 'pickup', do: what, pickupId: line.id })).catch(() => null).then(() => {
         S.busy = false;
         for (const x of buttons) x.removeAttribute('aria-disabled');
+        if (onSent) { try { onSent(what); } catch { /* fine */ } }
       });
     };
     if (line.state === 'open') {
@@ -432,8 +403,39 @@ function pickupList(app, big) {
   };
 }
 
+// The car and a pickup: "Sam: 300 m" (the line's label) and the big pin's words. Pure.
+export function pickupPins(view) {
+  const drive = view && view.drive;
+  if (!drive || !drive.me || !Array.isArray(drive.pickups)) return [];
+  const from = driverSpot(view);
+  return drive.pickups.filter((k) => k && isPoint(k.p) && (k.state === 'open' || k.state === 'coming')).map((k) => {
+    const name = String(k.name || 'Someone');
+    const m = from ? directionWords(from, k.p).m : null;
+    return {
+      key: `pk:${k.id}`, id: k.id, p: k.p, kind: 'pickup', big: true,
+      // (an unpinned pickup is where the hunter's face already is: no words over it, only the line)
+      label: k.pinned ? (k.state === 'coming' ? `${name}: on my way` : `${name}: here`) : '',
+      sub: '',
+      from: from || null,
+      line: Number.isFinite(m) ? `${name}: ${fmtDistance(m)}` : '',
+    };
+  });
+}
+
+// What the driver's map shows besides the marks: pickups (big, with lines) then the team's pins (big).
+export function driveMapPins(view, d = 0) {
+  return [...pickupPins(view), ...pinsFor(view, d).map((p) => ({ ...p, big: true }))];
+}
+
+// Marks the driver's map may draw: only hunters (self included) and an SOS. The server already sends no more;
+// this is a second lock.
+export function driveMarks(view) {
+  const ids = new Set(((view && view.players) || []).filter((p) => p && p.team === 'hunter').map((p) => p.id));
+  return ((view && view.marks) || []).filter((m) => m && (m.kind === 'sos' || ((m.kind === 'hunter' || m.kind === 'self') && ids.has(m.id))));
+}
+
 export function mountDrive(container, app, { onSos = null, onMenu = null } = {}) {
-  const S = { view: null, recvAt: 0, dead: false, lastLeft: null, shown: false, hdKey: '', held: [] };
+  const S = { view: null, recvAt: 0, dead: false, lastLeft: null, shown: false, held: [], pinKey: '', ringKey: '' };
   const offs = [];
   const voice = createVoice({ win: globalThis, busy: () => radioBusy(app.radio) });
 
@@ -452,27 +454,58 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
 
   const tapLine = h('p.drive-tap', { hidden: true }, icon('speaker', 22), h('span', TAP_LINE));
   const talking = h('p.drive-talking', { hidden: true, role: 'status' });
-  const cpLine = h('p.drive-cp', { hidden: true }); // v1.3 PAGE-PLAY: "Checkpoint 2, 7-Eleven: 400 m north-east, closes in 4 min"
-  const pkTitle = h('h2.label.drive-sec-title', 'Pickups');
-  const pkList = pickupList(app, true);
-  const pkBox = h('section.drive-pickups', { hidden: true, 'aria-label': 'Pickups' }, pkTitle, pkList.el);
-  const hdTitle = h('h2.label.drive-sec-title');
-  const hdList = h('ul.drive-hiders-list');
-  const hdBox = h('section.drive-hiders', { 'aria-label': 'Hiders' }, hdTitle, hdList);
+  const cpLine = h('p.drive-cp', { hidden: true }); // v1.3 PAGE-PLAY
+  const mapBox = h('div.drive-map');
+  const followBtn = h('button.drive-follow', { type: 'button', hidden: true }, icon('locate', 24), h('span', 'Follow me'));
+  const pkCount = h('button.drive-pk-count', { type: 'button', hidden: true });
   let radioBtn = null;
   try { radioBtn = app.radio && typeof app.radio.button === 'function' ? app.radio.button({ big: true }) : null; } catch (e) { console.error(e); }
-  const radioBox = radioBtn ? h('div.drive-radio', radioBtn) : null;
-  const parkLine = h('p.drive-park', icon('car', 20), h('span', PARK_LINE));
 
   const layer = h('section.drive-layer', { hidden: true, 'aria-label': 'Driving' },
     h('header.drive-top',
       h('div.drive-bar',
-        h('p.drive-kicker', icon('car', 18), h('span', 'Driving')),
-        h('div.drive-top-btns', voiceBtn, sosBtn, menuBtn)),
-      h('div.drive-time', h('span.label', 'Left'), leftNum)),
-    h('div.drive-body', tapLine, talking, cpLine, pkBox, hdBox), // v1.3 PAGE-PLAY: cpLine
-    h('footer.drive-foot', radioBox, parkLine));
+        h('div.drive-time', icon('car', 20), h('span.label', 'Left'), leftNum),
+        h('div.drive-top-btns', voiceBtn, sosBtn, menuBtn))),
+    h('div.drive-body', mapBox, h('div.drive-lines', tapLine, talking, cpLine), followBtn),
+    h('footer.drive-foot', radioBtn ? h('div.drive-radio', radioBtn) : null, pkCount));
   container.appendChild(layer);
+
+  let map = null;
+  let cam = null;
+  let pinTool = null;
+  try {
+    map = createMap(mapBox, { interactive: true });
+    cam = createMapCam(map, {
+      fitAll: () => map.fitAll({ ring: S.view && (S.view.ringNow || S.view.ring), marks: driveMarks(S.view) }),
+      pointOf: () => driverSpot(S.view),
+      follow: 'me',
+    });
+    offs.push(cam.on('mode', (mode) => { followBtn.hidden = mode === 'follow'; }));
+    pinTool = createPinTool(app, { map, getView: () => S.view });
+    if (typeof map.onPinTap === 'function') offs.push(map.onPinTap((key) => tapPin(key)));
+  } catch (e) { console.error(e); }
+  followBtn.addEventListener('click', () => { if (cam) cam.follow('me'); });
+  pkCount.addEventListener('click', () => {
+    const first = pickupLines(S.view)[0];
+    if (first) pickupSheet(first.id);
+  });
+
+  function pickupSheet(id) {
+    const view = S.view;
+    const k = view && view.drive && (view.drive.pickups || []).find((x) => x && x.id === id);
+    if (!k) return;
+    const lines = pickupLines(view).find((l) => l.id === id);
+    let sheet = null;
+    const list = pickupList(app, true, () => { if (sheet) sheet.close(); });
+    list.update(lines ? [lines] : []);
+    sheet = openSheet({ title: `${k.name || 'Someone'}${k.pinned ? ': pick me up here' : ': pick me up'}`, className: 'drive-pk-sheet', body: [list.el], actions: [{ label: 'Close', kind: 'ghost' }] });
+  }
+
+  function tapPin(key) {
+    const k = String(key || '');
+    if (k.startsWith('pk:')) pickupSheet(k.slice(3));
+    else if (pinTool) pinTool.tapPin(k);
+  }
 
   function paintVoice() {
     const off = voice.muted() || !voice.supported;
@@ -484,7 +517,6 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     tapLine.hidden = !voice.supported || voice.unlocked() || voice.muted();
   }
 
-  // The first tap anywhere unlocks the voice (iPhones only speak after one).
   const unlock = () => {
     if (S.dead || !isDriver(S.view)) return;
     if (voice.unlock()) paintVoice();
@@ -509,7 +541,26 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     const t = app.radio && app.radio.talking;
     const name = t && (t.name || ((S.view && (S.view.players || []).find((p) => p.id === t.from)) || {}).name);
     talking.hidden = !t;
-    text(talking, t ? `${name || 'Someone'} is talking` : '');
+    text(talking, t ? (t.words || `${name || 'Someone'} is talking`) : '');
+  }
+
+  function paintMap(view) {
+    if (!map) return;
+    const rk = JSON.stringify([view.ring, view.ringNow]);
+    if (rk !== S.ringKey && (view.ringNow || view.ring)) {
+      S.ringKey = rk;
+      try { map.setRing(view.ring, view.ringNow); } catch (e) { console.error(e); }
+    }
+    try { map.setMarks(driveMarks(view), { faces: app.faces, players: view.players, meId: view.me ? view.me.id : null, paused: !!view.paused }); } catch (e) { console.error(e); }
+    const pins = driveMapPins(view, elapsed());
+    const key = JSON.stringify(pins);
+    if (key !== S.pinKey) {
+      S.pinKey = key;
+      try { map.setPins(pins); } catch (e) { console.error(e); }
+    }
+    // the first look: close on the car (about 600 m across), then Follow keeps it in the middle
+    if (cam && !S.zoomed && driverSpot(view)) { S.zoomed = true; try { map.center(driverSpot(view), 16, { animate: false }); } catch { /* fine */ } }
+    if (cam) cam.frame();
   }
 
   function paint() {
@@ -521,6 +572,7 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
       layer.hidden = !shown;
       cls(container, 'drive-on', shown);
       holdUnder(shown);
+      if (shown && map && map.resize) map.resize();
     }
     const d = elapsed();
     const t = view.timing || {};
@@ -533,30 +585,16 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     S.lastLeft = left;
     setHidden(sosBtn, view.phase !== 'live' || !!view.paused);
     if (!shown) return;
-    // v1.3 PAGE-PLAY: the open checkpoint, from the car
-    { const cl = cpDriveLine(view, driverSpot(view), d); setHidden(cpLine, !cl); text(cpLine, cl); }
-    // v1.3 end PAGE-PLAY
+    { const cl = cpDriveLine(view, driverSpot(view), d); setHidden(cpLine, !cl); text(cpLine, cl); } // v1.3 PAGE-PLAY
     const pk = pickupLines(view);
-    pkList.update(pk);
-    setHidden(pkBox, !pk.length);
-    const lines = hiderLines(view, d);
-    text(hdTitle, lines.length ? `Hiders (${lines.length})` : 'Hiders');
-    const hdKey = lines.map((l) => `${l.id}:${l.text}:${l.live ? 1 : 0}`).join('|');
-    if (hdKey !== S.hdKey) {
-      S.hdKey = hdKey;
-      fill(hdList, lines.length
-        ? lines.map((l) => {
-          const i = l.text.indexOf(': ');
-          return h(`li.drive-hider${l.live ? '.live' : ''}`, { 'data-id': l.id },
-            h('strong', l.text.slice(0, i + 1)), ` ${l.text.slice(i + 2)}`);
-        })
-        : h('li.drive-hider.none', 'Nobody is hiding any more.'));
-    }
+    setHidden(pkCount, !pk.length);
+    text(pkCount, pk.length === 1 ? `Pickup: ${pk[0].name}` : `${pk.length} pickups`);
+    pkCount.setAttribute('aria-label', pk.map((l) => l.text).join('. '));
+    paintMap(view);
   }
 
   function setHidden(el, hide) { if (el.hidden !== !!hide) el.hidden = !!hide; }
 
-  // While the layer shows, the map and panel under it can't be reached (the SOS screen above it can).
   function holdUnder(on) {
     for (const release of S.held.splice(0)) release();
     if (!on) return;
@@ -578,7 +616,6 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
   offs.push(app.on('event', onEvent));
   if (app.radio && typeof app.radio.on === 'function') {
     try { offs.push(app.radio.on('talking', () => paintTalking())); } catch { /* ignore */ }
-    // A hold starts: what the voice is saying stops (said again after), so it's never in the clip.
     try { offs.push(app.radio.on('state', (st) => { if (st === 'recording' || st === 'asking') voice.hush(); })); } catch { /* ignore */ }
   }
   const timer = setInterval(() => {
@@ -590,6 +627,8 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
   return {
     el: layer,
     voice,
+    map: () => map,
+    cam: () => cam,
     shown: () => S.shown,
     update(view) {
       if (S.dead || !view) return;
@@ -608,6 +647,9 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
       clearInterval(timer);
       for (const off of offs.splice(0)) { try { off(); } catch { /* ignore */ } }
       voice.destroy();
+      try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ }
+      try { if (cam) cam.destroy(); } catch { /* ignore */ }
+      try { if (map) map.destroy(); } catch { /* ignore */ }
       holdUnder(false);
       cls(container, 'drive-on', false);
       layer.remove();
@@ -690,10 +732,7 @@ export function driverCard(app) {
       const drive = view.drive;
       const parked = !!drive.parked;
       text(title, parked ? "You're parked" : 'Driving');
-      const near = Number(drive.near) || 0;
-      text(line, parked
-        ? (near ? `${near} ${near === 1 ? 'hider' : 'hiders'} near the car, live on your map.` : 'Hiders within 150 m of the car show live here.')
-        : 'Drive off and the driving screen comes back.');
+      text(line, 'Your map shows the hunters, their pins and pickups. The hunters tell you where to go.');
       list.update(pickupLines(view));
     },
   };

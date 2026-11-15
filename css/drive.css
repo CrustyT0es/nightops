@@ -243,3 +243,49 @@
 .drive-x-chip { max-width: 100%; }
 .drive-x-chip[aria-checked='true'] { background: var(--driver); color: var(--on-driver); border-color: transparent; }
 .drive-x-who-note { margin: 0; font-size: 13px; }
+
+/* ---- v1.4 PAGE-PLAY: the calm map. A slim top bar, the map filling the rest, a bottom bar with the walkie. ---- */
+.drive-top { padding-top: max(8px, calc(var(--safe-top) + 4px)); padding-bottom: 8px; }
+.drive-time { align-items: center; gap: 8px; color: var(--driver); min-width: 0; }
+.drive-time .label { color: var(--muted); }
+.drive-left { font-size: 32px; color: var(--text); }
+.drive-voice, .drive-sos, .drive-menu { min-width: 56px; min-height: 56px; }
+.drive-voice-word { display: none; }
+@media (min-width: 480px) { .drive-voice-word { display: inline; } }
+.drive-body { position: relative; overflow: hidden; padding: 0; display: block; }
+.drive-map { position: absolute; inset: 0; }
+.drive-lines { position: absolute; left: 12px; right: 12px; top: 12px; z-index: 5; display: grid; gap: 8px; pointer-events: none; }
+.drive-lines > * { pointer-events: auto; font-size: 24px; }
+.drive-cp { margin: 0; padding: 10px 14px; border-radius: var(--radius); background: rgba(11, 15, 21, 0.9); border: 1px solid var(--cp); color: var(--text); font-size: 24px; font-weight: 700; }
+.drive-cp[hidden] { display: none; }
+.drive-follow {
+  position: absolute; right: 12px; bottom: 16px; z-index: 5;
+  display: inline-flex; align-items: center; gap: 8px; min-height: 56px; padding: 0 18px;
+  border-radius: 28px; border: 1px solid var(--driver); background: var(--panel); color: var(--driver);
+  font: 700 18px/1 var(--font); box-shadow: var(--shadow);
+}
+.drive-follow[hidden] { display: none; }
+.drive-foot { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; padding-top: 10px; }
+.drive-foot > .drive-radio:only-child { grid-column: 1 / -1; }
+.drive-pk-count {
+  min-height: 56px; max-width: 46vw; padding: 0 16px; border-radius: var(--radius);
+  border: 0; background: var(--driver); color: var(--on-driver); font: 700 18px/1.15 var(--font);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drive-pk-count[hidden] { display: none; }
+.drive-pk-sheet .drive-pk-text { font-size: 24px; }
+.drive-pk-sheet .drive-pk-btn { min-height: 56px; }
+/* v1.4 end PAGE-PLAY */
+/* v1.4 PAGE-PLAY: the walkie never runs under the pickup button; an unpinned pickup is only its line */
+.drive-radio { min-width: 0; overflow: hidden; }
+.drive-map .npin.k-pickup:has(.npin-label:empty) .npin-head { opacity: 0; }
+/* v1.4 end PAGE-PLAY */
+/* v1.4 PAGE-PLAY: small phones: the time gets its own row; the pickup button goes under the walkie */
+@media (max-width: 400px) {
+  .drive-bar { flex-wrap: wrap; row-gap: 6px; }
+  .drive-time { flex: 1 0 100%; order: 2; }
+  .drive-top-btns { flex: 1 0 100%; justify-content: flex-end; }
+  .drive-foot { grid-template-columns: minmax(0, 1fr); }
+  .drive-pk-count { max-width: none; }
+}
+/* v1.4 end PAGE-PLAY */

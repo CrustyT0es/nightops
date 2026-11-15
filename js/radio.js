@@ -81,6 +81,7 @@ export const WORDS = {
   // v1.2 end PAGE-RADIO
 };
 
+export const tapWords = (name) => `Listening to ${name || 'a hider'}`; // v1.4 PAGE-PLAY
 export const talkingWords = (name) => `${name || 'A hunter'} is talking`;
 export const cantPlayWords = (name) => `${name || 'A hunter'}'s message can't play on this phone.`;
 export const notHereWords = (name) => `${name || 'A hunter'}'s message didn't come through.`;
@@ -382,6 +383,7 @@ export function createRadio({
     if (R.state === 'recording') return `Talking ${fmtClock(Math.max(0, now() - R.startedAt))}`;
     if (R.state === 'asking') return R.granted ? WORDS.hold : WORDS.asking;
     if (R.state === 'sending') return WORDS.sending;
+    if (R.talking && R.talking.words) return R.talking.words; // v1.4 PAGE-PLAY: a Wiretap piece
     if (R.talking) return talkingWords(R.talking.name || someone(R.side));
     return WORDS.hold;
   }
@@ -585,6 +587,15 @@ export function createRadio({
     try { rec.stop(); } catch { stopped(rec, ''); }
   }
 
+  // v1.4 PAGE-DEVICES: the shared stream was swapped (re-acquired after a drop) mid-message: what was said is sent as
+  // it is (stopped() sends it when long enough), and the next hold uses the new stream.
+  try {
+    if (app && app.media && typeof app.media.on === 'function') {
+      app.media.on('stream', () => { if (R.rec && R.shared && R.state !== 'sending') finish(); });
+    }
+  } catch { /* ignore */ }
+  // v1.4 end PAGE-DEVICES
+
   function stopped(rec, type) {
     if (R.rec !== rec) return;
     R.rec = null;
@@ -738,8 +749,11 @@ export function createRadio({
     const token = ++R.token;
     const name = nameOf(clip.from);
     R.current = { clip, token, playing: false, timer: null, name };
-    talking({ from: clip.from, name, n: clip.n });
-    try { alerts && alerts.beep && alerts.beep('radio'); } catch { /* ignore */ }
+    // v1.4 PAGE-PLAY: a Wiretap piece: "Listening to Ava" and its own beep
+    const tapped = !!clip.tap;
+    talking({ from: clip.from, name, n: clip.n, ...(tapped ? { tap: clip.tap, words: tapWords(nameOf(clip.of || clip.from)) } : {}) });
+    try { alerts && alerts.beep && alerts.beep(tapped ? 'tap' : 'radio'); } catch { /* ignore */ }
+    // v1.4 end PAGE-PLAY
     const wait = new Promise((r) => setTimer(r, BEEP_GAP_MS));
     let got;
     try { got = Promise.resolve(app.clip(clip.n)); } catch { got = Promise.resolve(null); }

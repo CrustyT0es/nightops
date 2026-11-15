@@ -11,6 +11,7 @@ import { qrSvg } from '../qr.js';
 import { createMap } from '../map.js';
 import { ringProblem } from '../../shared/geo.js';
 import { cpCard } from './extras/cpcard.js'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js'; // v1.4 PAGE-DEVICES
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
@@ -25,6 +26,9 @@ EXTRA_ROWS.push('radiohiders');
 // v1.2 PAGE-CAM: the Camera row
 EXTRA_ROWS.push('cam');
 // v1.2 end PAGE-CAM
+// v1.4 PAGE-PLAY: Wiretap's OK and Team pins
+EXTRA_ROWS.push('wiretap', 'pins');
+// v1.4 end PAGE-PLAY
 let extraMakers = null;
 function loadExtraRows() {
   if (!extraMakers) {
@@ -965,6 +969,24 @@ export function mount(root, app) {
     start.addEventListener('click', async () => {
       if (start.getAttribute('aria-disabled') === 'true' || S.starting) return;
       if (startProblem(S.view)) return;
+      // v1.4 PAGE-DEVICES: someone isn't ready: a warning, never a block
+      if (!S.readyAsked) {
+        const late = notReady(S.view);
+        if (late.length) {
+          openSheet({
+            title: 'Not everyone is ready',
+            className: 'rd-sheet',
+            body: [h('p.rd-sheet-line', 'These phones may not share their location or sound. They can still play.'),
+              h('ul.rd-sheet-list', late.map((p) => h('li', h('strong', p.name), `: ${p.why}`)))],
+            actions: [
+              { label: 'Start anyway', kind: 'primary', onClick: () => { S.readyAsked = true; setTimeout(() => { start.click(); S.readyAsked = false; }, 0); } },
+              { label: 'Wait', kind: 'ghost' },
+            ],
+          });
+          return;
+        }
+      }
+      // v1.4 end PAGE-DEVICES
       S.starting = true;
       S.startError = '';
       render();
@@ -1040,6 +1062,16 @@ export function mount(root, app) {
       w.ring.el.after(S.cpCard.el);
     } catch (e) { console.error(e); S.cpCard = null; }
     // v1.3 end PAGE-SETUP
+    // v1.4 PAGE-DEVICES: the ready check, at the top of the lobby
+    if (S.ready) { try { S.ready.destroy(); } catch { /* ignore */ } }
+    S.ready = null;
+    try {
+      S.ready = readyCard({ app, host });
+      const slot = h('div.lobby-ready-slot', S.ready.el);
+      const body = root.querySelector('.lobby-body');
+      if (body) body.prepend(slot);
+    } catch (e) { console.error(e); S.ready = null; }
+    // v1.4 end PAGE-DEVICES
   }
 
   // Keep what's on screen in place while things above it change (a row appears, a setting shows).
@@ -1087,6 +1119,7 @@ export function mount(root, app) {
       // v1.3 PAGE-SETUP
       if (S.cpCard) { try { S.cpCard.update({ ...v, settings: settingsNow() }); } catch (e) { console.error(e); } }
       // v1.3 end PAGE-SETUP
+      if (S.ready) { try { S.ready.update({ ...v, settings: settingsNow() }); } catch (e) { console.error(e); } } // v1.4 PAGE-DEVICES
     });
   }
 
@@ -1160,6 +1193,7 @@ export function mount(root, app) {
       if (S.map) { try { S.map.destroy(); } catch { /* ignore */ } }
       S.map = null;
       if (S.cpCard) { try { S.cpCard.destroy(); } catch { /* ignore */ } } // v1.3 PAGE-SETUP
+      if (S.ready) { try { S.ready.destroy(); } catch { /* ignore */ } } // v1.4 PAGE-DEVICES
       html.style.overflowAnchor = oldAnchor;
       try { app.alerts?.keepAwake?.(false, 'lobby'); } catch { /* ignore */ }
     },

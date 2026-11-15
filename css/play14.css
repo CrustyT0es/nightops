@@ -1,0 +1,45 @@
+/* Night Ops v1.4 PAGE-PLAY: the Wiretap red dot, the lobby's Wiretap row, the pin sheet and the tray's Pin. */
+
+/* The red mic dot: always over everything while Wiretap records (it can't be hidden). */
+.wt-dot {
+  position: fixed; z-index: 10000; top: max(10px, calc(var(--safe-top) + 6px)); left: 50%; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px; border-radius: 999px;
+  background: rgba(7, 9, 13, 0.92); border: 1px solid #ff3b3b; color: #fff; font: 600 13px/1 var(--font);
+  pointer-events: none; white-space: nowrap;
+}
+.wt-dot-light { width: 12px; height: 12px; border-radius: 50%; background: #ff3b3b; box-shadow: 0 0 10px #ff3b3b; animation: wt-pulse 1s ease-in-out infinite; }
+@keyframes wt-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .wt-dot-light { animation: none; } }
+
+/* The lobby's Wiretap row */
+.x-wt { display: grid; gap: 8px; }
+.x-wt[hidden] { display: none; }
+.x-wt-label { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.x-wt-note, .x-wt-who { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.35; }
+.x-wt-ok { min-height: 48px; gap: 8px; }
+.x-wt-ok.on { border-color: var(--ok); color: var(--ok); }
+
+/* The tray's Pin */
+.pin-btn { min-height: 56px; min-width: 56px; gap: 6px; padding: 0 12px; }
+.pin-btn.on { background: #5fe0ff; color: #03161c; border-color: transparent; }
+.pin-btn[hidden] { display: none; }
+
+/* The drop sheet */
+.pin-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pin-kind {
+  display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 0 12px; border-radius: var(--radius);
+  border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 600 15px/1.2 var(--font); text-align: left;
+  --pin: #5fe0ff;
+}
+.pin-kind.k-seen { --pin: var(--warn); }
+.pin-kind.k-driver { --pin: #f4f6fa; }
+.pin-kind.k-pickup { --pin: var(--driver); }
+.pin-kind-dot { flex: none; width: 16px; height: 16px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pin); }
+.pin-kind[aria-pressed='true'] { border-color: var(--pin); box-shadow: inset 0 0 0 2px var(--pin); }
+.pin-note {
+  width: 100%; min-height: 48px; margin-top: 12px; padding: 0 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2); background: var(--bg); color: var(--text); font: 16px var(--font); box-sizing: border-box;
+}
+.pin-line, .pin-info { margin: 10px 0 0; color: var(--text-2); font-size: 14px; }
+.pin-info { color: var(--text); font-size: 17px; }
+@media (max-width: 340px) { .pin-kinds { grid-template-columns: minmax(0, 1fr); } }

@@ -13,7 +13,9 @@ import { icon } from '../ui/icons.js';
 import { openSheet } from '../ui/sheet.js';
 import { fmtClock } from '../../shared/rules.js';
 import { direct, fileTimeAt } from '../director.js';
-import { canMakeMovie, renderMovie, movieParts, talkOf } from '../movie.js';
+import { canMakeMovie, talkOf } from '../movie.js';
+import { scenes as reelScenes } from '../scenes.js';
+import { renderReel } from '../render.js';
 import { createUploader } from '../upload.js';
 import { heldOf } from '../camstore.js';
 
@@ -37,7 +39,7 @@ export const WORDS = {
   movie: 'Download the movie',
   all: 'Download all clips',
   keep: 'Keep this game',
-  keepLine: 'Clips and the replay are kept for 30 days instead of 1. Only 3 games can be kept at once: the oldest one goes.',
+  keepLine: "Kept on Night Ops' server for 30 days. Open it any time from Your games on the home screen. Only 3 games can be kept at once, so the oldest one goes. Downloads save to your phone (iPhone: the Files app, or Photos with Share > Save Video).",
   stopKeep: 'Stop keeping it',
   nothingYet: 'No clips are up yet. They show here as phones upload them.',
   noCamera: 'No camera here',
@@ -369,6 +371,9 @@ export function clipsCard({ app, list, urls }) {
     const any = !!(l && l.clips.length);
     nothing.hidden = any || !rows.length;
     movieBtn.hidden = !any;
+    // v1.4 PAGE-REEL: the movie moved to the end screen's Movies card (Highlights, The whole game)
+    movieBtn.hidden = true;
+    // v1.4 end PAGE-REEL
     allBtn.hidden = !any;
     const kept = l && Number.isFinite(l.kept) ? l.kept : (v && v.cam && Number.isFinite(v.cam.kept) ? v.cam.kept : null);
     keepLine.hidden = !Number.isFinite(kept);
@@ -389,8 +394,13 @@ export function clipsCard({ app, list, urls }) {
       return;
     }
     const summary = S.view && S.view.summary;
-    const short = movieParts({ list: l.clips, summary });
-    const long = l.mode === 'everything' ? movieParts({ list: l.clips, summary, whole: true }) : null;
+    // v1.4: the same scene reels as Watch the highlights / Watch the whole game (scenes.js: whole messages, J-cuts,
+    // an intro and an outro), made by render.js. The old movieParts path is no longer used for files.
+    const reelOf = (kind) => reelScenes({ summary: summary || {}, clips: l.clips, talk: summary && summary.radio, kind });
+    const hi = reelOf('highlights');
+    const short = { reel: hi, totalMs: hi.ms };
+    const wr = l.mode === 'everything' ? reelOf('whole') : null;
+    const long = wr ? { reel: wr, totalMs: wr.ms, capped: false } : null;
     let whole = false;
     const lenLine = (p) => `About ${Math.max(1, Math.round(p.totalMs / 60000))} min`;
     const choice = long && long.totalMs > short.totalMs + 30000
@@ -411,15 +421,14 @@ export function clipsCard({ app, list, urls }) {
       title: WORDS.movie,
       body: [choice, h('p.cam-sheet-line.muted', WORDS.movieKeep)],
       actions: [
-        { label: 'Make the movie', kind: 'primary', onClick: () => makeMovie(whole) },
+        { label: 'Make the movie', kind: 'primary', onClick: () => makeMovie(whole ? long.reel : short.reel) },
         { label: 'Cancel', kind: 'ghost' },
       ],
     });
     return sheet;
   }
 
-  async function makeMovie(whole) {
-    const l = list.list;
+  async function makeMovie(reel) {
     const summary = S.view && S.view.summary;
     const ctrl = new AbortController();
     const line = h('p.cam-sheet-line', { role: 'status', 'aria-live': 'polite' }, 'Getting the clips...');
@@ -435,15 +444,13 @@ export function clipsCard({ app, list, urls }) {
     try { app.alerts && app.alerts.keepAwake && app.alerts.keepAwake(true, 'movie'); } catch { /* ignore */ }
     let result = null;
     try {
-      result = await renderMovie({
+      result = await renderReel({
         app,
-        list: l.clips,
+        reel,
         summary,
         ring: S.view && S.view.ring,
         code: code(),
-        whole,
         signal: ctrl.signal,
-        getUrls: (ids) => urls.get(ids),
         onProgress: ({ at, total, paused }) => {
           const pct = total ? Math.min(100, Math.round((at / total) * 100)) : 0;
           fillEl.style.width = `${pct}%`;
@@ -826,7 +833,20 @@ export function gameCamParts({ app }) {
   const S = { view: null, dead: false, flash: 0 };
   const dot = h('span.cam-rec', { hidden: true, role: 'img', 'aria-label': 'Filming' }, h('span.cam-rec-dot', { 'aria-hidden': 'true' }), h('span.cam-rec-word', { 'aria-hidden': 'true' }, 'REC'));
   const chip = h('button.cam-start', { type: 'button', hidden: true }, icon('camera', 18), h('span.cam-start-word', 'Camera'));
-  const hud = h('span.cam-hud', dot, chip);
+  // v1.4 PAGE-DEVICES: a red "REC off" / "Mic off" chip when the shared stream isn't working (a tap turns it back on,
+  // or opens the help screen when it's blocked)
+  const media = app && app.media;
+  const offChip = h('button.fx-chip', { type: 'button', hidden: true }, h('span.fx-chip-dot', { 'aria-hidden': 'true' }), h('span.fx-chip-word'));
+  offChip.addEventListener('click', () => {
+    if (!media) return;
+    const st = media.state;
+    const part = st.cam === 'denied' ? 'camera' : st.mic === 'denied' ? 'mic' : null;
+    if (part) {
+      import('../ui/fixit.js').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
+    } else media.restore();
+  });
+  // v1.4 end PAGE-DEVICES
+  const hud = h('span.cam-hud', dot, chip, offChip);
   const recordBtn = h('button.btn.cam-mark', { type: 'button', 'aria-label': 'Record this: keep a clip of right now' },
     icon('camera', 22), h('span.cam-mark-word', 'Record this'));
   const markLine = h('span.cam-mark-line.sr-only', { role: 'status', 'aria-live': 'polite' });
@@ -874,9 +894,24 @@ export function gameCamParts({ app }) {
     // Not filming yet (the browser wanted a tap, or it's blocked): this button starts the camera too.
     recordBtn.dataset.state = st;
     recordBtn.setAttribute('aria-label', on ? 'Record this: keep a clip of right now' : (words || 'Tap to start your camera'));
+    // v1.4 PAGE-DEVICES
+    const ms = media ? media.state : null;
+    const live = !!(v && v.phase === 'live' && v.me && v.me.status === 'in');
+    let off = '';
+    // (a camera that isn't on keeps the v1.2 chip, "Start camera", whose tap asks media.js again)
+    if (ms && live && filmed && st === 'on' && !cam.stoppedHere && ms.cam !== 'ok' && ms.cam !== 'na') off = 'REC off';
+    else if (ms && live && ['denied', 'off', 'silent', 'none'].includes(ms.mic)) off = ms.mic === 'denied' ? 'Mic blocked' : 'Mic off';
+    offChip.hidden = !off;
+    if (off) {
+      text(offChip.querySelector('.fx-chip-word'), off);
+      offChip.setAttribute('aria-label', /blocked/.test(off) ? `${off}. Tap for help.` : `${off}. Tap to turn it back on.`);
+      dot.hidden = true;
+    }
+    // v1.4 end PAGE-DEVICES
   }
 
   const offState = cam ? cam.on('state', () => { if (!S.dead) paint(); }) : () => {};
+  const offMedia = media && media.on ? media.on('state', () => { if (!S.dead) paint(); }) : () => {}; // v1.4 PAGE-DEVICES
   if (cam && typeof cam.attach === 'function') cam.attach(true);
 
   return {
@@ -915,6 +950,7 @@ export function gameCamParts({ app }) {
       S.dead = true;
       clearTimeout(S.flash);
       offState();
+      offMedia(); // v1.4 PAGE-DEVICES
       if (cam && typeof cam.attach === 'function') cam.attach(false);
     },
   };

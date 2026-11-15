@@ -84,6 +84,21 @@ export function howToPlay() {
   openSheet({ title: 'How to play', body, actions: [{ label: 'Got it', kind: 'primary' }], className: 'home-how-sheet' });
 }
 
+// v1.4 Your games: one remembered game as words: { title, line, keep } (dates in the phone's own words).
+const MODE_WORDS = { classic: 'Manhunt', infection: 'Infection', checkpoints: 'Checkpoints' };
+const dayOf = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const dayTimeOf = (t) => `${dayOf(t)}, ${new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+export function pastLines(g, fmt = dayOf, when = fmt === dayOf ? dayTimeOf : fmt) {
+  const date = when(g.when); // the time too: two rounds of one evening look different
+  const title = `${MODE_WORDS[g.mode] || 'Manhunt'} · ${date}`;
+  const role = g.role === 'watched' ? 'You watched' : g.role ? `You were a ${g.role}` : '';
+  const line = [g.result, role].filter(Boolean).join(' · ');
+  let keep = '';
+  if (Number.isFinite(g.kept)) keep = `Kept until ${fmt(g.kept)}`;
+  else if (Number.isFinite(g.until)) keep = `Deleted after ${when(g.until)}`;
+  return { title, line, keep };
+}
+
 export function mount(root, app, args = {}) {
   const S = {
     destroyed: false,
@@ -502,6 +517,38 @@ export function mount(root, app, args = {}) {
   watchOpenBtn.addEventListener('click', () => watchSheet());
   // v1.1 end PAGE-WATCH
 
+  // v1.4 Your games: games this phone was in or watched, while the server still has them.
+  const gamesCard = h('section.home-card.home-games', { 'aria-labelledby': 'home-games-title', hidden: true });
+  async function drawGames() {
+    if (typeof app.pastGames !== 'function') return;
+    let list = [];
+    try { list = await app.pastGames(); } catch { return; }
+    if (S.destroyed || !list.length) return;
+    const rows = list.map((g) => {
+      const w = pastLines(g);
+      const btn = h('button.btn.small.home-game-open', { type: 'button', 'aria-label': `Open ${w.title}` }, 'Open');
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const ok = await app.openPast(g);
+        if (!ok && !S.destroyed) { li.remove(); if (!ul.children.length) gamesCard.hidden = true; }
+        btn.disabled = false;
+      });
+      const rm = h('button.btn.small.ghost.home-game-remove', { type: 'button', 'aria-label': `Remove ${w.title} from this phone` }, 'Remove');
+      rm.addEventListener('click', () => {
+        try { if (app.identity && app.identity.forgetPast) app.identity.forgetPast(g.code, g.round); } catch { /* ignore */ }
+        li.remove();
+        if (!ul.children.length) gamesCard.hidden = true;
+      });
+      const li = h('li.home-game', h('div.home-game-text', h('p.home-game-title', w.title),
+        w.line ? h('p.home-hint', w.line) : null, w.keep ? h(`p.home-hint.home-game-keep${Number.isFinite(g.kept) ? '.kept' : ''}`, w.keep) : null),
+        h('div.home-game-btns', btn, rm));
+      return li;
+    });
+    const ul = h('ul.home-games-list', rows);
+    fill(gamesCard, h('h2#home-games-title.label', 'Your games'), ul);
+    gamesCard.hidden = false;
+  }
+
   const order = fromLink ? [joinBox, h('p.home-or', h('span', 'or')), createBox] : [createBox, h('p.home-or', h('span', 'or')), joinBox];
 
   fill(root,
@@ -513,6 +560,7 @@ export function mount(root, app, args = {}) {
       savedCard,
       youCard,
       watchCard, // v1.1 PAGE-WATCH
+      gamesCard, // v1.4 Your games
       order,
       h('footer.home-foot',
         h('div.home-foot-btns', howBtn, watchOpenBtn), // v1.1 PAGE-WATCH: Watch a game beside How to play
@@ -520,6 +568,7 @@ export function mount(root, app, args = {}) {
 
   drawFace();
   cleanCodeBox();
+  drawGames();
 
   // Start where it helps: the name box when there's no name yet, the code box when a link brought them here.
   setTimeout(() => {

@@ -1114,6 +1114,12 @@ export function createMap(container, { interactive = true } = {}) {
   root.insertBefore(spotSvg, facesLayer);
   root.insertBefore(spotLayer, facesLayer);
   // v1.3 end PAGE-SETUP
+  // v1.4 PAGE-PLAY: team pins and the driver's pickup lines, over the ring, under the faces
+  const pinSvg = svgNode('svg', { class: 'nmap-pinlines', 'aria-hidden': 'true', focusable: 'false' });
+  const pinLayer = h('div.nmap-pins');
+  root.insertBefore(pinSvg, facesLayer);
+  root.insertBefore(pinLayer, facesLayer);
+  // v1.4 end PAGE-PLAY
 
   const timers = new Set();
   const later = (fn, ms) => {
@@ -1147,7 +1153,7 @@ export function createMap(container, { interactive = true } = {}) {
     plain = new PlainMap(root, areaSvg, {
       interactive,
       onTap: (ll) => { if (active === plain) tapped(ll); },
-      onUserMove: () => { S.cameraSet = true; },
+      onUserMove: () => { S.cameraSet = true; userMoved(); }, // v1.4 PAGE-REEL: userMoved
       onChange: requestFrame,
     });
     plain.reduced = S.reduced;
@@ -1267,7 +1273,7 @@ export function createMap(container, { interactive = true } = {}) {
       gl = new GlMap(lib, root, {
         interactive,
         onMove: () => { if (active === gl) drawOverlay(performance.now()); },
-        onUserMove: () => { if (active === gl) S.cameraSet = true; },
+        onUserMove: () => { if (active === gl) { S.cameraSet = true; userMoved(); } }, // v1.4 PAGE-REEL: userMoved
         onTap: (ll) => { if (active === gl) tapped(ll); },
       });
     } catch {
@@ -1508,6 +1514,7 @@ export function createMap(container, { interactive = true } = {}) {
     for (const rec of recs.values()) if (drawRec(rec, now, eng)) moving = true;
     for (const rec of heads.values()) drawRec(rec, now, eng);
     drawSpots(eng); // v1.3 PAGE-SETUP
+    drawPins(eng); // v1.4 PAGE-PLAY
     placeGroups();
     // v1.2: a new zoom (or size): group the faces again once it stands still.
     let z = null;
@@ -2146,6 +2153,7 @@ export function createMap(container, { interactive = true } = {}) {
   function zoomBy(step) {
     if (S.destroyed || !Number.isFinite(step) || !step || !active || !active.hasPlace()) return;
     S.cameraSet = true;
+    userMoved(); // v1.4 PAGE-REEL: the +/- buttons are the person's move
     const [mx, my] = visibleMiddle();
     if (active === plain) {
       plain.zoomAround(2 ** step, mx, my, !S.reduced);
@@ -2157,6 +2165,18 @@ export function createMap(container, { interactive = true } = {}) {
     }
     requestFrame();
   }
+
+  // v1.4 PAGE-REEL: map.onUserMove(fn) -> off(): a drag, pinch, wheel, double-tap, +/- or keys by the person
+  const userFns = new Set();
+  function userMoved() {
+    for (const fn of [...userFns]) { try { fn(); } catch { /* a listener's problem */ } }
+  }
+  function onUserMove(fn) {
+    if (S.destroyed || typeof fn !== 'function') return () => {};
+    userFns.add(fn);
+    return () => { userFns.delete(fn); };
+  }
+  // v1.4 end PAGE-REEL
 
   function onMode(fn) {
     if (S.destroyed || typeof fn !== 'function') return () => {};
@@ -2309,6 +2329,112 @@ export function createMap(container, { interactive = true } = {}) {
   }
   // v1.3 end PAGE-SETUP
 
+  // v1.4 PAGE-PLAY: setPins([{ key, p, kind: 'seen'|'go'|'driver'|'pickup', label, sub, big, from, line }]) draws
+  // each as a teardrop with its words; `from` (a point) adds a straight line to it with `line` ("300 m") halfway.
+  // onPinTap(fn(key)) makes them buttons.
+  const pinRecs = new Map();
+  let pinTapFn = null;
+  const PIN_KIND_LIST = ['seen', 'go', 'driver', 'pickup'];
+
+  function writePin(rec) {
+    const pn = rec.pin;
+    rec.el.className = `npin k-${pn.kind}${pn.big ? ' big' : ''}${pinTapFn ? ' tap' : ''}${rec.shown ? '' : ' unplaced'}`;
+    rec.hit.tabIndex = pinTapFn ? 0 : -1;
+    rec.hit.setAttribute('aria-label', [pn.label, pn.sub].filter(Boolean).join(', ') || 'Pin');
+    text(rec.labelEl, pn.label || '');
+    text(rec.subEl, pn.sub || '');
+    rec.subEl.hidden = !pn.sub;
+    text(rec.lineText, pn.line || '');
+  }
+
+  function setPins(list) {
+    if (S.destroyed) return;
+    const seen = new Set();
+    let i = 0;
+    for (const raw of Array.isArray(list) ? list : []) {
+      i++;
+      if (!raw || typeof raw !== 'object' || !isPoint(raw.p)) continue;
+      const key = String(raw.key ?? `p${i}`);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const pin = {
+        key, p: [raw.p[0], raw.p[1]], kind: PIN_KIND_LIST.includes(raw.kind) ? raw.kind : 'go',
+        label: typeof raw.label === 'string' ? raw.label : '', sub: typeof raw.sub === 'string' ? raw.sub : '',
+        big: !!raw.big, from: isPoint(raw.from) ? [raw.from[0], raw.from[1]] : null,
+        line: typeof raw.line === 'string' ? raw.line : '',
+      };
+      let rec = pinRecs.get(key);
+      if (!rec) {
+        const head = h('span.npin-head', { 'aria-hidden': 'true' });
+        const labelEl = h('span.npin-label');
+        const subEl = h('span.npin-sub');
+        const hit = h('button.npin-hit', { type: 'button', tabindex: '-1' }, head);
+        hit.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (pinTapFn) { try { pinTapFn(rec.pin.key); } catch (err) { console.error(err); } }
+        });
+        const el = h('div.npin.unplaced', hit, h('span.npin-words', labelEl, subEl));
+        const line = svgNode('line', { class: 'npin-line', x1: -999, y1: -999, x2: -999, y2: -999 });
+        const lineText = h('span.npin-dist.unplaced');
+        rec = { pin, el, hit, head, labelEl, subEl, line, lineText, x: null, y: null, shown: false, lt: { el: lineText, shown: false } };
+        pinRecs.set(key, rec);
+        pinSvg.appendChild(line);
+        pinLayer.append(el, lineText);
+      }
+      rec.pin = pin;
+      writePin(rec);
+    }
+    for (const [key, rec] of pinRecs) {
+      if (seen.has(key)) continue;
+      rec.el.remove();
+      rec.line.remove();
+      rec.lineText.remove();
+      pinRecs.delete(key);
+    }
+    if (active) drawPins(active);
+    requestFrame();
+  }
+
+  function drawPins(eng) {
+    for (const rec of pinRecs.values()) {
+      const pn = rec.pin;
+      const xy = eng.project(pn.p);
+      if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) {
+        unplace(rec);
+        unplace(rec.lt);
+        rec.line.setAttribute('x1', -999);
+        rec.line.setAttribute('x2', -999);
+        continue;
+      }
+      place(rec, xy[0], xy[1]);
+      const fxy = pn.from ? eng.project(pn.from) : null;
+      if (fxy && Number.isFinite(fxy[0])) {
+        rec.line.setAttribute('x1', Math.round(fxy[0]));
+        rec.line.setAttribute('y1', Math.round(fxy[1]));
+        rec.line.setAttribute('x2', Math.round(xy[0]));
+        rec.line.setAttribute('y2', Math.round(xy[1]));
+        if (pn.line) place(rec.lt, (fxy[0] + xy[0]) / 2, (fxy[1] + xy[1]) / 2); else unplace(rec.lt);
+      } else {
+        rec.line.setAttribute('x1', -999);
+        rec.line.setAttribute('x2', -999);
+        unplace(rec.lt);
+      }
+    }
+  }
+
+  function onPinTap(fn) {
+    if (S.destroyed) return () => {};
+    pinTapFn = typeof fn === 'function' ? fn : null;
+    for (const rec of pinRecs.values()) writePin(rec);
+    const mine = pinTapFn;
+    return () => {
+      if (pinTapFn !== mine || S.destroyed) return;
+      pinTapFn = null;
+      for (const rec of pinRecs.values()) writePin(rec);
+    };
+  }
+  // v1.4 end PAGE-PLAY
+
   // ---- start ----
 
   makePlain();
@@ -2327,10 +2453,12 @@ export function createMap(container, { interactive = true } = {}) {
     center,
     setRoutes,
     setSpots, onSpotTap, // v1.3 PAGE-SETUP
+    setPins, onPinTap, // v1.4 PAGE-PLAY
     setInsets,
     fitAll,
     zoomBy,
     onMode,
+    onUserMove, // v1.4 PAGE-REEL
     destroy,
     resize: () => { if (!S.destroyed) measure(); },
     getCenter: () => (active && active.hasPlace() ? active.getCenter() : null),

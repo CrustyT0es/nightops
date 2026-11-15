@@ -1,0 +1,23 @@
+/* Night Ops v1.4 (PAGE-RENDER): Your games on the home screen, and the movie sheet. */
+.home-games-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.home-game {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel);
+}
+.home-game-text { flex: 1 1 auto; min-width: 0; }
+.home-game-text p { margin: 0; overflow-wrap: anywhere; }
+.home-game-title { font-weight: 700; letter-spacing: 0.04em; }
+.home-game-keep { color: var(--muted); font-family: var(--mono); font-size: 0.85rem; }
+.home-game-keep.kept { color: var(--ok); }
+.home-game-btns { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+.home-game-btns .btn { min-height: 40px; min-width: 76px; }
+@media (max-width: 340px) {
+  .home-game { flex-wrap: wrap; }
+  .home-game-btns { flex-direction: row; width: 100%; }
+  .home-game-btns .btn { flex: 1 1 0; }
+}
+.render-bar { margin: 10px 0; }
+.render-line { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.keep-row { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); display: grid; gap: 8px; }
+.keep-row p { margin: 0; }
+.keep-row-line { font-weight: 700; }

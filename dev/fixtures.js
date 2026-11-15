@@ -15,6 +15,7 @@ import { withDriver, DRIVER_SAMPLES } from './drive-fixtures.js'; // v1.1 PAGE-D
 import { withCpPlay } from './cpplay-fixtures.js'; // v1.3 PAGE-PLAY
 import { withCpSetup } from './cpsetup-fixtures.js'; // v1.3 PAGE-SETUP
 import { withCpOver, withCpWatch } from './cpafter-fixtures.js'; // v1.3 PAGE-AFTER
+import { withReel } from './reel-fixtures.js'; // v1.4 PAGE-REEL
 
 export const CODE = 'WYKUSX';
 export const NOW = Date.UTC(2026, 10, 14, 2, 40, 0); // Fri 13 Nov 2026, 9:40 pm in Toronto
@@ -482,6 +483,7 @@ export function fixture(params = {}) {
   };
   withRadio(view, params); // v1.1 PAGE-RADIO
   withCam(view, params); // v1.2 PAGE-CAM
+  withReel(view, params); // v1.4 PAGE-REEL: &reel=1
   withHidersRadio(view, params); // v1.2 PAGE-RADIO
   withCpPlay(view, params); // v1.3 PAGE-PLAY: &cp=lead|inside|safe|overstay|again|done (hider), waiting|shown|overstay
   if (!params.cpw) withCpOver(view, params); // v1.3 PAGE-AFTER: screen=over&cp=1

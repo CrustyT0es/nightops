@@ -9,6 +9,9 @@
 import { direct, movieWindows, fileTimeAt } from './director.js';
 import { fmtClock } from '../shared/rules.js';
 import { ringOutline } from '../shared/geo.js';
+// v1.4 PAGE-REEL: the reel's frame drawer (drawFrame, framePlan, audioAt, drawMiniMap) is at the end of this file.
+// The v1.2 movieParts/renderMovie above it stay only until PAGE-RENDER's render.js takes over the downloads.
+import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js';
 
 export const W = 720;
 export const H = 1280;
@@ -592,3 +595,587 @@ export async function renderMovie({
   const ext = base === 'video/mp4' ? 'mp4' : 'webm';
   return { blob, type: base, name: `Night Ops ${code || 'game'}.${ext}` };
 }
+
+// ===========================================================================================================
+// v1.4 PAGE-REEL: the reel's frames. Pure drawing: no fetching, no time of its own. The page's player
+// (screens/reelplayer.js) and the file renderer (render.js) both call drawFrame for each reel time t.
+//
+//   framePlan(reel, t) -> { scene, index, clock, shots: [{ id, pid, fileAt, slot }] }   the clip frames t needs
+//   audioAt(reel, t0, t1) -> [{ kind, src, track, from, to, fileAt, g0, g1 }]            what plays between
+//   drawFrame(ctx, reel, t, { sources, faces, summary, ring, w, h, scale })
+//   drawMiniMap(ctx, mini, { clockMs, faces, summary, x, y, w, h })
+// ===========================================================================================================
+
+const INK = '#e6ebf2';
+const DIM = '#9aa6b8';
+const NIGHT = '#07090d';
+const PANEL = '#0b0f15';
+const LINE14 = '#1f2836';
+const ACCENT = '#7cf2b0';
+const TEAM14 = { hunter: '#ff5a5a', hider: '#4ea8ff', driver: '#ffc24a', out: '#9aa6b8' };
+const CAM_H = Math.round(REEL.H * 0.62);
+
+const clipIndex = new WeakMap();
+function clipOf(reel, id) {
+  let m = clipIndex.get(reel);
+  if (!m) { m = new Map((reel.clips || []).map((c) => [c.id, c])); clipIndex.set(reel, m); }
+  return m.get(id) || null;
+}
+
+export function framePlan(reel, t) {
+  const index = sceneAt(reel, t);
+  const scene = index >= 0 ? reel.scenes[index] : null;
+  if (!scene) return { scene: null, index: -1, clock: null, shots: [] };
+  const clock = clockAt(scene, t);
+  const shots = [];
+  if (clock !== null) {
+    for (const s of scene.shots || []) {
+      if (clock < s.from || clock >= s.to) continue;
+      const clip = clipOf(reel, s.id);
+      const fileAt = clip ? fileTimeAt(clip, clock) : null;
+      if (fileAt === null) continue;
+      shots.push({ id: s.id, pid: s.pid, fileAt, slot: s.slot });
+    }
+  }
+  return { scene, index, clock, shots };
+}
+
+export function audioAt(reel, t0, t1) {
+  const out = [];
+  for (const track of reel.audio || []) {
+    const from = Math.max(t0, track.at), to = Math.min(t1, track.at + track.ms);
+    if (to <= from) continue;
+    out.push({ kind: track.kind, src: track.src, track, from, to, fileAt: track.fileAt + (from - track.at) / 1000,
+      g0: gainOf(track, from), g1: gainOf(track, to) });
+  }
+  return out;
+}
+
+function person(summary, pid) {
+  const row = summary && Array.isArray(summary.players) ? summary.players.find((p) => p && p.id === pid) : null;
+  return { name: row && row.name ? String(row.name).slice(0, 30) : 'Someone',
+    color: TEAM14[!row ? 'out' : row.driver ? 'driver' : row.startTeam === 'hider' ? 'hider' : 'hunter'] };
+}
+
+function faceOf(faces, pid) {
+  if (!faces) return null;
+  const f = faces instanceof Map ? faces.get(pid) : faces[pid];
+  return f && (f.width || f.naturalWidth || f.videoWidth) ? f : null;
+}
+
+function txt(ctx, words, x, y, { size = 28, color = INK, weight = 700, align = 'left', font = 'Space Grotesk', outline = true } = {}) {
+  ctx.font = `${weight} ${size}px "${font}", system-ui, sans-serif`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'alphabetic';
+  if (outline) {
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(4, size / 5);
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(words, x, y);
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(words, x, y);
+  ctx.textAlign = 'left';
+}
+
+// A stencil title: wide-spaced capitals with the stencil's bridges cut through them.
+function stencil(ctx, words, x, y, size, color = INK, alpha = 1, align = 'left') {
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.font = `700 ${size}px "Space Grotesk", system-ui, sans-serif`;
+  const spaced = String(words).toUpperCase().split('').join(' ');
+  ctx.textAlign = align;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = size / 4.5;
+  ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+  ctx.strokeText(spaced, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(spaced, x, y);
+  // the bridges: two thin dark bars through the letters
+  const wide = ctx.measureText(spaced).width;
+  const left = align === 'center' ? x - wide / 2 : align === 'right' ? x - wide : x;
+  ctx.fillStyle = 'rgba(7,9,13,0.9)';
+  ctx.fillRect(left, y - size * 0.42, wide, Math.max(2, size * 0.06));
+  ctx.restore();
+}
+
+function round(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawFace(ctx, faces, summary, pid, x, y, r) {
+  const who = person(summary, pid);
+  const img = faceOf(faces, pid);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#16202c';
+  ctx.fill();
+  if (img) {
+    ctx.clip();
+    try { ctx.drawImage(img, x - r, y - r, r * 2, r * 2); } catch { /* not drawable yet */ }
+  } else {
+    txt(ctx, who.name.slice(0, 1).toUpperCase(), x, y + r * 0.36, { size: r, align: 'center', outline: false });
+  }
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.lineWidth = Math.max(3, r / 8);
+  ctx.strokeStyle = who.color;
+  ctx.stroke();
+}
+
+function sourceOf(sources, id) {
+  if (!sources) return null;
+  const v = sources instanceof Map ? sources.get(id) : sources[id];
+  if (!v) return null;
+  if (v.img) return v;
+  return { img: v, stale: false };
+}
+
+function drawShot(ctx, sources, summary, shot, x, y, w, h, { name = true, small = false } = {}) {
+  ctx.save();
+  round(ctx, x, y, w, h, small ? 12 : 0);
+  ctx.clip();
+  ctx.fillStyle = PANEL;
+  ctx.fillRect(x, y, w, h);
+  const s = shot ? sourceOf(sources, shot.id) : null;
+  let drawn = false;
+  if (s) {
+    const img = s.img;
+    const vw = img.videoWidth || img.width || 4;
+    const vh = img.videoHeight || img.height || 3;
+    if (vw > 4 && vh > 3) {
+      const k = Math.max(w / vw, h / vh);
+      const sw = w / k, sh = h / k;
+      try { ctx.drawImage(img, (vw - sw) / 2, (vh - sh) / 2, sw, sh, x, y, w, h); drawn = true; } catch { /* not ready */ }
+    }
+    if (drawn && s.stale) { ctx.fillStyle = 'rgba(7,9,13,0.45)'; ctx.fillRect(x, y, w, h); }
+  }
+  if (!drawn) {
+    ctx.fillStyle = '#121a25';
+    ctx.fillRect(x, y, w, h);
+    if (shot) txt(ctx, 'Loading', x + w / 2, y + h / 2 + 8, { size: small ? 18 : 26, color: DIM, align: 'center', weight: 500, outline: false });
+  }
+  ctx.restore();
+  if (small) {
+    round(ctx, x, y, w, h, 12);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = shot ? person(summary, shot.pid).color : LINE14;
+    ctx.stroke();
+  }
+  if (name && shot) {
+    const who = person(summary, shot.pid);
+    txt(ctx, who.name, x + (small ? 10 : 24), y + h - (small ? 12 : 26), { size: small ? 20 : 34, color: who.color });
+  }
+  return drawn;
+}
+
+// ---- the map, plain projection of the scene's box ----
+
+function projector(box, rect) {
+  if (!box) return null;
+  const [[w, s], [e, n]] = box;
+  const lat = (s + n) / 2;
+  const kx = Math.cos((lat * Math.PI) / 180);
+  const spanX = Math.max(1e-7, (e - w) * kx), spanY = Math.max(1e-7, n - s);
+  const k = Math.min((rect.w - 40) / spanX, (rect.h - 40) / spanY);
+  const cx = (w + e) / 2, cy = (s + n) / 2;
+  return (p) => [rect.x + rect.w / 2 + (p[0] - cx) * kx * k, rect.y + rect.h / 2 - (p[1] - cy) * k];
+}
+
+function headAt(pts, sec) {
+  if (!pts || !pts.length || sec < pts[0][2]) return null;
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const a = pts[i], b = pts[i + 1];
+    if (sec >= a[2] && sec <= b[2]) {
+      const f = b[2] > a[2] ? (sec - a[2]) / (b[2] - a[2]) : 0;
+      return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    }
+  }
+  const last = pts[pts.length - 1];
+  return sec - last[2] < 600 ? [last[0], last[1]] : null;
+}
+
+function drawGrid(ctx, rect) {
+  ctx.fillStyle = '#0a0e14';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.strokeStyle = 'rgba(124,242,176,0.06)';
+  ctx.lineWidth = 1;
+  for (let x = rect.x; x < rect.x + rect.w; x += 48) { ctx.beginPath(); ctx.moveTo(x, rect.y); ctx.lineTo(x, rect.y + rect.h); ctx.stroke(); }
+  for (let y = rect.y; y < rect.y + rect.h; y += 48) { ctx.beginPath(); ctx.moveTo(rect.x, y); ctx.lineTo(rect.x + rect.w, y); ctx.stroke(); }
+}
+
+function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [] } = {}) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(rect.x, rect.y, rect.w, rect.h);
+  ctx.clip();
+  drawGrid(ctx, rect);
+  const proj = projector(scene.map && scene.map.box, rect);
+  if (proj) {
+    const ringPts = ringPointsOf(ring);
+    if (ringPts.length > 2) {
+      ctx.beginPath();
+      ringPts.forEach((p, i) => { const [x, y] = proj(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(124,242,176,0.04)';
+      ctx.fill();
+      ctx.setLineDash([14, 10]);
+      ctx.strokeStyle = 'rgba(230,235,242,0.55)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    const sec = clock === null ? Infinity : clock / 1000;
+    const mode = scene.map ? scene.map.routes : 'so-far';
+    const lo = mode === 'window' && scene.start !== null ? (scene.start - 30000) / 1000 : -Infinity;
+    // pins (only those living at this clock)
+    for (const pin of (summary && Array.isArray(summary.pins) ? summary.pins : [])) {
+      if (!pin || !Array.isArray(pin.p) || clock === null || clock < pin.clock || clock > pin.until) continue;
+      const [x, y] = proj(pin.p);
+      ctx.beginPath();
+      ctx.moveTo(x, y - 14); ctx.lineTo(x + 10, y); ctx.lineTo(x, y + 14); ctx.lineTo(x - 10, y); ctx.closePath();
+      ctx.fillStyle = '#ffc24a';
+      ctx.fill();
+    }
+    if (mode !== 'none') {
+      const heads = [];
+      for (const [pid, pts] of Object.entries((summary && summary.routes) || {})) {
+        const who = person(summary, pid);
+        const sofar = (pts || []).filter((p) => p[2] <= sec && p[2] >= lo);
+        const lit = !focus.length || focus.includes(pid);
+        if (sofar.length > 1) {
+          ctx.beginPath();
+          sofar.forEach((p, i) => { const [x, y] = proj(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+          ctx.strokeStyle = who.color;
+          ctx.globalAlpha = lit ? 0.75 : 0.25;
+          ctx.lineWidth = lit ? 5 : 3;
+          ctx.lineJoin = 'round';
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        const h = mode === 'all' ? (pts && pts.length ? pts[pts.length - 1] : null) : headAt(pts, sec);
+        if (h) heads.push({ pid, xy: proj(h), lit });
+      }
+      for (const h of heads.sort((a, b) => Number(a.lit) - Number(b.lit))) {
+        const r = h.lit ? 22 : 14;
+        ctx.globalAlpha = h.lit ? 1 : 0.6;
+        drawFace(ctx, faces, summary, h.pid, h.xy[0], h.xy[1], r);
+        ctx.globalAlpha = 1;
+        if (h.lit && rect.h > 300) txt(ctx, person(summary, h.pid).name, h.xy[0] + r + 6, h.xy[1] + 8, { size: 22 });
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ---- the close-call mini map ----
+
+const miniCache = new WeakMap();
+function miniFor(scene, w, h) {
+  let c = miniCache.get(scene);
+  if (!c || c.w !== w || c.h !== h) { c = { w, h, mm: miniMap(scene.mini, { w, h }) }; miniCache.set(scene, c); }
+  return c.mm;
+}
+
+function headPx(list, clockMs) {
+  if (!list || !list.length || clockMs < list[0][2]) return list && list.length ? [list[0][0], list[0][1]] : null;
+  for (let i = 0; i < list.length - 1; i += 1) {
+    const a = list[i], b = list[i + 1];
+    if (clockMs >= a[2] && clockMs <= b[2]) {
+      const f = b[2] > a[2] ? (clockMs - a[2]) / (b[2] - a[2]) : 0;
+      return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    }
+  }
+  const l = list[list.length - 1];
+  return [l[0], l[1]];
+}
+
+export function drawMiniMap(ctx, mini, { clockMs = Infinity, faces = null, summary = null, x = 0, y = 0, still = false } = {}) {
+  if (!mini) return;
+  const { w, h } = mini.box;
+  ctx.save();
+  ctx.translate(x, y);
+  round(ctx, 0, 0, w, h, 18);
+  ctx.clip();
+  drawGrid(ctx, { x: 0, y: 0, w, h });
+  // a 10 m scale tick
+  const tenM = mini.box.pxPerM * 10;
+  ctx.strokeStyle = 'rgba(230,235,242,0.5)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(16, h - 18); ctx.lineTo(16 + tenM, h - 18); ctx.stroke();
+  txt(ctx, '10 m', 22 + tenM, h - 12, { size: Math.max(14, w / 22), color: DIM, weight: 500, outline: false });
+  const ids = mini.ids || [];
+  const sides = [[mini.a, ids[0]], [mini.b, ids[1]]];
+  const t = still ? Infinity : clockMs;
+  for (const [list, pid] of sides) {
+    const col = pid ? person(summary, pid).color : ACCENT;
+    const upto = list.filter((p) => p[2] <= t);
+    if (upto.length > 1) {
+      ctx.beginPath();
+      upto.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      const head = headPx(list, t);
+      if (head && !still) ctx.lineTo(head[0], head[1]);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(3, w / 90);
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+  }
+  const g = mini.gap;
+  const past = g && t >= g.clock;
+  const ha = still && g ? [g.x1, g.y1] : headPx(mini.a, t);
+  const hb = still && g ? [g.x2, g.y2] : headPx(mini.b, t);
+  if (ha && hb) {
+    const raw = Math.round(Math.hypot(hb[0] - ha[0], hb[1] - ha[1]) / mini.box.pxPerM);
+    const m = past || still ? g.m : g ? Math.max(g.m, raw) : raw; // never under the closest before it comes
+    ctx.setLineDash([8, 6]);
+    ctx.strokeStyle = past || still ? '#ffc24a' : INK;
+    ctx.lineWidth = past || still ? 4 : 3;
+    ctx.beginPath(); ctx.moveTo(ha[0], ha[1]); ctx.lineTo(hb[0], hb[1]); ctx.stroke();
+    ctx.setLineDash([]);
+    if (past && g) {
+      ctx.beginPath();
+      ctx.arc((g.x1 + g.x2) / 2, (g.y1 + g.y2) / 2, Math.max(14, w / 14), 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,194,74,0.6)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    const r = Math.max(12, w / 16);
+    if (ids[0]) drawFace(ctx, faces, summary, ids[0], ha[0], ha[1], r);
+    if (ids[1]) drawFace(ctx, faces, summary, ids[1], hb[0], hb[1], r);
+    const mx = (ha[0] + hb[0]) / 2, my = Math.min(ha[1], hb[1]) - r - 14;
+    txt(ctx, `${m} m`, Math.max(40, Math.min(w - 40, mx)), Math.max(r * 2 + 10, my), { size: Math.max(22, w / (past || still ? 7 : 10)),
+      align: 'center', color: past || still ? '#ffc24a' : INK, weight: 700 });
+  }
+  ctx.restore();
+  round(ctx, x, y, w, h, 18);
+  ctx.strokeStyle = LINE14;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// ---- the pieces of a frame ----
+
+function drawTitle(ctx, scene, t, summary) {
+  if (!scene.title || scene.kind === 'stretch' && !scene.title) return;
+  const into = t - scene.at;
+  const big = into < TITLE_MS && scene.kind !== 'intro' && scene.kind !== 'outro' && scene.kind !== 'gap';
+  if (big) {
+    const a = Math.min(1, into / 250, (TITLE_MS - into) / 400 + 0.2);
+    const y = scene.layout === 'minimap' ? REEL.H - 180 : CAM_H - 150;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, a));
+    ctx.fillStyle = 'rgba(7,9,13,0.55)';
+    ctx.fillRect(0, y - 74, REEL.W, scene.line ? 128 : 96);
+    ctx.restore();
+    stencil(ctx, scene.title, 36, y, 64, scene.kind === 'caught' || scene.kind === 'tag' ? '#ff5a5a' : scene.kind === 'near' ? '#ffc24a' : INK, Math.max(0, a));
+    if (scene.line) txt(ctx, scene.line, 38, y + 40, { size: 30, color: DIM });
+  } else if (scene.kind !== 'intro' && scene.kind !== 'outro' && scene.kind !== 'gap' && scene.kind !== 'stretch') {
+    // a small tag in the corner for the rest of the scene
+    ctx.save();
+    ctx.font = '700 22px "Space Grotesk", system-ui, sans-serif';
+    const label = String(scene.title).toUpperCase();
+    const wd = ctx.measureText(label).width + 28;
+    round(ctx, 24, 28, wd, 40, 20);
+    ctx.fillStyle = 'rgba(7,9,13,0.7)';
+    ctx.fill();
+    ctx.restore();
+    txt(ctx, String(scene.title).toUpperCase(), 38, 56, { size: 22, color: INK, outline: false });
+  }
+  void summary;
+}
+
+function drawCaption(ctx, scene, clock, y) {
+  if (clock === null) return;
+  const cap = (scene.captions || []).filter((c) => clock >= c.from && clock < c.to).pop();
+  if (!cap) return;
+  ctx.font = '600 28px "Space Grotesk", system-ui, sans-serif';
+  const lines = wrapLines(ctx, cap.text, REEL.W - 80, 2);
+  ctx.save();
+  ctx.fillStyle = 'rgba(7,9,13,0.7)';
+  round(ctx, 24, y - 40, REEL.W - 48, 24 + lines.length * 36, 14);
+  ctx.fill();
+  ctx.restore();
+  lines.forEach((l, i) => txt(ctx, l, 40, y - 6 + i * 36, { size: 28, weight: 600, outline: false }));
+}
+
+function drawProgress(ctx, reel, t) {
+  const y = REEL.H - 14, x0 = 24, wd = REEL.W - 48;
+  ctx.fillStyle = 'rgba(230,235,242,0.18)';
+  ctx.fillRect(x0, y, wd, 5);
+  ctx.fillStyle = ACCENT;
+  ctx.fillRect(x0, y, wd * Math.max(0, Math.min(1, t / Math.max(1, reel.ms))), 5);
+  ctx.fillStyle = INK;
+  for (const m of reel.marks || []) ctx.fillRect(x0 + (wd * m.at) / Math.max(1, reel.ms) - 1, y - 4, 3, 13);
+}
+
+function drawCard14(ctx14, reel, scene, t, o) {
+  const ctx = ctx14;
+  drawMap(ctx, scene, null, { x: 0, y: 0, w: REEL.W, h: REEL.H }, { summary: o.summary, ring: o.ring, faces: o.faces });
+  ctx.fillStyle = 'rgba(7,9,13,0.72)';
+  ctx.fillRect(0, 0, REEL.W, REEL.H);
+  const into = t - scene.at;
+  const a = Math.min(1, into / 500);
+  const players = (o.summary && Array.isArray(o.summary.players) ? o.summary.players : []);
+  if (scene.kind === 'intro') {
+    stencil(ctx, 'NIGHT OPS', REEL.W / 2, 330, 104, ACCENT, a, 'center');
+    if (scene.line) txt(ctx, scene.line, REEL.W / 2, 400, { size: 36, align: 'center', color: INK });
+    if (scene.date) {
+      const d = new Date(scene.date);
+      const words = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      txt(ctx, words, REEL.W / 2, 450, { size: 26, align: 'center', color: DIM, weight: 500 });
+    }
+    const rows = [['HUNTERS', players.filter((p) => p.startTeam === 'hunter' || p.driver)], ['HIDERS', players.filter((p) => p.startTeam === 'hider')]];
+    let y = 600;
+    rows.forEach(([label, list], ri) => {
+      if (!list.length) return;
+      const show = Math.max(0, Math.min(1, (into - 600 - ri * 500) / 400));
+      ctx.save();
+      ctx.globalAlpha = show;
+      stencil(ctx, label, REEL.W / 2, y, 34, ri ? TEAM14.hider : TEAM14.hunter, 1, 'center');
+      const n = Math.min(list.length, 6);
+      const gap = Math.min(110, (REEL.W - 80) / n);
+      list.slice(0, 6).forEach((p, i) => {
+        const x = REEL.W / 2 + (i - (n - 1) / 2) * gap;
+        drawFace(ctx, o.faces, o.summary, p.id, x, y + 80, 42);
+        txt(ctx, String(p.name).slice(0, 10), x, y + 156, { size: 22, align: 'center' });
+      });
+      ctx.restore();
+      y += 250;
+    });
+  } else {
+    const winners = scene.people || [];
+    stencil(ctx, 'GAME OVER', REEL.W / 2, 240, 70, DIM, a, 'center');
+    const n = Math.min(winners.length, 5);
+    const gap = Math.min(150, (REEL.W - 80) / Math.max(1, n));
+    winners.slice(0, 5).forEach((pid, i) => {
+      const x = REEL.W / 2 + (i - (n - 1) / 2) * gap;
+      drawFace(ctx, o.faces, o.summary, pid, x, 400, 60);
+    });
+    ctx.font = '700 48px "Space Grotesk", system-ui, sans-serif';
+    const lines = wrapLines(ctx, scene.title, REEL.W - 80, 2);
+    lines.forEach((l, i) => stencil(ctx, l, REEL.W / 2, 560 + i * 60, 48, ACCENT, Math.min(1, into / 900), 'center'));
+    if (scene.line) txt(ctx, scene.line, REEL.W / 2, 700, { size: 34, align: 'center', color: '#ffc24a' });
+    const st = scene.stats || {};
+    const tiles = [[String(st.catches || 0), 'catches'], [String(st.closeCalls || 0), 'close calls'],
+      [st.distanceM >= 1000 ? `${(st.distanceM / 1000).toFixed(1)} km` : `${st.distanceM || 0} m`, 'walked']];
+    tiles.forEach(([big, small], i) => {
+      const x = 40 + i * ((REEL.W - 80) / 3) + (REEL.W - 80) / 6;
+      const show = Math.max(0, Math.min(1, (into - 1200 - i * 300) / 400));
+      ctx.save();
+      ctx.globalAlpha = show;
+      round(ctx, x - 100, 780, 200, 150, 18);
+      ctx.fillStyle = 'rgba(22,32,44,0.9)';
+      ctx.fill();
+      txt(ctx, big, x, 860, { size: 50, align: 'center', outline: false });
+      txt(ctx, small, x, 905, { size: 24, align: 'center', color: DIM, weight: 500, outline: false });
+      ctx.restore();
+    });
+  }
+}
+
+export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary = null, ring = null, w = REEL.W, h = REEL.H, scale = 1, progress = true } = {}) {
+  ctx.save();
+  ctx.fillStyle = NIGHT;
+  ctx.fillRect(0, 0, w, h);
+  const k = Math.min(w / REEL.W, h / REEL.H) * (scale > 0 ? 1 : 1);
+  ctx.translate((w - REEL.W * k) / 2, (h - REEL.H * k) / 2);
+  ctx.scale(k, k);
+  ctx.beginPath();
+  ctx.rect(0, 0, REEL.W, REEL.H);
+  ctx.clip();
+  const plan = framePlan(reel, t);
+  const scene = plan.scene;
+  const o = { sources, faces, summary, ring };
+  if (!scene) { ctx.restore(); return plan; }
+  const clock = plan.clock;
+  const by = (slot) => plan.shots.filter((s) => s.slot === slot);
+  const full = { x: 0, y: 0, w: REEL.W, h: REEL.H };
+  const lower = { x: 0, y: CAM_H, w: REEL.W, h: REEL.H - CAM_H };
+  switch (scene.layout) {
+    case 'card':
+      drawCard14(ctx, reel, scene, t, o);
+      break;
+    case 'split': {
+      const left = by('left')[0] || null, right = by('right')[0] || null;
+      drawShot(ctx, sources, summary, left, 0, 0, REEL.W / 2 - 3, CAM_H);
+      drawShot(ctx, sources, summary, right, REEL.W / 2 + 3, 0, REEL.W / 2 - 3, CAM_H);
+      drawMap(ctx, scene, clock, lower, { summary, ring, faces, focus: scene.people });
+      break;
+    }
+    case 'minimap': {
+      const left = by('left')[0] || null, right = by('right')[0] || null;
+      const top = left || right ? 380 : 0;
+      ctx.fillStyle = PANEL;
+      ctx.fillRect(0, 0, REEL.W, REEL.H);
+      if (top) {
+        drawShot(ctx, sources, summary, left, 20, 20, REEL.W / 2 - 30, top - 40, { small: true });
+        drawShot(ctx, sources, summary, right, REEL.W / 2 + 10, 20, REEL.W / 2 - 30, top - 40, { small: true });
+      }
+      // the mini map in the middle of what's left; the title and the distance under it
+      const size = Math.min(REEL.W - 40, REEL.H - top - 300);
+      const y0 = top + Math.max(20, (REEL.H - top - 300 - size) / 2 + 20);
+      const mm = miniFor(scene, size, size);
+      if (mm) drawMiniMap(ctx, mm, { clockMs: clock, faces, summary, x: (REEL.W - size) / 2, y: y0 });
+      else drawMap(ctx, scene, clock, { x: 0, y: top, w: REEL.W, h: REEL.H - top }, { summary, ring, faces, focus: scene.people });
+      break;
+    }
+    case 'mapcam': {
+      const main = by('main')[0] || by('left')[0] || null;
+      // footage that isn't there (not up yet, or past its file's end): the map fills the frame instead
+      const hasMain = main && sourceOf(sources, main.id) && drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H);
+      if (!hasMain && sources !== null) {
+        drawMap(ctx, scene, clock, full, { summary, ring, faces, focus: main ? [main.pid] : scene.people });
+        drawCaption(ctx, scene, clock, REEL.H - 140);
+        break;
+      }
+      if (!hasMain) drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H);
+      const smalls = by('small').filter((s) => !main || s.pid !== main.pid).slice(0, 3);
+      smalls.forEach((s, i) => drawShot(ctx, sources, summary, s, REEL.W - 20 - (i + 1) * 176 + 16, CAM_H - 150, 160, 120, { small: true }));
+      drawMap(ctx, scene, clock, lower, { summary, ring, faces, focus: main ? [main.pid] : scene.people });
+      drawCaption(ctx, scene, clock, CAM_H - 180);
+      break;
+    }
+    case 'single': {
+      drawShot(ctx, sources, summary, by('main')[0] || null, 0, 0, REEL.W, REEL.H);
+      drawCaption(ctx, scene, clock, REEL.H - 120);
+      break;
+    }
+    default: {
+      drawMap(ctx, scene, clock, full, { summary, ring, faces, focus: scene.people });
+      if (scene.kind === 'gap') {
+        ctx.fillStyle = 'rgba(7,9,13,0.4)';
+        ctx.fillRect(0, 0, REEL.W, REEL.H);
+        stencil(ctx, scene.title, REEL.W / 2, REEL.H / 2, 64, INK, 1, 'center');
+        // the fast-forward mark
+        ctx.fillStyle = ACCENT;
+        for (let i = 0; i < 2; i += 1) {
+          const x = REEL.W / 2 - 36 + i * 40, y = REEL.H / 2 + 70;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 34, y + 22); ctx.lineTo(x, y + 44); ctx.closePath(); ctx.fill();
+        }
+        if (clock !== null) txt(ctx, fmtClock(clock), REEL.W / 2, REEL.H / 2 + 170, { size: 34, align: 'center', font: 'JetBrains Mono', weight: 500 });
+      } else {
+        drawCaption(ctx, scene, clock, REEL.H - 140);
+      }
+    }
+  }
+  if (scene.kind !== 'intro' && scene.kind !== 'outro' && scene.kind !== 'gap' && clock !== null) {
+    txt(ctx, fmtClock(clock), REEL.W - 28, 58, { size: 26, align: 'right', font: 'JetBrains Mono', weight: 500 });
+  }
+  drawTitle(ctx, scene, t, summary);
+  if (scene.people && scene.people.length && scene.kind !== 'intro' && scene.kind !== 'outro' && scene.kind !== 'gap' && t - scene.at >= TITLE_MS && scene.line) {
+    txt(ctx, joinNames(scene.people.map((p) => person(summary, p).name)), 38, 100, { size: 24, color: DIM, weight: 500 });
+  }
+  if (progress) drawProgress(ctx, reel, t); // (the page's player has its own bar)
+  ctx.restore();
+  return plan;
+}
+// v1.4 end PAGE-REEL

@@ -691,3 +691,27 @@ button.nmark-hit:active .face { transform: scale(0.94); }
 .nmark.k-overstay .face { border-color: var(--cp, #c792ff); }
 .nmark-chip[data-kind='cp'] { background: var(--cp, #c792ff); color: var(--on-cp, #160a24); text-shadow: none; }
 /* v1.3 end PAGE-PLAY */
+/* v1.4 PAGE-PLAY: team pins (map.setPins): a teardrop with its words, and the driver's lines to pickups */
+.nmap-pinlines { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; overflow: hidden; pointer-events: none; }
+.npin-line { stroke: var(--driver); stroke-width: 3; stroke-dasharray: 8 6; stroke-linecap: round; }
+.nmap-pins { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.npin { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; --pin: var(--hider); --on-pin: var(--on-hider); }
+.npin.unplaced, .npin-dist.unplaced { visibility: hidden; }
+.npin.k-seen { --pin: var(--warn); --on-pin: #1a1000; }
+.npin.k-go { --pin: #5fe0ff; --on-pin: #03161c; }
+.npin.k-driver { --pin: #f4f6fa; --on-pin: #0b0f15; }
+.npin.k-pickup { --pin: var(--driver); --on-pin: var(--on-driver); }
+.npin-hit { position: absolute; left: -22px; top: -44px; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; pointer-events: none; -webkit-tap-highlight-color: transparent; }
+.npin.tap .npin-hit { pointer-events: auto; cursor: pointer; }
+.npin-head { position: absolute; left: 6px; top: 2px; width: 32px; height: 32px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pin); border: 2px solid var(--bg); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6); }
+.npin.big .npin-hit { left: -32px; top: -64px; width: 64px; height: 64px; }
+.npin.big .npin-head { left: 10px; top: 4px; width: 44px; height: 44px; }
+.npin-words { position: absolute; left: 0; top: 4px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; white-space: nowrap; pointer-events: none; }
+.npin-label { font: 600 12px/1.2 var(--font); color: var(--on-pin); background: var(--pin); padding: 2px 7px; border-radius: 8px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.npin-label:empty { display: none; }
+.npin-sub { font: 500 11px/1.2 var(--mono); color: var(--text-2); background: rgba(7, 9, 13, 0.8); padding: 1px 6px; border-radius: 6px; margin-top: 2px; }
+.npin.big .npin-label { font-size: 16px; padding: 3px 9px; }
+.npin-dist { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); font: 700 14px/1 var(--mono); color: var(--on-driver); background: var(--driver); padding: 4px 8px; border-radius: 8px; white-space: nowrap; pointer-events: none; }
+.drive-map .nmark.me { --half: 28px; } /* the car: 56 px */
+@media (prefers-reduced-motion: reduce) { .npin { transition: none; } }
+/* v1.4 end PAGE-PLAY */

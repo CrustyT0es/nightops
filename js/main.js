@@ -1,5 +1,7 @@
 // Night Ops: boot. Reads the invite code (?code=) and the saved identity, makes the App and shows the first
 // screen: the saved game when there is one (a reload or a crash mid-game), else home.
+import { createAlarm } from './hack.js';
+import { createWiretap } from './wiretap.js'; // v1.4 PAGE-PLAY
 import { App, normalizeCode } from './app.js';
 import { createApi } from './api.js';
 import * as identity from './identity.js';
@@ -47,6 +49,8 @@ function boot() {
   const api = createApi(config.api || '/api', { key: config.key || '' });
   const app = new App({ api, identity, location: createLocation(), alerts, root });
   // For the end-to-end tests and for poking around in the browser console.
+  app.alarm = createAlarm(app); // v1.4 Hacker
+  app.wiretap = createWiretap(app); // v1.4 PAGE-PLAY: the hider's phone records when the hunters listen in
   globalThis.nightops = app;
   app.start({ code: inviteCode(), watch: watchCode() }); // v1.1 PAGE-WATCH: watch
   return app;

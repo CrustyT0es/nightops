@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <!-- v1.3 PAGE-SETUP: connect-src gains https://overpass-api.de (the checkpoint editor's store finder) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://*.supabase.co https://tiles.openfreemap.org https://overpass-api.de; media-src 'self' blob: https://*.supabase.co; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<!-- v1.4 PAGE-REEL: connect-src gains blob: (the scene player decodes the walkie clips it already has as blob: links) -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' blob: https://*.supabase.co https://tiles.openfreemap.org https://overpass-api.de; media-src 'self' blob: https://*.supabase.co; worker-src 'self' blob:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#07090d">
 <meta name="color-scheme" content="dark">
@@ -41,7 +42,11 @@
 <link rel="stylesheet" href="css/cpsetup.css">
 <link rel="stylesheet" href="css/cpplay.css">
 <!-- v1.3 PAGE-AFTER --><link rel="stylesheet" href="css/cpafter.css"><!-- v1.3 end PAGE-AFTER -->
+<!-- v1.4 PAGE-REEL --><link rel="stylesheet" href="css/reel.css"><!-- v1.4 end PAGE-REEL -->
 <!-- v1.3 end PAGE-SETUP -->
+<!-- v1.4 PAGE-DEVICES --><link rel="stylesheet" href="css/devices.css"><!-- v1.4 end PAGE-DEVICES -->
+<!-- v1.4 PAGE-PLAY --><link rel="stylesheet" href="css/play14.css"><!-- v1.4 end PAGE-PLAY -->
+<!-- v1.4 PAGE-RENDER --><link rel="stylesheet" href="css/render.css"><!-- v1.4 end PAGE-RENDER -->
 <script src="config.js?v=4"></script>
 <script src="vendor/qrcode.js"></script>
 <script type="module" src="js/main.js"></script>

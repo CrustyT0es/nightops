@@ -1,0 +1,68 @@
+/* Night Ops v1.4 (PAGE-REEL): the scene player, the Movies card, the close calls' mini maps, Follow. */
+.reel-layer {
+  position: fixed; inset: 0; z-index: 90; background: #07090d; color: var(--ink, #e6ebf2);
+  display: block; overflow: hidden; touch-action: manipulation;
+}
+.reel-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.reel-video { position: absolute; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; left: 0; top: 0; }
+.reel-top {
+  position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px;
+  background: linear-gradient(rgba(7, 9, 13, 0.75), rgba(7, 9, 13, 0));
+}
+.reel-name { font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; font-size: 14px; }
+.reel-time { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--muted, #9aa6b8); }
+.reel-foot {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  background: linear-gradient(rgba(7, 9, 13, 0), rgba(7, 9, 13, 0.8));
+}
+.reel-btn {
+  width: 48px; height: 48px; border-radius: 50%; border: 1px solid rgba(230, 235, 242, 0.25);
+  background: rgba(22, 32, 44, 0.85); color: inherit; display: grid; place-items: center; flex: none; cursor: pointer;
+}
+.reel-bar { position: relative; flex: 1; height: 28px; cursor: pointer; }
+.reel-bar::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 12px; height: 4px; border-radius: 2px; background: rgba(230, 235, 242, 0.2);
+}
+.reel-bar-fill { position: absolute; left: 0; top: 12px; height: 4px; border-radius: 2px; background: var(--accent, #7cf2b0); width: 0; }
+.reel-tick {
+  position: absolute; top: 2px; width: 24px; height: 24px; margin-left: -12px; border: 0; background: transparent; padding: 0; cursor: pointer;
+}
+.reel-tick::after {
+  content: ''; position: absolute; left: 10px; top: 4px; width: 4px; height: 16px; border-radius: 2px; background: var(--ink, #e6ebf2);
+}
+.reel-tick:focus-visible { outline: 2px solid var(--accent, #7cf2b0); border-radius: 4px; }
+
+/* The Movies card on the end screen */
+.over-movies { display: grid; gap: 10px; }
+.over-movie-row {
+  display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 10px 8px;
+  padding: 12px; border-radius: 14px; background: rgba(22, 32, 44, 0.7); border: 1px solid var(--line, #1f2836);
+}
+.over-movie-words { min-width: 0; grid-column: 1 / -1; }
+.over-movie-name { font-weight: 700; display: block; }
+.over-movie-sub { color: var(--muted, #9aa6b8); font-size: 13px; display: block; }
+.over-movie-row .btn { min-height: 44px; padding: 0 14px; }
+.over-movie-replay { justify-self: start; }
+
+/* A close call's still mini map */
+.cc-mini { display: grid; grid-template-columns: 112px 1fr; gap: 12px; align-items: center; margin-top: 8px; }
+.cc-mini canvas { width: 112px; height: 112px; border-radius: 12px; display: block; }
+.cc-mini-acts { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cc-mini-acts .btn { min-height: 44px; padding: 0 12px; justify-content: center; }
+
+/* Follow: the faces row */
+.mapcam-follow { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px; scrollbar-width: none; }
+.mapcam-follow button {
+  flex: none; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 4px;
+  border-radius: 22px; border: 1px solid var(--line, #1f2836); background: rgba(22, 32, 44, 0.85); color: inherit;
+}
+.mapcam-follow button[aria-pressed='true'] { border-color: var(--accent, #7cf2b0); }
+.mapcam-btn[aria-pressed='true'] { border-color: var(--accent, #7cf2b0); color: var(--accent, #7cf2b0); }
+/* a close call with its mini map: one column, the map and its buttons under the words */
+.over-call.has-mini { display: block; }
+.over-call.has-mini .over-call-text { width: 100%; }
+.cc-mini-acts .btn { width: 100%; }
+/* v1.4: render.js records the player out of sight (still in the page, so phones decode its videos) */
+.reel-layer.reel-recording { opacity: 0; pointer-events: none; z-index: -1; }

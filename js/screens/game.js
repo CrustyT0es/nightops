@@ -18,12 +18,14 @@ import { banner, clearBanners } from '../ui/banner.js';
 import { moment } from '../ui/moment.js';
 import { startPocket } from '../ui/pocket.js';
 import { createMap, fmtAgo } from '../map.js';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, schedule, fmtClock, fmtDistance } from '../../shared/rules.js';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js';
 import { distanceM, isPoint } from '../../shared/geo.js';
 import { openChat, renderLines, quickFor, sendChat } from './chat.js';
 import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js'; // v1.1 PAGE-DRIVER
 import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js'; // v1.2 PAGE-MAP
 import { gameCamParts } from './camparts.js'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js'; // v1.4 PAGE-PLAY
 import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js'; // v1.3 PAGE-PLAY
 
 export const TICK_MS = 250;
@@ -606,6 +608,10 @@ export function effectOf(e, view) {
 
 const SIDE_WORD = { hunter: 'Hunter', hider: 'Hider', out: 'Out' };
 const POWER_ICON = { radar: 'radar', exposure: 'eye', jammer: 'jammer', decoy: 'decoy', sprint: 'sprint' };
+// v1.4 PAGE-PLAY: Hacker and Wiretap's icons
+POWER_ICON.hacker = 'warn';
+POWER_ICON.wiretap = 'mic';
+// v1.4 end PAGE-PLAY
 const MOMENT_BANNER = { hunter: 'info', hider: 'info', ping: 'ping', caught: 'catch', radar: 'warn', win: 'win', sos: 'sos' };
 const HELP = {
   hunter: [
@@ -741,6 +747,11 @@ export function mount(root, app) {
     watchChip.setAttribute('aria-label', `${n} watching`);
   }
   // v1.1 end PAGE-WATCH
+  // v1.4 PAGE-DEVICES: "Location: live" on the status line, the fix-it layer, its red bar and the camera tap button
+  const fixIt = createFixIt({ app, root });
+  const locWord = h('span.fx-locword');
+  hudLineBox.append(locWord);
+  // v1.4 end PAGE-DEVICES
   const barFill = h('div.g-bar-fill');
   const bar = h('div.g-bar', { 'aria-hidden': 'true' }, barFill);
   const hud = h('header.g-hud', topBar, hudLineBox, bar);
@@ -807,6 +818,8 @@ export function mount(root, app) {
   // v1.1 PAGE-RADIO: the walkie-talkie readies its sound from every real tap itself (alerts.onTap: a touch's
   // pointerdown isn't a tap to an iPhone).
   fill(root, mapWrap, hud, panel, sosLayer); // v1.2 PAGE-MAP: the map under everything, edge to edge
+  hud.after(fixIt.tapBtn); // v1.4 PAGE-DEVICES
+  linesBox.prepend(fixIt.bar); // v1.4 PAGE-DEVICES: the red bar leads the lines over the map
 
   // News banners go under the HUD on this screen, so the time left, the next ping and SOS are never covered
   // (game.css reads --g-hud-bottom). On the SOS screen they go back to the top.
@@ -874,6 +887,10 @@ export function mount(root, app) {
     zoomOutBtn.hidden = !plainMap;
     placeBanners();
   }
+  // v1.4 PAGE-PLAY: team pins (hunters and the driver): the tray's Pin, a tap on a pin for its words
+  let pinTool = null;
+  try { pinTool = map ? createPinTool(app, { map, getView: () => S.view, banner }) : null; } catch (e) { console.error(e); }
+  // v1.4 end PAGE-PLAY
   if (map) {
     // (While the street map loads, the plain map shows for a moment: + and - wait for the final choice.)
     map.ready.then(() => { S.mapFinal = true; paintZoom(); });
@@ -956,6 +973,9 @@ export function mount(root, app) {
       } catch (e) { console.error(e); }
     }
     // v1.2 end PAGE-RADIO
+    // v1.4 PAGE-PLAY: Pin (hunters, when team pins are on)
+    if (pinTool && role === 'hunter' && view && Array.isArray(view.pins)) parts.push({ el: pinTool.btn, main: true, order: 25 });
+    // v1.4 end PAGE-PLAY
     // v1.2 PAGE-CAM: Record this (main row for hunters, in the more rows for the rest)
     { const rp = camParts.recordPart(role); if (rp) parts.push(rp); }
     // v1.2 end PAGE-CAM
@@ -1102,7 +1122,7 @@ export function mount(root, app) {
     if (loc !== 'denied') S.locRetriedAt = 0;
     const list = linesFor(view, c, cd, {
       connection: app.connection,
-      location: loc,
+      location: fixIt.handling() ? 'ok' : loc, // v1.4 PAGE-DEVICES: the fix-it layer / red bar says it instead
       mode: S.mode,
       locRetried: S.locRetriedAt > 0 && perfNow() - S.locRetriedAt > LOC_RETRY_WAIT_MS,
       needsTap: needsTap(),
@@ -1199,7 +1219,9 @@ export function mount(root, app) {
     }
 
     paintHiders(view, head);
-    text(hudNoteEl, hudNote(view, cd, mode)); // v1.2 PAGE-MAP
+    // v1.2 PAGE-MAP; v1.4 PAGE-DEVICES: then who on my team has no location
+    { const a = hudNote(view, cd, mode); const b = fixIt.lostWords(view); text(hudNoteEl, a && b ? `${a} · ${b}` : a || b); }
+    { const w = view.phase === 'live' && view.me && view.me.status === 'in' ? fixIt.statusWord(view) : ''; text(locWord, w); locWord.dataset.k = /off/.test(w) ? 'bad' : /old|finding/.test(w) ? 'warn' : 'ok'; locWord.hidden = !w; }
 
     // Head start card (hunters).
     setHidden(headCard, !hunterHead);
@@ -1621,6 +1643,7 @@ export function mount(root, app) {
     const once = P.mode === 'hunter'
       ? 'Your team gets it once this game.'
       : 'You get it once this game.';
+    if (POWER_TARGETED.includes(name)) { pickTarget(view, name, pw, once); return; }
     ask({
       title: `Use ${pw.name}?`,
       body: [h('div.g-ask-power', h('span.g-ask-power-icon', icon(POWER_ICON[name] || 'info', 28)), h('p', pw.desc)), h('p.g-sheet-note', once)],
@@ -1629,6 +1652,37 @@ export function mount(root, app) {
         if (ok(res)) buzz('power');
         return ok(res);
       }),
+    });
+  }
+
+  // v1.4: Hacker and Wiretap need a hider picked first (Wiretap: only ones who said OK).
+  function pickTarget(view, name, pw, once) {
+    const okIds = (view.tapOk && Array.isArray(view.tapOk.okIds)) ? view.tapOk.okIds : [];
+    let sheet = null;
+    const rows = freeHiders(view).map((p) => {
+      const no = name === 'wiretap' && !okIds.includes(p.id);
+      return pickRow({
+        id: p.id, name: p.name, team: 'hider', disabled: no,
+        sub: no ? "Didn't say OK to Wiretap" : '',
+        onClick: () => {
+          if (sheet && sheet.close) sheet.close(); else closeSheets();
+          ask({
+            title: `Use ${pw.name} on ${p.name}?`,
+            body: [h('p', pw.desc), h('p.g-sheet-note', once)],
+            yes: `Use ${pw.name}`,
+            run: () => app.cmd({ type: 'power', power: name, target: p.id }).then((res) => {
+              if (ok(res)) buzz('power');
+              return ok(res);
+            }),
+          });
+        },
+      }).btn;
+    });
+    sheet = openSheet({
+      title: `${pw.name}: pick a hider`,
+      body: rows.length ? [h('div.g-pick-list', ...rows)] : [h('p', 'No hider is free right now.')],
+      className: 'g-sheet g-target',
+      actions: [{ label: 'Cancel', kind: 'ghost' }],
     });
   }
 
@@ -1701,6 +1755,11 @@ export function mount(root, app) {
     // v1.2 PAGE-CAM: Stop filming (asks first)
     { const r = camParts.menuRow(menuRow, later); if (r) rows.push(r); }
     // v1.2 end PAGE-CAM
+    // v1.4 PAGE-DEVICES: the host's "Everyone's phones" (who has no location)
+    if (me.host && view.phase === 'live') {
+      rows.push(menuRow('locate', "Everyone's phones", fixIt.everyoneRows(view).join(' · ')));
+    }
+    // v1.4 end PAGE-DEVICES
     if (me.host) {
       rows.push(menuRow('crown', 'Hand over host', 'Someone else runs the game', later(openHandOver)));
       if (view.phase === 'live') rows.push(menuRow('flag', 'End the game', 'For everyone, right now', later(askEnd), 'danger'));
@@ -2075,6 +2134,8 @@ export function mount(root, app) {
     syncDrive(view); // v1.1 PAGE-DRIVER
     paintWatching(view); // v1.1 PAGE-WATCH
     camParts.update(view, root); // v1.2 PAGE-CAM
+    fixIt.update(view); // v1.4 PAGE-DEVICES
+    if (pinTool) { try { pinTool.update(view); } catch (e) { console.error(e); } } // v1.4 PAGE-PLAY
     placeBanners();
     if (view.phase === 'over' && S.wasLive) overMoment(view);
   }
@@ -2136,6 +2197,8 @@ export function mount(root, app) {
     if (S.away && !(last && last.phase === 'live' && modeOf(last) === 'hider')) keepAway(null);
     if (S.chat) { try { S.chat.close(); } catch { /* ignore */ } }
     try { camParts.destroy(); } catch { /* ignore */ } // v1.2 PAGE-CAM
+    try { fixIt.destroy(); } catch { /* ignore */ } // v1.4 PAGE-DEVICES
+    try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ } // v1.4 PAGE-PLAY
     try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }

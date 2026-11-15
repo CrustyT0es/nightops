@@ -14,6 +14,8 @@ import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js'; //
 import { openSheet } from '../ui/sheet.js'; // v1.2 PAGE-MAP: the menu
 import { MODES, fmtClock } from '../../shared/rules.js';
 import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js'; // v1.3 PAGE-AFTER
+import { createMapCam } from '../mapcam.js'; // v1.4 PAGE-REEL
+import { followRow } from './reelparts.js'; // v1.4 PAGE-REEL
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
@@ -134,6 +136,7 @@ export function mount(root, app) {
   }
 
   function dropMap() {
+    if (S.cam) { try { S.cam.destroy(); } catch { /* ignore */ } S.cam = null; } // v1.4 PAGE-REEL
     if (S.map) { try { S.map.destroy(); } catch { /* ignore */ } }
     S.map = null;
     S.ringKey = '';
@@ -237,12 +240,22 @@ export function mount(root, app) {
       h('div.w-hud-line', h('span.w-hud-who', h('span.sr-only', 'Watching game '), code), status));
     const mapBox = h('div.w-map');
     const fit = h('button.w-mapbtn.map-btn', { type: 'button', 'aria-label': 'Fit everyone: the ring and every mark' }, icon('fit', 22));
-    fit.addEventListener('click', () => fitAll(true));
+    fit.addEventListener('click', () => { if (S.cam) S.cam.fitNow(); else fitAll(true); paintFollow(); }); // v1.4 PAGE-REEL: fitNow
+    // v1.4 PAGE-REEL: Follow a face (the map eases to them each view; a drag stops it)
+    const followBtn = h('button.w-mapbtn.map-btn.mapcam-btn', { type: 'button', 'aria-label': 'Follow someone', 'aria-pressed': 'false', 'aria-expanded': 'false' }, icon('locate', 22));
+    const follow = followRow({ onPick: (id) => { if (S.cam) S.cam.follow(id); paintFollow(); } });
+    followBtn.addEventListener('click', () => {
+      const open = follow.el.hidden;
+      follow.el.hidden = !open;
+      followBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) { paintFollow(); try { W.tray.set('open'); } catch { /* fine */ } }
+    });
+    // v1.4 end PAGE-REEL
     const zin = h('button.w-mapbtn.map-btn.w-zoom', { type: 'button', 'aria-label': 'Zoom in', hidden: true }, icon('plus', 22));
     const zout = h('button.w-mapbtn.map-btn.w-zoom', { type: 'button', 'aria-label': 'Zoom out', hidden: true }, icon('minus', 22));
     zin.addEventListener('click', () => { if (S.map) S.map.zoomBy(1); });
     zout.addEventListener('click', () => { if (S.map) S.map.zoomBy(-1); });
-    const btns = h('div.w-mapbtns', fit, zin, zout);
+    const btns = h('div.w-mapbtns', fit, followBtn, zin, zout); // v1.4 PAGE-REEL: followBtn
     const mapWrap = h('div.w-mapwrap', mapBox, btns);
     const hunters = h('span.w-side.hunters');
     const hiders = h('span.w-side.hiders');
@@ -262,12 +275,19 @@ export function mount(root, app) {
     if (S.cpW) { try { S.cpW.destroy(); } catch { /* ignore */ } }
     S.cpW = cpWatch({ app, map: () => S.map });
     // v1.3 end PAGE-AFTER
-    tray.setMore([h('div.w-sides', hunters, hiders, out), S.cpW.el, h('h2.label.w-pbp-title', 'Play-by-play'), pbpEmpty, pbpList]); // v1.3 PAGE-AFTER: S.cpW.el
+    tray.setMore([h('div.w-sides', hunters, hiders, out), follow.el, S.cpW.el, h('h2.label.w-pbp-title', 'Play-by-play'), pbpEmpty, pbpList]); // v1.3 PAGE-AFTER: S.cpW.el // v1.4 PAGE-REEL: follow.el
     tray.el.classList.add('w-panel');
     fill(root, mapWrap, hud, tray.el);
     root.classList.add('w-live');
-    W = { left, leftLabel, tag, status, watching, code, mapBox, hunters, hiders, out, pbpList, pbpEmpty, hud, tray, btns, zin, zout, newestText, newestTime };
+    W = { left, leftLabel, tag, status, watching, code, mapBox, hunters, hiders, out, pbpList, pbpEmpty, hud, tray, btns, zin, zout, newestText, newestTime, follow, followBtn }; // v1.4 PAGE-REEL: follow, followBtn
     S.map = newMap(mapBox, true);
+    // v1.4 PAGE-REEL: the map camera: the first fit, then only the buttons move it
+    if (S.cam) { try { S.cam.destroy(); } catch { /* fine */ } S.cam = null; }
+    if (S.map) {
+      S.cam = createMapCam(S.map, { fitAll: () => { fitAll(false); return true; }, pointOf: (id) => markPoint(id) });
+      S.cam.on('mode', () => paintFollow());
+    }
+    // v1.4 end PAGE-REEL
     if (S.map) {
       S.map.ready.then(() => { S.mapFinal = true; paintZoom(); });
       S.offMode = S.map.onMode(() => { S.mapFinal = true; paintZoom(); });
@@ -390,9 +410,29 @@ export function mount(root, app) {
     if (S.map && !S.fitted && (v.ring || v.ringNow)) {
       S.fitted = true;
       place();
-      fitAll(false);
+      if (S.cam) S.cam.auto('first'); else fitAll(false); // v1.4 PAGE-REEL
     }
+    if (S.cam) S.cam.frame(); // v1.4 PAGE-REEL: Follow
   }
+
+  // v1.4 PAGE-REEL: Follow's faces and where they are
+  function markPoint(id) {
+    const v = S.view;
+    const m = v && Array.isArray(v.marks) ? v.marks.find((x) => x && x.id === id && Array.isArray(x.p)) : null;
+    return m ? m.p : null;
+  }
+  function paintFollow() {
+    if (!W || !W.follow) return;
+    const following = S.cam && S.cam.mode === 'follow' ? S.cam.following : null;
+    W.followBtn.setAttribute('aria-pressed', following ? 'true' : 'false');
+    if (W.follow.el.hidden) return;
+    const v = S.view;
+    const ids = new Set((v && Array.isArray(v.marks) ? v.marks : []).map((m) => m && m.id));
+    const players = (v && Array.isArray(v.players) ? v.players : []).filter((p) => p && ids.has(p.id))
+      .map((p) => ({ id: p.id, name: p.name, startTeam: p.team || p.startTeam }));
+    W.follow.set(players, following, null, () => (app.faces instanceof Map ? app.faces : new Map()));
+  }
+  // v1.4 end PAGE-REEL
 
   // ---- update / destroy ----
 

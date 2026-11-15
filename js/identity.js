@@ -9,6 +9,10 @@ export const GAME_KEY = 'nightops-game';
 // v1.1 PAGE-WATCH: the game this phone watches ({code, id, secret} of a spectator)
 export const WATCH_KEY = 'nightops-watch';
 // v1.1 end PAGE-WATCH
+// v1.4 Your games: the games this phone was in or watched, newest first
+export const PAST_KEY = 'nightops-past';
+export const PAST_MOST = 10;
+const MODES = new Set(['classic', 'infection', 'checkpoints']);
 
 const ID = /^[0-9a-f]{12}$/i;
 const SECRET = /^[0-9a-f]{32}$/i;
@@ -26,6 +30,22 @@ export function cleanName(name) {
 export function cleanFace(face) {
   if (typeof face !== 'string' || face.length > LIMITS.faceBytes) return null;
   return FACE.test(face) ? face : null;
+}
+
+// One remembered game, or null: { code, id, secret, as: 'player'|'watcher', round, mode, when, role, result }.
+export function cleanPast(g) {
+  const base = cleanGame(g);
+  if (!base || !Number.isSafeInteger(g.round) || g.round < 0) return null;
+  const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').slice(0, n) : '');
+  return {
+    ...base,
+    as: g.as === 'watcher' ? 'watcher' : 'player',
+    round: g.round,
+    mode: MODES.has(g.mode) ? g.mode : 'classic',
+    when: Number.isFinite(g.when) && g.when > 0 ? g.when : g.round,
+    role: text(g.role, 20),
+    result: text(g.result, 60),
+  };
 }
 
 function cleanGame(g) {
@@ -132,7 +152,28 @@ export function createIdentity(getStorage = () => globalThis.localStorage) {
   }
   // v1.1 end PAGE-WATCH
 
-  return { loadMe, saveMe, loadGame, saveGame, clearGame, loadWatch, saveWatch, clearWatch };
+  // v1.4 Your games: cleaned on every read, newest first, PAST_MOST at most, one per game round.
+  function loadPast() {
+    const raw = readJson(PAST_KEY);
+    const out = [];
+    for (const g of Array.isArray(raw) ? raw : []) {
+      const c = cleanPast(g);
+      if (c && !out.some((x) => x.code === c.code && x.round === c.round)) out.push(c);
+    }
+    return out.sort((a, b) => b.when - a.when).slice(0, PAST_MOST);
+  }
+  function rememberPast(g) {
+    const c = cleanPast(g);
+    if (!c) return null;
+    const list = [c, ...loadPast().filter((x) => !(x.code === c.code && x.round === c.round))].slice(0, PAST_MOST);
+    write(PAST_KEY, JSON.stringify(list));
+    return c;
+  }
+  function forgetPast(code, round) {
+    write(PAST_KEY, JSON.stringify(loadPast().filter((x) => !(x.code === code && x.round === round))));
+  }
+
+  return { loadMe, saveMe, loadGame, saveGame, clearGame, loadWatch, saveWatch, clearWatch, loadPast, rememberPast, forgetPast };
 }
 
 const shared = createIdentity();
@@ -146,3 +187,7 @@ export const loadWatch = shared.loadWatch;
 export const saveWatch = shared.saveWatch;
 export const clearWatch = shared.clearWatch;
 // v1.1 end PAGE-WATCH
+// v1.4 Your games
+export const loadPast = shared.loadPast;
+export const rememberPast = shared.rememberPast;
+export const forgetPast = shared.forgetPast;

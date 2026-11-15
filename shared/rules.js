@@ -29,6 +29,14 @@ export const LIMITS = {
   cpPhotoSide: 720,         // the page makes the longest side at most this
   cpPhotos: 300,            // photos stored in one round (then 'cp_full')
   cpPhotoIds: 12,           // photos fetched in one request
+  // v1.4
+  pinsEach: 3,              // live team pins one player may have
+  pinNote: 40,              // letters in a pin's note (may be empty)
+  pinsRound: 300,           // pins made in one round
+  tapPieces: 3,             // Wiretap pieces per use (3 x 5 s)
+  tapBytes: 48000,          // one Wiretap piece's audio, decoded
+  tapClips: 120,            // Wiretap pieces in one round (their own cap, apart from the walkie's)
+  tapGameBytes: 4000000,    // all of a round's Wiretap pieces together
 };
 
 export const TIMING = {
@@ -57,7 +65,7 @@ export const TIMING = {
   PARK_KMH: 5,                 // the driver is parked under this speed...
   PARK_MS: 5000,               // ...held for this long...
   PARK_FRESH_MS: 20000,        // ...on a fix no older than this
-  DRIVER_NEAR_M: 150,          // parked: free hiders this close show live, only to the driver
+  DRIVER_NEAR_M: 150,          // v1.1 only: unused since v1.4 (the driver never sees hiders)
   RADIO_MAX_MS: 15000,         // a clip sends itself at this length
   RADIO_MIN_MS: 400,           // shorter holds are dropped (the page); the server refuses under 300 ms
   RADIO_GAP_MS: 2000,          // at most one clip per player this often
@@ -87,6 +95,19 @@ export const TIMING = {
   CP_POOR_SLACK_M: 40,         // a poor fix (worse than CP_ACC_MAX_M) keeps an open visit going within r + this
   CP_BACK_MS: 10000,           // back in this soon after a visit ended: the same visit goes on (GPS jitter at the edge)
   CP_TAG_NEAR_M: 100,          // a refused tag names the safe zone only to a hunter this close to it (once shown)
+  // v1.4
+  HACK_MS: 5000,               // Hacker's alarm sounds this long
+  HACK_STALE_MS: 30000,        // a phone that hears of its hack later than this (game clock) doesn't sound it
+  TAP_MS: 15000,               // Wiretap listens this long
+  TAP_PIECE_MS: 5000,          // in pieces this long (each one a whole file)
+  TAP_START_MS: 20000,         // no piece by then: nothing heard, the power is given back
+  TAP_END_MS: 45000,           // pieces after this are refused (late uploads)
+  PIN_MS: 300000,              // a team pin lasts 5 min
+  FIX_LIVE_MS: 15000,          // "Location: live" while the newest stored fix is this fresh...
+  FIX_LOST_MS: 45000,          // ...and "lost" past this (the team and the host are told), real time
+  HEALTH_EVERY_MS: 60000,      // a phone's health is saved at most this often unless it changes
+  TRAIL_NEAR_MS: 3000,         // route points this often for a player near the other side...
+  TRAIL_NEAR_M: 100,           // ...within this many metres (close calls get a real track)
 };
 
 export const MODES = {
@@ -101,9 +122,17 @@ export const POWERS = {
   sprint: { team: 'hider', name: 'Sprint', idle: 'Hide your trail 2 min', desc: 'For 2 minutes, pings show where you were when you started it.' },
   radar: { team: 'hunter', name: 'Radar', idle: 'Everyone live, 1 min', desc: 'Every hider shows up live for 1 minute. They get a 15-second warning.' },
   exposure: { team: 'hunter', name: 'Exposure', idle: 'Exact spots, no warning', desc: 'An exact dot for every hider, right now. No warning.' },
+  // v1.4
+  hacker: { team: 'hunter', name: 'Hacker', idle: "Set off a hider's phone", desc: "Pick a hider: their phone blares an alarm for 5 seconds. You don't see where they are." },
+  wiretap: { team: 'hunter', name: 'Wiretap', idle: 'Listen in for 15 s', desc: 'Pick a hider who said OK: you hear 15 seconds of their microphone, a few seconds late.' },
 };
 export const HIDER_POWERS = ['jammer', 'decoy', 'sprint'];
-export const HUNTER_POWERS = ['radar', 'exposure'];
+export const HUNTER_POWERS = ['radar', 'exposure', 'hacker', 'wiretap'];
+// v1.4: the hunter powers that take a `target` (a free hider).
+export const POWER_TARGETED = Object.freeze(['hacker', 'wiretap']);
+// v1.4: team pins. ("Pick me up here" is a pickup with a point, not a pin.)
+export const PIN_KINDS = Object.freeze(['seen', 'go', 'driver']);
+export const PIN_WORDS = Object.freeze({ seen: 'Hider seen', go: 'Go here', driver: 'Driver: go here' });
 
 export const DEFAULTS = Object.freeze({
   mode: 'classic',
@@ -118,7 +147,7 @@ export const DEFAULTS = Object.freeze({
   shrink: true,            // the ring shrinks during the closing minutes
   finalSizePct: 50,        // ...down to this share of its size
   caught: 'join',          // caught hiders 'join' the hunters, or are 'out' (they watch)
-  powers: Object.freeze({ jammer: true, decoy: true, sprint: true, radar: true, exposure: true }),
+  powers: Object.freeze({ jammer: true, decoy: true, sprint: true, radar: true, exposure: true, hacker: true, wiretap: false }),
   custom: Object.freeze([]), // settings the host changed by hand (recommendations leave them alone)
   // v1.1 extras: never in `custom`, presets or recommendations
   driver: false,           // one hunter drives and gives rides
@@ -128,6 +157,8 @@ export const DEFAULTS = Object.freeze({
   radioHiders: false,      // hiders get their own walkie-talkie
   cam: false,              // phones film clips for the replay (only players who say OK)
   camMode: 'highlights',   // 'highlights' or 'everything' (EXTRA_CHOICES)
+  // v1.4 extra
+  pins: true,              // hunters and the driver can drop pins only their team sees
   // v1.3 Checkpoints (ordinary settings: a hand change puts them in `custom`; presets never touch them)
   cpOpenMin: 0,            // minutes each checkpoint stays open; 0 = Auto (the game time shared out so all fit)
   cpLeadMin: 2,            // hiders see each checkpoint this many minutes before the hunters
@@ -137,7 +168,7 @@ export const DEFAULTS = Object.freeze({
 });
 
 // The extra switches (booleans; never counted as "changed by hand", never in presets or recommendations).
-export const EXTRA_KEYS = Object.freeze(['driver', 'spectators', 'radioSave', 'radioHiders', 'cam']);
+export const EXTRA_KEYS = Object.freeze(['driver', 'spectators', 'radioSave', 'radioHiders', 'cam', 'pins']);
 // Extra choices (one of a list; the same rules as EXTRA_KEYS).
 export const EXTRA_CHOICES = Object.freeze({ camMode: Object.freeze(['highlights', 'everything']) });
 const EXTRA_ALL = [...EXTRA_KEYS, ...Object.keys(EXTRA_CHOICES)];
@@ -149,6 +180,7 @@ export const EXTRAS_UI = [
   { key: 'radioSave', label: 'Save the walkie-talkie for the replay', hint: 'The walkie-talkie is saved for the end-of-game replay.' },
   { key: 'radioHiders', label: 'Walkie-talkie for hiders too', hint: 'Hiders get their own walkie-talkie. Each team only hears its own.' },
   { key: 'cam', label: 'Camera', hint: 'Phones film clips with the selfie camera for the replay. Only people who say OK are filmed.' },
+  { key: 'pins', label: 'Team pins', hint: 'Hunters and the driver can drop pins only their team sees.' },
 ];
 
 // The Camera row's two choices.
@@ -160,7 +192,7 @@ export const CAM_MODES_UI = [
 // Moment kinds ('mark' = the phone's own "Record this", never from the server).
 // (v1.3 appended 'checkpoint' and 'overstay', so older lists stay valid.)
 export const CAM_KINDS = Object.freeze(['radio', 'tag', 'denied', 'caught', 'near', 'power', 'sos', 'outside', 'over', 'mark',
-  'checkpoint', 'overstay']);
+  'checkpoint', 'overstay', 'hack', 'tap']);
 
 export const PRESETS = {
   quick: { label: 'Quick', line: '20 min, pings every 3', settings: { durationMin: 20, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1 } },
@@ -273,6 +305,7 @@ export function fixCheckpointSettings(s) {
 
 function fixUp(s) {
   fixCheckpointSettings(s);
+  fixPowers(s);
   // (Older stored settings lack the v1.1/v1.2 extras: they get the defaults.)
   for (const key of EXTRA_KEYS) if (typeof s[key] !== 'boolean') s[key] = DEFAULTS[key];
   for (const [key, list] of Object.entries(EXTRA_CHOICES)) if (!list.includes(s[key])) s[key] = DEFAULTS[key];
@@ -282,6 +315,15 @@ function fixUp(s) {
   if (s.closingMin >= s.durationMin) s.closingMin = Math.max(0, Math.floor((s.durationMin - 5) / 5) * 5);
   // Closing in means faster pings: never slower than the usual ones.
   if (s.closingPingEveryMin > s.pingEveryMin) s.closingPingEveryMin = Math.max(1, s.pingEveryMin);
+  return s;
+}
+
+// v1.4: a missing power switch (older stored settings) gets its default. Changes s in place and returns it.
+export function fixPowers(s) {
+  const was = s.powers && typeof s.powers === 'object' && !Array.isArray(s.powers) ? s.powers : {};
+  const out = {};
+  for (const k of Object.keys(POWERS)) out[k] = typeof was[k] === 'boolean' ? was[k] : DEFAULTS.powers[k];
+  s.powers = out;
   return s;
 }
 

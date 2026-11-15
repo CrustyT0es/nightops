@@ -4,10 +4,11 @@
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
 import {
-  isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf,
+  isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal,
 } from './geo.js';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
+  POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
@@ -111,6 +112,13 @@ const ERRORS = {
   cp_photo: "That photo didn't work. Try again.",
   cp_full: "There's no room for more photos in this game.",
   no_photo: "That photo isn't kept.",
+  // v1.4
+  no_consent: "That hider didn't say OK to Wiretap.",
+  no_wiretap: 'Wiretap is off in this game.',
+  no_pins: 'Team pins are off in this game.',
+  pins_full: 'You have 3 pins. Remove one first.',
+  tap_over: 'That listening time is over.',
+  not_tapped: "The hunters aren't listening to you.",
 };
 
 // A sentence for an error code (any unknown code gets a general one).
@@ -260,6 +268,8 @@ function extrasOf(settings) {
   for (const [k, list] of Object.entries(EXTRA_CHOICES)) if (!list.includes(out[k])) out[k] = DEFAULTS[k];
   // v1.3: the Checkpoints settings too.
   fixCheckpointSettings(out);
+  // v1.4: Hacker and Wiretap (older stored settings have no switch for them).
+  fixPowers(out);
   return out;
 }
 
@@ -296,6 +306,8 @@ function newPlayer({ id, name, secretHash, now }) {
     stats: freshStats(),
     driverAt: null,
     camOk: false,        // v1.2: "I'm OK being recorded" (kept across rounds)
+    tapOk: false,        // v1.4: "I'm OK with Wiretap" (kept across rounds; reset when the host switches Wiretap)
+    health: null,        // v1.4: what the phone last said about its location, camera, mic and sound
     // internal (never in a view)
     turnedEvent: null,   // first event id this player sees as a hunter (after being caught)
     leftAt: null,        // clock when they left or were removed
@@ -367,10 +379,20 @@ function fillIn(s) {
     if (!s.cam.have || typeof s.cam.have !== 'object' || Array.isArray(s.cam.have)) s.cam.have = {};
     if (s.cam.mode !== 'everything') s.cam.mode = 'highlights';
   }
-  for (const c of s.radio.clips) if (c.side !== 'hiders') c.side = 'hunters';
+  for (const c of s.radio.clips) if (c.side !== 'hiders' && c.side !== 'wiretap') c.side = 'hunters';
   // v1.3
   if (!Array.isArray(s.checkpoints)) s.checkpoints = [];
   fillCp(s);
+  // v1.4
+  for (const p of Object.values(s.players)) {
+    if (typeof p.tapOk !== 'boolean') p.tapOk = false;
+    if (p.health === undefined || (p.health !== null && typeof p.health !== 'object')) p.health = null;
+  }
+  if (!Array.isArray(s.hacks)) s.hacks = [];
+  if (!Array.isArray(s.taps)) s.taps = [];
+  if (!Number.isFinite(s.nextTapId)) s.nextTapId = s.taps.length + 1;
+  if (!Array.isArray(s.pins)) s.pins = [];
+  if (!Number.isFinite(s.nextPinId)) s.nextPinId = s.pins.length + 1;
   return s;
 }
 
@@ -504,6 +526,12 @@ export function newGame({ code, hostId, hostName, secretHash, now }) {
     watchJoins: 0,
     removedWatchers: [],
     radio: freshRadio(),
+    // v1.4
+    hacks: [],                               // this round's Hacker uses
+    taps: [],                                // this round's Wiretap uses
+    nextTapId: 1,
+    pins: [],                                // this round's team pins
+    nextPinId: 1,
     // v1.2
     cam: null,                               // live/over with settings.cam: who is filmed and their moments
     // v1.3
@@ -574,6 +602,10 @@ function catchHider(s, hider, hunterId, how, t, record) {
   hider.outsideSince = null;
   hider.outsideShown = false;
   if (cpGame(s)) cpEndVisit(s, hider.id, t.clock, 'gone', t);
+  // v1.4: a Wiretap on a caught hider ends now (it was agreed to as a hider, never after).
+  for (const tap of s.taps || []) {
+    if (tapOpen(tap) && tap.target === hider.id) finishTap(s, tap, t, { giveBack: true, tell: true });
+  }
   if (turned) {
     hider.team = 'hunter';
     hider.turnedAt = t.clock;
@@ -659,6 +691,8 @@ function endGame(s, reason, t) {
   s.catches = s.catches.filter((c) => c.state !== 'pending');
   s.endClock = t.clock;
   endPickups(s, () => true, t);
+  // v1.4: every pin ends, and every tap still going.
+  endPinsAndTaps(s, t, () => true, 'ended');
   // v1.3: every checkpoint visit ends (its safe time added); nothing more is told.
   cpEndAll(s, t, 'end');
   s.phase = 'over';
@@ -763,6 +797,7 @@ function removePlayer(s, p, status, t) {
   if (s.hostId === p.id) passHost(s, t);
   if (s.phase === 'lobby' && s.driverPick === p.id) s.driverPick = null;
   if (s.phase === 'live') {
+    endPinsAndTaps(s, t, (id) => id === p.id);
     endPickups(s, (k) => k.by === p.id, t);
     if (s.driver && s.driver.id === p.id && !s.driver.left) {
       s.driver.left = true;
@@ -950,6 +985,7 @@ function nextDue(s, sch, ctx, clockNow) {
   if (sch.closingMs > 0 && !s.flags.closing) offer(sch.closingStartMs, 8, { type: 'closing' });
   offer(endAt(s, sch), 9, { type: 'end' });
   cpDue(s, sch, offer);
+  v14Due(s, offer);
   return best;
 }
 
@@ -1054,6 +1090,10 @@ function runDue(s, item, ctx) {
     case 'end':
       // (A tag settled at this same moment may have caught the last hider already.)
       endGame(s, freeHiders(s).length ? 'time' : 'caught', t);
+      break;
+    case 'pinEnd':
+    case 'tapEnd':
+      v14RunDue(s, item, t);
       break;
     default:
       if (cpGame(s)) cpRunDue(s, item, t, ctx);
@@ -1229,6 +1269,10 @@ function cmdSettings(s, actor, cmd) {
   if (next.cam !== was.cam || next.camMode !== was.camMode) {
     for (const p of Object.values(s.players)) p.camOk = false;
   }
+  // v1.4: Wiretap switched on or off: everyone says OK again.
+  if (!!next.powers.wiretap !== !!was.powers.wiretap) {
+    for (const p of Object.values(s.players)) p.tapOk = false;
+  }
   s.settings = next;
   // Spectators switched off: everyone watching is let go (their page is told).
   if (!next.spectators) {
@@ -1357,6 +1401,7 @@ function cmdStart(s, actor, cmd, t) {
   s.pausedMs = 0;
   s.pings = [];
   s.team = freshTeam();
+  freshV14(s, true);
   s.radar = null;
   s.exposure = null;
   s.catches = [];
@@ -1443,6 +1488,8 @@ function cmdPower(s, actor, cmd, t) {
   if (last !== null && t.clock - last < TIMING.HUNTER_POWER_GAP_MS) {
     return err('cooldown', `Wait ${fmtClock(TIMING.HUNTER_POWER_GAP_MS - (t.clock - last))} after the last hunter power.`);
   }
+  // v1.4: Hacker and Wiretap pick a hider.
+  if (POWER_TARGETED.includes(power)) return targetedPower(s, actor, cmd, t, power);
   s.team[power] = 'used';
   s.team.lastPowerAt = t.clock;
   actor.stats.powers.push(name);
@@ -1606,6 +1653,8 @@ function cmdSos(s, actor, cmd, t) {
   if (s.pausedAt !== null) return err('paused', 'The game is paused already.');
   s.pausedAt = t.now;
   s.sos = { by: actor.id, at: t.now };
+  // an SOS ends any Wiretap at once: nobody listens in on an emergency
+  for (const tap of s.taps || []) if (tapOpen(tap)) finishTap(s, tap, t, { giveBack: true });
   emit(s, t, 'sos', 'all', `SOS from ${actor.name}. The game is paused.`, { by: actor.id });
   note(s, { kind: 'sos', clock: t.clock, text: `SOS from ${actor.name}.` });
   addMoment(s, t, 'sos', ordered(s).filter((p) => p.status === 'in').map((p) => p.id));
@@ -1644,6 +1693,9 @@ function cmdAgain(s, actor, cmd, t) {
   s.pausedMs = 0;
   s.pings = [];
   s.team = freshTeam();
+  freshV14(s, false);
+  // Wiretap consent is for one round: everyone is asked again in the lobby.
+  for (const p of Object.values(s.players)) p.tapOk = false;
   s.radar = null;
   s.exposure = null;
   s.catches = [];
@@ -1675,12 +1727,16 @@ function cmdPickup(s, actor, cmd, t) {
     if (!isHunter(actor) || isDriver(s, actor)) return err('not_your_turn', 'Only hunters can ask the driver for a pickup.');
     const driver = driverOf(s);
     if (!driver) return err('no_driver', 'Nobody is driving.');
+    // v1.4: "Pick me up here" carries a point (`p`); without one it's the asker's own spot, as before.
+    const pinned = cmd.p !== undefined && cmd.p !== null;
+    if (pinned && !pinSpotOk(s, cmd.p, t.clock)) return err('bad_target', "That's too far from the ring.");
     const pos = posOf(t.positions, actor.id);
-    if (!pos || ageOf(pos, t.now) > TIMING.OFFLINE_MS) return err('bad_cmd', 'A pickup needs your location.');
+    if (!pinned && (!pos || ageOf(pos, t.now) > TIMING.OFFLINE_MS)) return err('bad_cmd', 'A pickup needs your location.');
     if (s.pickups.some((k) => k.by === actor.id && (k.state === 'open' || k.state === 'coming'))) {
       return err('used', 'You already asked for a pickup.');
     }
-    const k = { id: `k${s.nextPickupId++}`, by: actor.id, p: pos.p, at: t.clock, state: 'open', comingAt: null, doneAt: null };
+    const spotP = pinned ? [Number(cmd.p[0]), Number(cmd.p[1])] : pos.p;
+    const k = { id: `k${s.nextPickupId++}`, by: actor.id, p: spotP, at: t.clock, state: 'open', comingAt: null, doneAt: null, pinned };
     s.pickups.push(k);
     if (s.pickups.length > PICKUPS_KEPT) s.pickups.splice(0, s.pickups.length - PICKUPS_KEPT);
     emit(s, t, 'pickup', 'hunters', `${actor.name} asked ${driver.name} for a pickup.`, { pickupId: k.id, by: actor.id, state: 'open' });
@@ -1767,6 +1823,9 @@ const COMMANDS = {
   // v1.3
   checkpoints: { host: true, phases: ['lobby'], run: cmdCheckpoints },
   cpstrike: { host: true, phases: ['live', 'over'], run: cmdCpStrike },
+  // v1.4
+  tapok: { phases: ['lobby', 'live'], run: cmdTapok },
+  pin: { phases: ['live'], run: cmdPin },
 };
 
 function phaseError(phases) {
@@ -2044,7 +2103,7 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
     if (e.id <= sinceId) continue;
     if (live && e.clock > T) break;
     lastEventId = e.id;
-    if (e.kind === 'chat' || !SIDE_WORDS.has(e.to)) continue;
+    if (e.kind === 'chat' || e.kind === 'pin' || !SIDE_WORDS.has(e.to)) continue;
     // (A hider's own power news stays hidden until the game is over: a hunter watching would learn of a Decoy.
     // So do the hiders' checkpoint news: a hunter's second phone learns nothing early.)
     if (live && (e.kind === 'power' || e.kind === 'checkpoint') && e.to === 'hiders') continue;
@@ -2100,15 +2159,18 @@ function radioOf(s) {
 
 // Which side a clip was sent on (clips from before v1.2 are the hunters').
 function sideOfClip(clip) {
-  return clip && clip.side === 'hiders' ? 'hiders' : 'hunters';
+  return clip && (clip.side === 'hiders' || clip.side === 'wiretap') ? clip.side : 'hunters';
 }
 
 // May this player hear this clip live? Each team only hears its own. The hunters' clips: a hunter who is in; a
 // hider who turned only from when they turned. The hiders' clips: a hider who is free right now (one who turned
 // hears no hider clips any more, old ones included).
-function hearsLive(p, clip) {
+function hearsLive(p, clip, s) {
   if (sideOfClip(clip) === 'hiders') return isFree(p);
+  // (v1.4: Wiretap pieces are heard like the hunters' own clips, but never by the driver: a hider's microphone
+  // can give away where they are, and the driver never learns that.)
   if (!isHunter(p)) return false;
+  if (sideOfClip(clip) === 'wiretap' && s && isDriver(s, p)) return false;
   if (p.startTeam === 'hunter') return true;
   return Number.isFinite(p.turnedAt) && clip.clock >= p.turnedAt;
 }
@@ -2146,9 +2208,10 @@ export function clipProblem(state, playerId, { ms, type, bytes, now, side } = {}
     && clockOf(state, now) - ms < p.turnedAt) return err('side_changed').error;
   if (!Number.isInteger(bytes) || bytes < 1 || bytes > LIMITS.radioBytes) return err('bad_audio').error;
   const r = radioOf(state);
+  const walkieClips = r.clips.filter((c) => c.side !== 'wiretap').length;
   const last = r.lastAt && Number.isFinite(r.lastAt[p.id]) ? r.lastAt[p.id] : null;
   if (last !== null && now - last >= 0 && now - last < TIMING.RADIO_GAP_MS) return err('cooldown', 'Wait a moment before the next one.').error;
-  if (r.clips.length >= LIMITS.radioClips || (r.bytes || 0) + bytes > LIMITS.radioGameBytes) return err('radio_full').error;
+  if (walkieClips >= LIMITS.radioClips || (r.bytes || 0) + bytes > LIMITS.radioGameBytes) return err('radio_full').error;
   return null;
 }
 
@@ -2165,7 +2228,7 @@ export function addClip(state, playerId, { id, ms, type, bytes, now, side } = {}
   s.radio.clips.push(clip);
   // v1.2: a moment for the sender and every filmed player who hears it live.
   addMoment(s, { now, clock: clip.clock, at: now }, 'radio',
-    [playerId, ...ordered(s).filter((p) => p.id !== playerId && hearsLive(p, clip)).map((p) => p.id)], { ms });
+    [playerId, ...ordered(s).filter((p) => p.id !== playerId && hearsLive(p, clip, s)).map((p) => p.id)], { ms });
   s.radio.bytes += bytes;
   s.radio.lastAt[playerId] = now;
   s.players[playerId].lastSeen = now;
@@ -2180,7 +2243,7 @@ export function canFetchClip(state, who, n) {
   if (!clip) return false;
   if (state.phase === 'live') {
     if (typeof who.player !== 'string') return false;
-    return hearsLive(playerOf(state, who.player), clip);
+    return hearsLive(playerOf(state, who.player), clip, state);
   }
   if (state.phase === 'over') {
     if (!extrasOf(state.settings).radioSave) return false;
@@ -2198,7 +2261,18 @@ export function canFetchClip(state, who, n) {
 
 // Which events a player may see: to all; to them; to their side while they're in it (a hider who joined
 // the hunters sees hunter news from then on and no hider news at all; players sitting out see neither).
-function canSee(e, me) {
+// v1.4: news a live driver never gets, whoever it was sent to: it tells where hiders are or were.
+// (Checkpoint news about the checkpoints themselves, opening, closing, coming soon, is the car's too.)
+const DRIVER_HIDDEN = new Set(['ping', 'exposure', 'radar', 'radar-live', 'radar-over', 'outside', 'nosignal']);
+const DRIVER_CP_OK = new Set(['show', 'open', 'close', 'soon']);
+function driverHidden(e) {
+  if (e.kind === 'pin') return !!(e.data && e.data.kind === 'seen'); // "Hider seen" pins are a hider's spot
+  if (e.kind === 'checkpoint') return !(e.data && DRIVER_CP_OK.has(e.data.what));
+  return DRIVER_HIDDEN.has(e.kind);
+}
+
+function canSee(e, me, s) {
+  if (me && e.to !== me.id && s && s.phase === 'live' && isDriver(s, me) && driverHidden(e)) return false;
   if (e.to === 'all') return true;
   if (!me) return false;
   if (e.to === me.id) return true;
@@ -2236,7 +2310,7 @@ function online(s, p, positions, now) {
   return now - last < TIMING.OFFLINE_MS;
 }
 
-function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn, nearFrom }) {
+function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn }) {
   const pos = posOf(positions, h.id);
   const base = { id: h.id, label: h.name };
   const paused = s.pausedAt !== null && s.pausedAt !== undefined;
@@ -2250,14 +2324,7 @@ function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, expos
     const p = s.exposure.spots[h.id];
     return { ...base, kind: 'exposure', p: [p[0], p[1]], r: 0, age: Math.max(0, clock - s.exposure.at) };
   }
-  // The parked driver (their own view only): free hiders close to the car, live. A Jammer that is on hides
-  // them, as from Radar.
-  if (nearFrom && !paused && pos && current(pos, now) && h.powers.jammer !== 'on') {
-    const spot = revealSpot(h, pos, clock);
-    if (spot && distanceM(nearFrom, spot) <= TIMING.DRIVER_NEAR_M) {
-      return { ...base, kind: 'near', p: spot, r: 0, age: ageOf(pos, now) };
-    }
-  }
+  // (v1.4: the parked driver's 'near' marks are gone: the driver never sees a hider.)
   // v1.3: safe time ran out at a checkpoint, or back at one already done: live, the real spot (never Sprint's).
   if (!paused && pos && current(pos, now) && cpExposed(s, h, clock)) {
     return { ...base, kind: 'overstay', p: pos.p, r: 0, age: ageOf(pos, now) };
@@ -2284,7 +2351,7 @@ function radarSafe(s, r) {
   return freeHiders(s).filter((h) => h.powers.jammer === 'on' || early.includes(h.id)).map((h) => h.id);
 }
 
-function marksFor(s, me, { clock, now, positions, sch, parked = false }) {
+function marksFor(s, me, { clock, now, positions, sch }) {
   const marks = [];
   if (!me) return marks;
   const driverId = driverIdOf(s);
@@ -2309,19 +2376,16 @@ function marksFor(s, me, { clock, now, positions, sch, parked = false }) {
       if (p.id === driverId) m.driver = true;
       marks.push(m);
     }
-    // Only the driver's own view, only while parked (decided from the stored fixes).
-    let nearFrom = null;
-    if (parked && driverOf(s) && driverOf(s).id === me.id) {
-      const pos = posOf(positions, me.id);
-      if (pos) nearFrom = pos.p;
-    }
+    // v1.4: the driver sees the hunters only (and an SOS, below): nothing about any hider, ever.
     const r = s.radar;
     const radarLive = !!r && clock >= r.liveAt && clock < r.until;
     const blocked = !r ? [] : r.recorded ? (r.blocked || []) : radarSafe(s, r);
     const exposureOn = !!s.exposure && clock >= s.exposure.at && clock < s.exposure.at + TIMING.EXPOSURE_SHOW_MS;
-    for (const h of freeHiders(s)) {
-      const m = hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn, nearFrom });
-      if (m) marks.push(m);
+    if (!isDriver(s, me)) {
+      for (const h of freeHiders(s)) {
+        const m = hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn });
+        if (m) marks.push(m);
+      }
     }
   } else if (isFree(me)) {
     const pos = posOf(positions, me.id);
@@ -2349,7 +2413,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
   const paused = live && s.pausedAt !== null && s.pausedAt !== undefined;
   const sinceId = Number.isFinite(Number(since)) ? Number(since) : 0;
 
-  const meView = me ? {
+  const meView0 = me ? {
     id: me.id,
     name: me.name,
     host: s.hostId === me.id,
@@ -2366,6 +2430,8 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     id: String(playerId || ''), name: '', host: false, team: null, startTeam: null, status: 'left', faceV: 0,
     powers: {}, sprintLeft: 0, outsideFor: null, caught: null, driver: false,
   };
+  // v1.4: my own stored fix, in words ("Location: live" / "30 s old" / "off").
+  const meView = { ...meView0, fix: (live || over) && me ? fixOf(s, posOf(positions, me.id), now) : null };
   const driverId = driverIdOf(s);
 
   const players = ordered(s)
@@ -2401,11 +2467,16 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
   }
 
   let team = null;
-  if (live && isHunter(me)) {
+  const iDrive = !!me && isDriver(s, me);
+  if (live && isHunter(me) && !iDrive) {
     const gap = s.team.lastPowerAt !== null ? Math.max(0, s.team.lastPowerAt + TIMING.HUNTER_POWER_GAP_MS - clock) : 0;
+    const powers = extrasOf(s.settings).powers;
+    const st = (k) => (powers[k] && (s.team[k] === 'ready' || s.team[k] === 'used') ? s.team[k] : null);
     team = {
       radar: s.settings.powers.radar ? s.team.radar : null,
       exposure: s.settings.powers.exposure ? s.team.exposure : null,
+      hacker: st('hacker'),
+      wiretap: st('wiretap'),
       readyIn: Math.max(gap, Math.max(0, sch.headStartMs - clock)),
     };
   }
@@ -2432,7 +2503,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     });
 
   // Hunters: the hiders whose phones they were told send no location (cleared when one comes back).
-  const noSignal = live && isHunter(me) ? freeHiders(s).filter((p) => p.noFixTold === true).map((p) => p.id) : [];
+  const noSignal = live && isHunter(me) && !iDrive ? freeHiders(s).filter((p) => p.noFixTold === true).map((p) => p.id) : [];
 
   let sos = null;
   if (live && s.sos) {
@@ -2443,14 +2514,18 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
 
   // v1.1: the driver, the walkie-talkie, spectators
   const parked = live && !!me && isDriver(s, me) && isParked(s, positions, now);
-  const marks = marksFor(s, me, { clock, now, positions, sch, parked });
-  const drive = live && me ? driveFor(s, me, { now, positions, parked, marks }) : null;
+  const marks = marksFor(s, me, { clock, now, positions, sch });
+  const drive = live && me ? driveFor(s, me, { now, positions, parked }) : null;
   let radio = null;
   if (live && me && maySend(s, me)) {
     const after = Number.isFinite(Number(radioSince)) ? Number(radioSince) : 0;
-    const mine = radioOf(s).clips.filter((c) => hearsLive(me, c));
+    const mine = radioOf(s).clips.filter((c) => hearsLive(me, c, s));
     const fresh = mine.filter((c) => c.n > after).slice(-RADIO_VIEW_MOST)
-      .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type }));
+      .map((c) => {
+        const out = { n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type };
+        if (c.side === 'wiretap') { out.tap = c.tap; out.of = c.of; }
+        return out;
+      });
     radio = { clips: fresh, last: mine.length ? mine[mine.length - 1].n : 0, side: isHunter(me) ? 'hunters' : 'hiders' };
   }
   const cam = camViewFor(s, me, camSince);
@@ -2460,7 +2535,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     .map((w) => ({ id: w.id, name: w.name })) : [];
 
   const events = s.events
-    .filter((e) => e.id > sinceId && canSee(e, me))
+    .filter((e) => e.id > sinceId && canSee(e, me, s))
     .map((e) => {
       const out = { id: e.id, at: e.at, clock: e.clock, kind: e.kind, to: e.to, text: e.text };
       if (e.from) out.from = e.from;
@@ -2492,7 +2567,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     events,
     // The newest event this player may see (never the game's own count, which would tell them the moment
     // the other side does something secret).
-    lastEventId: s.events.reduce((m, e) => (e.id > m && canSee(e, me) ? e.id : m), 0),
+    lastEventId: s.events.reduce((m, e) => (e.id > m && canSee(e, me, s) ? e.id : m), 0),
     result: over && s.result ? copy(s.result) : null,
     // The summary (routes and all, up to 140 KB) goes once: with the view that first carries the 'over'
     // event, or to a phone starting afresh (since 0). The page keeps it (overId says which round it's for).
@@ -2504,8 +2579,20 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     drive,
     radio,
     cam,
-    cp: cpViewFor(s, me, { clock, now, positions }),
+    cp: driverCp(cpViewFor(s, me, { clock, now, positions }), live && iDrive),
+    // v1.4
+    ...v14ViewFor(s, me, { live, over, clock, now, positions, sch }),
   };
+}
+
+// v1.4: the driver's view of the checkpoints: the checkpoints themselves, never who did one (where a hider was).
+function driverCp(cp, driving) {
+  if (!cp || !driving) return cp;
+  // the driver never learns who is at a checkpoint: no done list and no scores while live
+  const out = { ...cp };
+  if (Array.isArray(cp.done)) out.done = [];
+  if ('scores' in cp) out.scores = [];
+  return out;
 }
 
 // v1.2: what a player's view says about the camera (see the contract's "View additions").
@@ -2547,7 +2634,7 @@ function camViewFor(s, me, camSince) {
 }
 
 // The driver's panel (the driver) or the pickup button's facts (another hunter who is in), else null.
-function driveFor(s, me, { now, positions, parked, marks }) {
+function driveFor(s, me, { now, positions, parked }) {
   if (!s.driver || !isHunter(me)) return null;
   const d = playerOf(s, s.driver.id);
   if (!d) return null;
@@ -2564,10 +2651,12 @@ function driveFor(s, me, { now, positions, parked, marks }) {
   const pickups = (s.pickups || []).filter((k) => k.state === 'open' || k.state === 'coming').map((k) => {
     const asker = playerOf(s, k.by);
     const pos = posOf(positions, k.by);
+    // (A pinned pickup stays where it was asked for; otherwise it follows the asker, a hunter.)
+    const follow = pos && !k.pinned;
     return {
       id: k.id, by: k.by, name: asker ? asker.name : '',
-      p: pos ? pos.p : [k.p[0], k.p[1]], age: pos ? ageOf(pos, now) : 0,
-      state: k.state, at: k.at,
+      p: follow ? pos.p : [k.p[0], k.p[1]], age: follow ? ageOf(pos, now) : 0,
+      state: k.state, at: k.at, pinned: !!k.pinned,
     };
   });
   return {
@@ -2576,7 +2665,6 @@ function driveFor(s, me, { now, positions, parked, marks }) {
     speedKmh: fix && Number.isFinite(fix.v) ? Math.round(fix.v * 3.6) : null,
     fixAge: fix && Number.isFinite(fix.at) ? Math.max(0, now - fix.at) : null,
     pickups,
-    near: marks.filter((m) => m.kind === 'near').length,
     drivenM: Math.round(d.stats.drivenM || 0),
     done: d.stats.pickups || 0,
   };
@@ -3420,6 +3508,7 @@ export function canSeePhoto(state, who, photoId, now) {
     const p = playerOf(state, who.player);
     if (!p || p.status === 'kicked') return false;
     if (!live) return true;
+    if (isDriver(state, p)) return false;   // (v1.4: never the driver while live)
     return active(p) && cpSeesDone(state, p, d, clockOf(state, now));
   }
   if (typeof who.watcher === 'string') {
@@ -3488,7 +3577,7 @@ function cpCloseCalls(s, tracks) {
     }
   }
   calls.sort((a, b) => (a.score - b.score) || (a.clock - b.clock));
-  return calls.slice(0, CLOSE_CALLS_KEPT).map(({ score, ...rest }) => rest);
+  return withGaps(calls.slice(0, CLOSE_CALLS_KEPT).map(({ score, ...rest }) => rest), tracks);
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -3635,7 +3724,7 @@ function closeCallsOf(s, tracks, sch) {
   }
 
   calls.sort((a, b) => (a.score - b.score) || (a.clock - b.clock));
-  return calls.slice(0, CLOSE_CALLS_KEPT).map(({ score, ...rest }) => rest);
+  return withGaps(calls.slice(0, CLOSE_CALLS_KEPT).map(({ score, ...rest }) => rest), tracks);
 }
 
 function thin(points, most) {
@@ -3689,7 +3778,11 @@ export function summarize(state, trails = []) {
   const radioSaved = !!extrasOf(s.settings).radioSave;
   const clips = radioOf(s).clips.slice()
     .sort((a, b) => (a.clock - b.clock) || (a.n - b.n))
-    .map((c) => ({ n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type, side: sideOfClip(c) }));
+    .map((c) => {
+      const out = { n: c.n, from: c.from, clock: c.clock, ms: c.ms, type: c.type, side: sideOfClip(c) };
+      if (out.side === 'wiretap') { out.tap = c.tap; out.of = c.of; }
+      return out;
+    });
   const routes = {};
   for (const [id, points] of Object.entries(tracks)) {
     routes[id] = thin(points, ROUTE_MOST).map((x) => [r6(x.p[0]), r6(x.p[1]), Math.round(x.clock / 1000)]);
@@ -3707,6 +3800,11 @@ export function summarize(state, trails = []) {
     radio: radioSaved && clips.length ? clips : null,
     cam: camSummaryOf(s),
     checkpoints: cpSummaryOf(s, tracks),
+    // v1.4
+    endClock,
+    startAt: s.startedAt,
+    mode: s.settings ? s.settings.mode : null,
+    ...v14SummaryOf(s, radioSaved),
   };
 }
 
@@ -3767,6 +3865,12 @@ export function camClipProblem(state, playerId, clip, { now } = {}) {
   }
   const pct = (x) => Number.isInteger(x) && x >= 0 && x <= 100;
   if (!clip.loud.every(pct) || !clip.bright.every(pct)) return bad;
+  // v1.4: the game clock at the file's first frame, and the loudness per 250 ms (both optional).
+  if (clip.t0 !== undefined && (!Number.isInteger(clip.t0) || clip.t0 < start - 2000 || clip.t0 > start + 2000)) return bad;
+  if (clip.loudQ !== undefined) {
+    const q = Math.ceil(clip.ms / 250);
+    if (!Array.isArray(clip.loudQ) || clip.loudQ.length < Math.max(1, q - 4) || clip.loudQ.length > q + 4 || !clip.loudQ.every(pct)) return bad;
+  }
   return null;
 }
 
@@ -3782,4 +3886,511 @@ export function noteCamHave(state, playerId, { count, bytes, now } = {}) {
   s.cam.have[playerId] = { count, bytes, at: Number.isFinite(now) ? now : null };
   if (Number.isFinite(now)) s.updatedAt = now;
   return { state: s, changed: true };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// v1.4: Hacker, Wiretap, team pins, phones' health (see the contract's "v1.4: from the first real game")
+
+const HACKS_KEPT = 20;
+const TAPS_KEPT = 20;
+const PIN_RING_M = 2000;        // a pin (or a pinned pickup) at most this far outside the ring's edge
+const TRACK_BEFORE_MS = 60000;  // a close call's track: this long before its closest moment...
+const TRACK_AFTER_MS = 20000;   // ...to this long after
+const TRACK_MOST = 60;          // points per player in a track
+const GAP_LOOK_MS = 30000;      // the closest moment is looked for this far either side of the call
+const GAP_STEP_MS = 60000;      // two route points further apart than this aren't joined up
+const HEALTH_WORDS = Object.freeze({
+  loc: ['ok', 'stale', 'asking', 'denied', 'off', 'timeout', 'none'],
+  cam: ['ok', 'off', 'denied', 'none', 'na'],
+  mic: ['ok', 'off', 'denied', 'none', 'silent', 'na'],
+  snd: ['ok', 'locked', 'na'],
+  dev: ['ios-safari', 'ios-app', 'ios-chrome', 'ios-other', 'android-chrome', 'android-other', 'other'],
+});
+const LOST_WHY = ['denied', 'off', 'timeout', 'stale', 'none'];
+const PIN_TEXT = { seen: 'hider seen here', go: 'go here', driver: 'driver, go here' };
+
+// Start (`starting`) or Play again: this round's Hacker, Wiretap and pins begin afresh. (tapOk and health stay.)
+function freshV14(s, starting) {
+  const powers = extrasOf(s.settings).powers;
+  for (const k of ['hacker', 'wiretap']) {
+    if (starting && powers[k]) s.team[k] = 'ready';
+    else delete s.team[k];
+  }
+  delete s.team.tapGivenBack;
+  s.hacks = [];
+  s.taps = [];
+  s.nextTapId = 1;
+  s.pins = [];
+  s.nextPinId = 1;
+}
+
+const tapOpen = (tap) => !!tap && (tap.state === 'asked' || tap.state === 'listening');
+const pinLive = (pin, clock) => !!pin && pin.gone === null && clock < pin.until;
+
+// A tap ends: 'done' (something was heard) or 'empty' (nothing came: the power is given back when `giveBack`).
+function finishTap(s, tap, t, { giveBack = true, tell = true } = {}) {
+  if (!tapOpen(tap)) return;
+  const target = playerOf(s, tap.target);
+  const tname = target ? target.name : 'the hider';
+  if (tap.pieces > 0) {
+    tap.state = 'done';
+    tap.endAt = t.clock;
+    if (tell) {
+      emit(s, t, 'tap', tap.target, 'Someone listened in.', { tap: tap.id, state: 'done' });
+      note(s, { kind: 'tap-done', clock: t.clock, id: tap.target, text: `Someone listened in on ${tname}.` });
+    }
+    return;
+  }
+  tap.state = 'empty';
+  tap.endAt = t.clock;
+  // Given back once a round at most: after that an empty tap keeps the power used and the spacing.
+  if (giveBack && s.phase === 'live' && s.team.wiretap === 'used' && s.team.tapGivenBack !== true) {
+    s.team.wiretap = 'ready';
+    s.team.tapGivenBack = true;
+    if (s.team.lastPowerAt === tap.at) s.team.lastPowerAt = Number.isFinite(tap.before) ? tap.before : null;
+    const by = playerOf(s, tap.by);
+    if (by && Array.isArray(by.stats.powers)) {
+      const i = by.stats.powers.lastIndexOf(POWERS.wiretap.name);
+      if (i >= 0) by.stats.powers.splice(i, 1);
+    }
+    if (tell) {
+      emit(s, t, 'tap', 'hunters', `Nothing came from ${tname}'s phone, so Wiretap is ready again.`, { tap: tap.id, state: 'empty' });
+    }
+  }
+}
+
+// Pins and taps that hang on someone (`who(id)` true) end; at the game's end every one (no news then).
+function endPinsAndTaps(s, t, who, why = 'ended') {
+  for (const pin of s.pins || []) {
+    if (pin.gone === null && who(pin.by)) { pin.gone = why; pin.goneAt = Math.min(t.clock, pin.until); }
+  }
+  const ending = why === 'ended' && s.phase !== 'live';
+  for (const tap of s.taps || []) {
+    if (tapOpen(tap) && (who(tap.by) || who(tap.target))) finishTap(s, tap, t, { giveBack: !ending, tell: !ending });
+  }
+}
+
+// Hacker and Wiretap: the usual hunter power checks are done; now the hider they picked.
+function targetedPower(s, actor, cmd, t, power) {
+  const target = playerOf(s, cmd.target);
+  if (!isFree(target)) return err('bad_target', 'Pick a hider who is still free.');
+  const name = POWERS[power].name;
+  const blocked = target.powers.jammer === 'on';
+  if (power === 'wiretap') {
+    if (target.tapOk !== true) return err('no_consent', `${target.name} didn't say OK to Wiretap.`);
+    if ((s.taps || []).some(tapOpen)) return err('one_at_a_time');
+  }
+  const before = s.team.lastPowerAt;
+  s.team[power] = 'used';
+  s.team.lastPowerAt = t.clock;
+  actor.stats.powers.push(name);
+  if (power === 'hacker') {
+    const n = (s.hacks || []).reduce((m, h) => Math.max(m, h.n || 0), 0) + 1;
+    s.hacks.push({ n, by: actor.id, target: target.id, at: t.clock, blocked });
+    if (s.hacks.length > HACKS_KEPT) s.hacks.splice(0, s.hacks.length - HACKS_KEPT);
+    const text = blocked ? `${actor.name} used Hacker on ${target.name}, but it was blocked.`
+      : `${actor.name} used Hacker on ${target.name}. Hacker was sent to ${target.name}'s phone.`;
+    emit(s, t, 'power', 'hunters', text, { power, by: actor.id, target: target.id, blocked });
+    emit(s, t, 'power', 'hiders', 'The hunters used Hacker.', { power });
+    if (blocked) emit(s, t, 'power', target.id, 'Your Jammer blocked the hunters\' Hacker.', { power, blocked: true });
+    else emit(s, t, 'hacked', target.id, 'HACKED! The hunters set off your alarm.', { ms: TIMING.HACK_MS, n });
+    note(s, { kind: 'power', power, by: actor.id, target: target.id, blocked, clock: t.clock, text });
+    addMoment(s, t, 'hack', [target.id], { with: [actor.id], data: { blocked } });
+    return null;
+  }
+  const tap = {
+    id: `t${s.nextTapId++}`, by: actor.id, target: target.id, at: t.clock, state: blocked ? 'blocked' : 'asked',
+    pieces: 0, firstAt: null, lastAt: null, got: [], before,
+  };
+  s.taps.push(tap);
+  if (s.taps.length > TAPS_KEPT) s.taps.splice(0, s.taps.length - TAPS_KEPT);
+  const text = blocked ? `${actor.name} tried Wiretap on ${target.name}, but it was blocked.`
+    : `${actor.name} is listening in on ${target.name}.`;
+  emit(s, t, 'power', 'hunters', text, { power, by: actor.id, target: target.id, tap: tap.id, blocked });
+  emit(s, t, 'power', 'hiders', 'The hunters used Wiretap.', { power });
+  if (blocked) emit(s, t, 'power', target.id, 'Your Jammer blocked the hunters\' Wiretap.', { power, blocked: true });
+  else emit(s, t, 'tap', target.id, 'Your microphone is on for the hunters for 15 seconds.', { tap: tap.id, ms: TIMING.TAP_MS });
+  note(s, { kind: 'power', power, by: actor.id, target: target.id, blocked, clock: t.clock, text });
+  if (!blocked) addMoment(s, t, 'tap', [target.id]);
+  return null;
+}
+
+// A pin's (or a pinned pickup's) point: a real point at most PIN_RING_M outside the ring as it is now.
+function pinSpotOk(s, p, clock) {
+  if (!isPoint(p) || !s.ring) return false;
+  const by = outsideByM(ringAt(s, clock), [Number(p[0]), Number(p[1])]);
+  return Number.isFinite(by) && by <= PIN_RING_M;
+}
+
+function cmdTapok(s, actor, cmd, t) {
+  if (typeof cmd.ok !== 'boolean') return err('bad_cmd');
+  if (!extrasOf(s.settings).powers.wiretap) return err('no_wiretap');
+  if (s.phase === 'live' && cmd.ok === true && actor.tapOk !== true) return err('not_lobby');
+  actor.tapOk = cmd.ok;
+  // Taken back mid-round: a tap on them ends at once (what came stays; nothing more is recorded).
+  if (!cmd.ok && s.phase === 'live') {
+    for (const tap of s.taps || []) if (tapOpen(tap) && tap.target === actor.id) finishTap(s, tap, t, { giveBack: false });
+  }
+  return null;
+}
+
+function cmdPin(s, actor, cmd, t) {
+  if (!isHunter(actor)) return err('not_your_turn', 'Only hunters can drop pins.');
+  if (!extrasOf(s.settings).pins) return err('no_pins');
+  if (cmd.do === 'remove') {
+    const pin = typeof cmd.pinId === 'string' ? s.pins.find((x) => x.id === cmd.pinId) : null;
+    if (!pin || !pinLive(pin, t.clock)) return err('bad_target', 'That pin is gone.');
+    if (pin.by !== actor.id && s.hostId !== actor.id) return err('not_your_turn', 'Only the one who dropped it can remove it.');
+    pin.gone = 'removed';
+    pin.goneAt = t.clock;
+    return null;
+  }
+  if (cmd.do !== 'add') return err('bad_cmd');
+  if (s.pausedAt !== null) return err('paused');
+  if (!PIN_KINDS.includes(cmd.kind)) return err('bad_cmd');
+  if (cmd.kind === 'driver') {
+    if (!driverOf(s)) return err('no_driver', 'Nobody is driving.');
+    if (isDriver(s, actor)) return err('bad_cmd');
+  }
+  if (!pinSpotOk(s, cmd.p, t.clock)) return err('bad_target', "That's too far from the ring.");
+  const pinNote = cmd.note === undefined || cmd.note === null ? '' : typeof cmd.note === 'string' ? cleanLine(cmd.note, LIMITS.pinNote) : null;
+  if (pinNote === null) return err('bad_cmd');
+  if (s.pins.filter((x) => x.by === actor.id && pinLive(x, t.clock)).length >= LIMITS.pinsEach) {
+    return err('pins_full', `You have ${LIMITS.pinsEach} pins. Remove one first.`);
+  }
+  if (s.pins.length >= LIMITS.pinsRound) return err('pins_full', 'No more pins this round.');
+  const pin = {
+    id: `p${s.nextPinId++}`, by: actor.id, kind: cmd.kind, p: [Number(cmd.p[0]), Number(cmd.p[1])], note: pinNote,
+    at: t.clock, until: t.clock + TIMING.PIN_MS, gone: null, goneAt: null,
+  };
+  s.pins.push(pin);
+  const text = `${actor.name}: ${PIN_TEXT[pin.kind]}.${pinNote ? ` Note: ${pinNote}` : ''}`;
+  emit(s, t, 'pin', 'hunters', text, { pinId: pin.id, by: actor.id, kind: pin.kind });
+  return null;
+}
+
+// When a pin runs out or a tap has to end (game clock).
+function tapDeadline(tap) {
+  if (tap.state === 'asked' && tap.pieces === 0) return tap.at + TIMING.TAP_START_MS;
+  const late = tap.at + TIMING.TAP_END_MS;
+  // (The first piece arrives one piece after the recording began, and the last one a piece later: the slack
+  // keeps a slow upload of the last piece from being refused.)
+  const first = Number.isFinite(tap.firstAt) ? tap.firstAt : tap.at;
+  return Math.min(late, first + TIMING.TAP_MS + TIMING.TAP_PIECE_MS);
+}
+
+function v14Due(s, offer) {
+  for (const pin of s.pins || []) if (pin.gone === null) offer(pin.until, 10, { type: 'pinEnd', pin: pin.id });
+  for (const tap of s.taps || []) if (tapOpen(tap)) offer(tapDeadline(tap), 10.5, { type: 'tapEnd', tap: tap.id });
+}
+
+function v14RunDue(s, item, t) {
+  if (item.type === 'pinEnd') {
+    const pin = s.pins.find((x) => x.id === item.pin);
+    if (pin && pin.gone === null) { pin.gone = 'expired'; pin.goneAt = pin.until; }
+    return;
+  }
+  const tap = s.taps.find((x) => x.id === item.tap);
+  if (tap) finishTap(s, tap, t);
+}
+
+// Why this Wiretap piece can't be taken from this player now (null = it can). See "How the hider's phone is
+// told to record" in the contract.
+export function tapPieceProblem(state, playerId, { tap, i, ms, type, bytes, now } = {}) {
+  const no = (code, message) => err(code, message).error;
+  if (!state || state.phase !== 'live') return no('not_live');
+  const p = playerOf(state, playerId);
+  if (!p || !active(p) || !isFree(p)) return no('gone');
+  const tp = typeof tap === 'string' && Array.isArray(state.taps) ? state.taps.find((x) => x.id === tap) : null;
+  if (!tp || tp.target !== p.id || !tapOpen(tp)) return no('not_tapped');
+  if (state.pausedAt !== null && state.pausedAt !== undefined) return no('tap_over');
+  const clock = clockOf(state, now);
+  if (clock > tp.at + TIMING.TAP_END_MS || clock > tapDeadline(tp)) return no('tap_over');
+  const got = Array.isArray(tp.got) ? tp.got : [];
+  if (!Number.isInteger(i) || i < 0 || i >= LIMITS.tapPieces || got.includes(i) || tp.pieces >= LIMITS.tapPieces) return no('tap_over');
+  if (!RADIO_TYPES.includes(typeBase(type))) return no('bad_audio');
+  if (!Number.isInteger(ms) || ms < RADIO_MS_MIN || ms > TIMING.TAP_PIECE_MS + 1500) return no('bad_audio');
+  if (!Number.isInteger(bytes) || bytes < 1 || bytes > LIMITS.tapBytes) return no('bad_audio');
+  const r = radioOf(state);
+  const tapClips = r.clips.filter((c) => c.side === 'wiretap').length;
+  if (tapClips >= LIMITS.tapClips || (r.tapBytes || 0) + bytes > LIMITS.tapGameBytes) return no('radio_full');
+  return null;
+}
+
+// A Wiretap piece arrived: a radio clip on the 'wiretap' side, heard live by the hunters only.
+export function addTapPiece(state, playerId, { tap, i, id, ms, type, bytes, now } = {}) {
+  const problem = tapPieceProblem(state, playerId, { tap, i, ms, type, bytes, now });
+  if (problem) return { error: problem };
+  if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) return err('bad_cmd');
+  if (radioOf(state).clips.some((c) => c.id === id)) return err('bad_cmd');
+  const s = fillIn(copy(state));
+  const t = { now, clock: clockOf(s, now), at: now };
+  const tp = s.taps.find((x) => x.id === tap);
+  if (!Array.isArray(tp.got)) tp.got = [];
+  const clip = {
+    n: s.radio.next++, id, from: playerId, clock: Math.max(tp.at, t.clock - ms), ms, type: typeBase(type),
+    side: 'wiretap', tap: tp.id, of: tp.target,
+  };
+  s.radio.clips.push(clip);
+  s.radio.tapBytes = (Number.isFinite(s.radio.tapBytes) ? s.radio.tapBytes : 0) + bytes; // its own cap, not the walkie's
+  tp.got.push(i);
+  tp.pieces += 1;
+  if (tp.firstAt === null) tp.firstAt = t.clock;
+  tp.lastAt = t.clock;
+  if (tp.state === 'asked') tp.state = 'listening';
+  if (tp.pieces >= LIMITS.tapPieces) finishTap(s, tp, t);
+  s.players[playerId].lastSeen = now;
+  s.updatedAt = now;
+  return { state: s, clip: { ...clip } };
+}
+
+// A phone said how its location, camera, microphone and sound are (Ready check). Unknown values are dropped.
+// Changed only when something differs or HEALTH_EVERY_MS went by (one save a minute at most for a steady phone).
+export function noteHealth(state, playerId, health, { now } = {}) {
+  const p0 = state && state.players ? playerOf(state, playerId) : null;
+  if (!p0 || !active(p0) || !health || typeof health !== 'object' || Array.isArray(health) || !Number.isFinite(now)) {
+    return { state, changed: false };
+  }
+  const h = {};
+  for (const [k, list] of Object.entries(HEALTH_WORDS)) h[k] = list.includes(health[k]) ? health[k] : null;
+  const acc = health.acc;
+  h.acc = typeof acc === 'number' && Number.isFinite(acc) && acc >= 0 && acc <= 100000 ? Math.round(acc) : null;
+  const was = p0.health && typeof p0.health === 'object' ? p0.health : null;
+  // (accuracy counts as changed only when it moves to another band: GPS accuracy shifts on most fixes)
+  const same = was && Object.keys(h).every((k) => (k === 'acc' ? accBand(was.acc) === accBand(h.acc) : was[k] === h[k]));
+  if (same && Number.isFinite(was.at) && now - was.at >= 0 && now - was.at < TIMING.HEALTH_EVERY_MS) {
+    return { state, changed: false };
+  }
+  const s = fillIn(copy(state));
+  s.players[playerId].health = { ...h, at: now };
+  return { state: s, changed: true };
+}
+
+function accBand(a) {
+  if (!Number.isFinite(a)) return -1;
+  return a <= 10 ? 0 : a <= 30 ? 1 : a <= 100 ? 2 : 3;
+}
+
+// How old a player's stored fix is, in words (view.me.fix). No fix this round: 'none'.
+function fixOf(s, pos, now) {
+  if (!pos || !Number.isFinite(pos.at) || (Number.isFinite(s.startedAt) && pos.at < s.startedAt)) {
+    return { age: null, acc: null, state: 'none' };
+  }
+  const age = Math.max(0, now - pos.at);
+  const acc = Number.isFinite(pos.acc) ? Math.round(pos.acc) : null;
+  const state = age <= TIMING.FIX_LIVE_MS ? 'live' : age <= TIMING.FIX_LOST_MS ? 'old' : 'lost';
+  return { age, acc, state };
+}
+
+// Why this player has no fresh location right now, or null (they have one).
+function lostWhy(s, p, positions, now) {
+  const fix = fixOf(s, posOf(positions, p.id), now);
+  const said = p.health && typeof p.health === 'object' ? p.health.loc : null;
+  const off = said === 'denied' || said === 'off';
+  if (!off && (fix.state === 'live' || fix.state === 'old')) return null;
+  return LOST_WHY.includes(said) ? said : 'quiet';
+}
+
+function lostRow(s, p, why, positions, now) {
+  const pos = posOf(positions, p.id);
+  const since = pos && Number.isFinite(pos.at) && pos.at >= s.startedAt ? now - pos.at : now - s.startedAt;
+  return { id: p.id, name: p.name, why, since: Math.max(0, since) };
+}
+
+// view.locLost: who has no fresh location, as `me` may know (see the contract).
+function locLostFor(s, me, { clock, now, positions, sch }) {
+  if (!me || me.status !== 'in' || (me.team !== 'hunter' && me.team !== 'hider')) return [];
+  const out = [];
+  const mine = (p) => p.status === 'in' && p.team === me.team;
+  const driving = isDriver(s, me);
+  const host = s.hostId === me.id && !driving;
+  for (const p of ordered(s)) {
+    if (p.id === me.id || p.status !== 'in' || (p.team !== 'hunter' && p.team !== 'hider')) continue;
+    const why = lostWhy(s, p, positions, now);
+    if (!why) continue;
+    if (mine(p)) { out.push(lostRow(s, p, why, positions, now)); continue; }
+    if (!host) continue;
+    // The other team, for the host: only once the no-signal rule would name them (OFFLINE_SHOW_MS of game time).
+    const pos = posOf(positions, p.id);
+    const quiet = pos ? quietFor(s, pos, clock, now) >= TIMING.OFFLINE_SHOW_MS
+      : clock >= sch.headStartMs + TIMING.OFFLINE_SHOW_MS;
+    if (quiet || p.noFixTold === true) out.push(lostRow(s, p, why, positions, now));
+  }
+  return out;
+}
+
+function readyRow(s, p, now) {
+  const h = p.health && typeof p.health === 'object' ? p.health : {};
+  const pick = (k) => (h[k] === undefined ? null : h[k]);
+  return {
+    id: p.id, name: p.name, loc: pick('loc'), acc: pick('acc'), cam: pick('cam'), mic: pick('mic'), snd: pick('snd'),
+    dev: pick('dev'), seen: Number.isFinite(p.lastSeen) ? Math.max(0, now - p.lastSeen) : null,
+  };
+}
+
+// The view's v1.4 parts: ready, locLost, pins, pinsLeft, tap, tapOk, hack.
+function v14ViewFor(s, me, { live, over, clock, now, positions, sch }) {
+  const lobby = !live && !over;
+  const settings = extrasOf(s.settings);
+  let ready = null;
+  if (lobby && me && me.status === 'in') {
+    ready = s.hostId === me.id
+      ? ordered(s).filter((p) => p.status === 'in').map((p) => readyRow(s, p, now))
+      : [readyRow(s, me, now)];
+  }
+  const locLost = live ? locLostFor(s, me, { clock, now, positions, sch }) : null;
+  let pins = null;
+  let pinsLeft = 0;
+  if (live && settings.pins && isHunter(me)) {
+    const list = (Array.isArray(s.pins) ? s.pins : []).filter((x) => pinLive(x, clock));
+    // (a hider who turned sees only the pins dropped since they turned)
+    const since = me.startTeam === 'hunter' ? -Infinity : (Number.isFinite(me.turnedAt) ? me.turnedAt : Infinity);
+    const driving = isDriver(s, me);
+    pins = list.filter((x) => x.at >= since && !(driving && x.kind === 'seen')).slice().reverse().map((x) => ({
+      id: x.id, by: x.by, name: playerOf(s, x.by) ? s.players[x.by].name : '', kind: x.kind, p: [x.p[0], x.p[1]],
+      note: x.note, age: Math.max(0, clock - x.at), left: Math.max(0, x.until - clock), mine: x.by === me.id,
+    }));
+    pinsLeft = Math.max(0, LIMITS.pinsEach - list.filter((x) => x.by === me.id).length);
+  }
+  let tap = null;
+  if (live && me && isFree(me) && s.pausedAt === null) {
+    const tp = (Array.isArray(s.taps) ? s.taps : []).find((x) => x.target === me.id && tapOpen(x));
+    if (tp && clock < tp.at + TIMING.TAP_END_MS) {
+      const first = Number.isFinite(tp.firstAt) ? tp.firstAt : clock;
+      const end = Math.min(tp.at + TIMING.TAP_END_MS, first + TIMING.TAP_MS);
+      tap = { id: tp.id, until: Math.max(0, end - clock), pieceMs: TIMING.TAP_PIECE_MS, pieces: tp.pieces, most: LIMITS.tapPieces };
+    }
+  }
+  const okIds = ordered(s).filter((p) => (lobby ? p.status === 'in' : active(p)) && p.tapOk === true).map((p) => p.id);
+  const tapOk = { on: !!settings.powers.wiretap, ok: !!me && me.tapOk === true, okIds };
+  let hack = null;
+  if (live && me) {
+    const hk = (Array.isArray(s.hacks) ? s.hacks : []).filter((x) => x.target === me.id && !x.blocked).pop();
+    if (hk && clock - hk.at >= 0 && clock - hk.at <= TIMING.HACK_STALE_MS) hack = { n: hk.n, at: hk.at, ms: TIMING.HACK_MS };
+  }
+  return { ready, locLost, pins, pinsLeft, tap, tapOk, hack };
+}
+
+// Is a route point due for this player? Every TRAIL_EVERY_MS as before, or every TRAIL_NEAR_MS while their
+// stored fix is within TRAIL_NEAR_M of a player of the other side (both fixes fresh), so close calls have a
+// real track. `now` defaults to the clock's own time.
+export function trailDue(state, pid, positions, lastClock, clock, { now } = {}) {
+  if (!Number.isFinite(clock)) return false;
+  if (!Number.isFinite(lastClock)) return true;
+  const gap = clock - lastClock;
+  if (gap >= TIMING.TRAIL_EVERY_MS) return true;
+  if (gap < TIMING.TRAIL_NEAR_MS || !state || state.phase !== 'live') return false;
+  const p = playerOf(state, pid);
+  if (!p || p.status !== 'in') return false;
+  const at = Number.isFinite(now) ? now : epochOf(state, clock);
+  const fresh = (id) => {
+    const pos = posOf(positions || {}, id);
+    return pos && pos.at !== null && Math.abs(at - pos.at) <= TIMING.CAM_NEAR_FRESH_MS ? pos : null;
+  };
+  const mine = fresh(pid);
+  if (!mine) return false;
+  const others = isHunter(p) ? freeHiders(state) : isFree(p) ? ordered(state).filter(isHunter) : [];
+  return others.some((o) => {
+    const op = fresh(o.id);
+    return !!op && distanceM(mine.p, op.p) <= TIMING.TRAIL_NEAR_M;
+  });
+}
+
+// Where a player was at a clock, from their route points (joined up in a straight line), or null.
+function pointAt(points, clock) {
+  if (!points || !points.length) return null;
+  const i = firstFrom(points, clock);
+  const b = points[i];
+  if (b && b.clock === clock) return b.p;
+  const a = points[i - 1];
+  if (!a || !b || b.clock - a.clock > GAP_STEP_MS) return null;
+  const f = (clock - a.clock) / (b.clock - a.clock);
+  return [a.p[0] + (b.p[0] - a.p[0]) * f, a.p[1] + (b.p[1] - a.p[1]) * f];
+}
+
+// The closest moment between two players around a close call, from their full route points.
+function gapOf(tracks, aId, bId, clock) {
+  const A = tracks[aId], B = tracks[bId];
+  if (!A || !B || !A.length || !B.length) return null;
+  const from = clock - GAP_LOOK_MS, to = clock + GAP_LOOK_MS;
+  const times = new Set();
+  for (const list of [A, B]) {
+    for (let j = firstFrom(list, from); j < list.length && list[j].clock <= to; j++) times.add(list[j].clock);
+  }
+  // Between two neighbouring times both walk in a straight line, so the closest moment there is worked out
+  // exactly (in metres round the first point), not only at the route points themselves.
+  const list = [...times].sort((x, y) => x - y);
+  let best = null;
+  const consider = (T) => {
+    const pa = pointAt(A, T), pb = pointAt(B, T);
+    if (!pa || !pb) return;
+    const m = distanceM(pa, pb);
+    if (!best || m < best.m) best = { m, clock: T, pa, pb };
+  };
+  for (let i = 0; i < list.length; i++) {
+    consider(list[i]);
+    const T1 = list[i], T2 = list[i + 1];
+    if (T2 === undefined) continue;
+    const a1 = pointAt(A, T1), b1 = pointAt(B, T1), a2 = pointAt(A, T2), b2 = pointAt(B, T2);
+    if (!a1 || !b1 || !a2 || !b2) continue;
+    // The gap (b - a) at T1 and T2, in metres.
+    const g1 = toLocal(a1, b1);
+    const g2 = toLocal(a2, b2);
+    const dx = g2[0] - g1[0], dy = g2[1] - g1[1];
+    const len2 = dx * dx + dy * dy;
+    if (!len2) continue;
+    const f = -(g1[0] * dx + g1[1] * dy) / len2;
+    if (f > 0 && f < 1) consider(T1 + f * (T2 - T1));
+  }
+  if (!best) return null;
+  return {
+    m: Math.round(best.m), clock: Math.round(best.clock),
+    a: { id: aId, p: [r6(best.pa[0]), r6(best.pa[1])] }, b: { id: bId, p: [r6(best.pb[0]), r6(best.pb[1])] },
+  };
+}
+
+function trackOf(tracks, aId, bId, gap) {
+  if (!gap) return null;
+  const from = gap.clock - TRACK_BEFORE_MS, to = gap.clock + TRACK_AFTER_MS;
+  const part = (id) => {
+    const list = tracks[id] || [];
+    const out = [];
+    for (let j = firstFrom(list, from); j < list.length && list[j].clock <= to; j++) out.push(list[j]);
+    return thin(out, TRACK_MOST).map((x) => [r6(x.p[0]), r6(x.p[1]), Math.round(x.clock)]);
+  };
+  return { from, to, a: part(aId), b: part(bId) };
+}
+
+// Every close call gets `gap` and `track` (null unless it's a hunter close to a hider: 'near', 'cpnear').
+function withGaps(calls, tracks) {
+  return calls.map((c) => {
+    if ((c.kind !== 'near' && c.kind !== 'cpnear') || !Array.isArray(c.ids) || c.ids.length < 2) return { ...c, gap: null, track: null };
+    const gap = gapOf(tracks, c.ids[0], c.ids[1], c.clock);
+    return { ...c, gap, track: trackOf(tracks, c.ids[0], c.ids[1], gap) };
+  });
+}
+
+// summary.hacks / taps / pins (this round's, for the replay and the movies).
+function v14SummaryOf(s, radioSaved) {
+  const clips = radioOf(s).clips;
+  return {
+    hacks: (s.hacks || []).map((h) => ({ clock: h.at, by: h.by, target: h.target, blocked: !!h.blocked })),
+    taps: (s.taps || []).map((tp) => ({
+      id: tp.id, clock: tp.at, by: tp.by, target: tp.target, state: tp.state,
+      pieces: radioSaved ? clips.filter((c) => c.side === 'wiretap' && c.tap === tp.id).map((c) => c.n) : [],
+    })),
+    pins: (s.pins || []).map((x) => ({
+      id: x.id, by: x.by, kind: x.kind, p: [x.p[0], x.p[1]], note: x.note, clock: x.at,
+      until: Number.isFinite(x.goneAt) && x.goneAt !== null ? Math.min(x.goneAt, x.until) : x.until,
+    })),
+  };
+}
+
+// What a kept game's record holds (the server's `past`): everything an over view has but `me`.
+export function pastBase(state) {
+  if (!state || state.phase !== 'over') return null;
+  const now = Number.isFinite(state.updatedAt) ? state.updatedAt : 0;
+  const v = viewFor(state, '', { now, positions: {}, since: 0 });
+  delete v.me;
+  return v;
 }

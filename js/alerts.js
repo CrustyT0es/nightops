@@ -129,11 +129,14 @@ const TONES = {
   // v1.1 PAGE-RADIO: before a walkie-talkie clip (played even with sound off)
   radio: [[1046, 0, 0.06], [1568, 0.08, 0.08]],
   // v1.1 end PAGE-RADIO
+  // v1.4 PAGE-PLAY: before a Wiretap piece (lower, so it never sounds like a teammate)
+  tap: [[392, 0, 0.08], [294, 0.1, 0.1]],
+  // v1.4 end PAGE-PLAY
 };
 
 export function beep(kind = 'info') {
   // v1.1 PAGE-RADIO: the walkie-talkie's beep plays with sound off too (the clip after it does)
-  const radioBeep = kind === 'radio' && !soundOn();
+  const radioBeep = (kind === 'radio' || kind === 'tap') && !soundOn(); // v1.4 PAGE-PLAY: 'tap' too
   if (!radioBeep) {
   // v1.1 end PAGE-RADIO
   if (!soundOn()) return false;
@@ -185,6 +188,12 @@ export function unlockBeep() {
   }
 }
 // v1.1 end PAGE-RADIO
+
+// v1.4 PAGE-PLAY: the Hacker alarm shares this context and session.
+export function audioContext() { return audio(); }
+// Play past the silent switch only for the alarm, then back to what the player's sound setting says.
+export function alarmSession(on) { setSession(on ? true : soundOn()); }
+// v1.4 end PAGE-PLAY
 
 // ---- wake lock ---------------------------------------------------------------------------------------
 

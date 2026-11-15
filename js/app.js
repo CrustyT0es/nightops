@@ -41,6 +41,8 @@ import { cleanName, cleanFace } from './identity.js';
 import { createRadio, fromBase64 } from './radio.js'; // v1.1 PAGE-RADIO
 import { createCamera } from './camera.js'; // v1.2 PAGE-CAM
 import { cpWantsFresh } from './screens/cpplay.js'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js'; // v1.4 PAGE-DEVICES
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)
@@ -158,6 +160,24 @@ export function sideNow(view) {
 // Whether `view` is newer than `prev`. `rev` is the saved version of the game a view was made from: a view
 // made from an older save is older, whatever its time says (a sync that read the game just before a command
 // saved it, but answered after). Without `rev` (or with the same one), the later `now` wins.
+// v1.4 Your games: a short role and result for the list.
+export function roleOf(view) {
+  const me = view && view.me;
+  if (!me) return '';
+  if (me.driver) return 'driver';
+  const t = me.startTeam || me.team;
+  return t === 'hunter' ? 'hunter' : t === 'hider' ? 'hider' : '';
+}
+export function resultOf(view) {
+  const sum = view && (view.summary || view.result);
+  if (!sum) return 'Game over';
+  const me = view.me && view.me.id;
+  if (me && Array.isArray(sum.winners) && sum.winners.includes(me)) return 'You won';
+  if (sum.reason === 'caught') return 'The hunters won';
+  if (sum.reason === 'time' || sum.reason === 'host') return 'The hiders won';
+  return 'Game over';
+}
+
 export function isFresher(view, prev) {
   if (!prev) return true;
   const later = !(Number(view && view.now) < Number(prev.now));
@@ -275,6 +295,8 @@ function defaultLoadScreen(name, attempt) {
 
 // ---- the App ----------------------------------------------------------------------------------------
 
+const HEALTH_ACTIONS = new Set(['sync', 'cmd', 'radio', 'cp-photo', 'tap-piece']); // v1.4 PAGE-DEVICES
+
 export class App {
   constructor({
     api,
@@ -292,6 +314,7 @@ export class App {
     back = backButton,
     radio = createRadio, // v1.1 PAGE-RADIO: makes app.radio (null = no walkie-talkie)
     camera = createCamera, // v1.2 PAGE-CAM: makes app.cam (null = this browser can't film)
+    media = createMedia, // v1.4 PAGE-DEVICES: makes app.media (the one shared camera + microphone stream)
   } = {}) {
     this.api = api;
     this.back = back;
@@ -359,6 +382,16 @@ export class App {
       this.radio = null;
     }
     // v1.1 end PAGE-RADIO
+    // v1.4 PAGE-DEVICES: the one shared stream and its watchdog (before the camera, which films from it)
+    this.media = null;
+    try {
+      this.media = typeof media === 'function' ? media({ doc, win }) || null : null;
+    } catch (e) {
+      console.error(e);
+      this.media = null;
+    }
+    this.soundOk = false; // the ready check's "Test" (or the alarm) made a sound: the AudioContext is unlocked
+    // v1.4 end PAGE-DEVICES
     // v1.2 PAGE-CAM: the highlight cam (null when this browser can't record video), and the newest moment taken
     this.camSince = 0;
     this.cam = null;
@@ -369,6 +402,8 @@ export class App {
       this.cam = null;
     }
     // v1.2 end PAGE-CAM
+    // v1.4 PAGE-DEVICES: the camera stopping (after the game's last clip) lets the shared stream go
+    try { if (this.cam && this.media) this.cam.on('state', () => this._wantMedia()); } catch (e) { console.error(e); }
     // v1.3 PAGE-PLAY: checkpoint photos fetched (id -> data: URL), cleared on a new round and on leaving
     this.photos = new Map();
     this._photoAsked = new Map(); // id -> when it was last asked for and didn't come (not asked again for 10 s)
@@ -587,7 +622,73 @@ export class App {
     return this.syncNow().then(() => this.view);
   }
 
+  // v1.4 Your games: a finished round this phone was in (or watched) is remembered for the home screen.
+  _rememberPast(view, cred, as) {
+    if (!view || view.phase !== 'over' || !cred || !Number.isFinite(view.round)) return;
+    if (!this.identity || typeof this.identity.rememberPast !== 'function') return;
+    try {
+      this.identity.rememberPast({
+        code: cred.code, id: cred.id, secret: cred.secret, as, round: view.round,
+        mode: view.settings && view.settings.mode, when: view.round, role: as === 'watcher' ? 'watched' : roleOf(view),
+        result: resultOf(view),
+      });
+    } catch { /* ignore */ }
+  }
+
+  // v1.4 Your games: the remembered games and whether the server still has them ([{...item, there, kept, until}]).
+  async pastGames() {
+    const list = this.identity && typeof this.identity.loadPast === 'function' ? this.identity.loadPast() : [];
+    if (!list.length) return [];
+    let res = null;
+    try { // a failed check keeps the saved dates (the list still shows)
+      res = await this.api.post('past-check', { items: list.map((g) => ({ code: g.code, round: g.round, id: g.id, secret: g.secret, as: g.as })) });
+    } catch { res = null; }
+    const items = Array.isArray(res && res.items) ? res.items : [];
+    const out = [];
+    for (const g of list) {
+      const r = items.find((x) => x && x.code === g.code && x.round === g.round);
+      if (r && r.there === false) {
+        try { this.identity.forgetPast(g.code, g.round); } catch { /* ignore */ }
+        continue;
+      }
+      out.push({ ...g, there: !!(r && r.there), kept: r ? r.kept : (g.kept ?? null), until: r ? r.until : (g.until ?? null) });
+    }
+    return out;
+  }
+
+  // v1.4 Your games: open a remembered game's end screen (replay, highlights, downloads). False when it's gone.
+  async openPast(g) {
+    const who = { id: g.id, secret: g.secret };
+    let res;
+    try {
+      res = await this.api.post('past', { code: g.code, round: g.round, ...(g.as === 'watcher' ? { watcher: who } : { player: who }) });
+    } catch (e) {
+      if (e && (e.status === 404 || e.status === 403)) {
+        try { this.identity.forgetPast(g.code, g.round); } catch { /* ignore */ }
+        this.banner('This game is gone.', 'warn', 5000);
+        return false;
+      }
+      this._fail(e);
+      return false;
+    }
+    if (!res || !res.view) return false;
+    this._resetGameState();
+    this.game = null;
+    this.savedGame = null;
+    this.pastGame = g;
+    this.view = { ...res.view, events: Array.isArray(res.view.events) ? res.view.events : [] };
+    this.viewAt = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
+    this.go('over');
+    return true;
+  }
+
   leave() {
+    if (this.pastGame) { // v1.4: leaving a past game's end screen only goes home
+      this.pastGame = null;
+      this.view = null;
+      this.go('home', {});
+      return Promise.resolve(true);
+    }
     if (this.watching) return this.stopWatching(); // v1.1 PAGE-WATCH: Leave on a spectator's screens
     const game = this.game || this.savedGame;
     if (game) this._sendLeave(game);
@@ -670,6 +771,7 @@ export class App {
   }
 
   _exit({ home = true } = {}) {
+    try { if (this.media) this.media.want({ video: false, audio: false }); } catch (e) { console.error(e); } // v1.4 PAGE-DEVICES
     try { this.identity.clearGame(); } catch { /* ignore */ }
     this._clearSeen();
     this._resetGameState();
@@ -701,8 +803,58 @@ export class App {
     }
     // v1.1 end PAGE-WATCH
     const g = this.game;
+    // v1.4 PAGE-DEVICES: what this phone's location, camera, microphone and sound are like (the ready check, and
+    // who has no location), in every sync / cmd / radio / cp-photo / tap-piece body
+    if (HEALTH_ACTIONS.has(action) && extra && typeof extra === 'object' && !extra.health) {
+      const health = this.health();
+      if (health) extra = { ...extra, health };
+    }
+    // v1.4 end PAGE-DEVICES
     return this.api.post(action, { code: g.code, player: { id: g.id, secret: g.secret }, ...extra }, opts);
   }
+
+  // v1.4 PAGE-DEVICES: what the shared stream holds open: a filmed player's camera while live, and while the camera
+  // is still filming after the game (Highlights keeps going a little past the end)
+  _wantMedia(view = this.view) {
+    try {
+      if (!this.media) return;
+      const filmed = !!(this.cam && view && view.phase === 'live' && view.cam && view.cam.ok === true);
+      const still = !!(this.cam && this.cam.filming && view && (view.phase === 'live' || view.phase === 'over'));
+      this.media.want({ video: filmed || still, audio: false });
+    } catch (e) { console.error(e); }
+  }
+
+  // v1.4 PAGE-DEVICES: { loc, acc, cam, mic, snd, dev } (never a position: `loc` is only the watchdog's word)
+  health() {
+    try {
+      const loc = this.location;
+      const v = this.view;
+      const st = this.media ? this.media.state : null;
+      const hider = !!(v && v.me && v.me.team === 'hider');
+      const hacker = !!(v && v.settings && v.settings.powers && v.settings.powers.hacker);
+      let snd = 'na';
+      if (hacker && hider) {
+        const al = this.alarm;
+        const ready = al && typeof al.ready === 'function' ? !!al.ready() : this.soundOk;
+        snd = ready ? 'ok' : 'locked';
+      }
+      const camWanted = !!(v && v.cam && v.cam.ok === true);
+      return {
+        // in the lobby the watch isn't running: the ready check's word (permission state / its test)
+        loc: loc && typeof loc.health === 'function'
+          ? (typeof loc.running === 'function' && !loc.running() && this.lobbyLoc ? this.lobbyLoc : loc.health()) : 'none',
+        acc: loc && typeof loc.accuracy === 'function' ? loc.accuracy() : null,
+        cam: st && camWanted ? st.cam : 'na',
+        mic: st ? st.mic : 'na',
+        snd,
+        dev: deviceKind(globalThis.navigator, this.win),
+      };
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }
+  // v1.4 end PAGE-DEVICES
 
   // The position to send: the latest fix while live, but never an old one sent again and again (Location
   // switched off, or a GPS that stopped): the server then sees the phone go quiet, as it should. (The server
@@ -989,7 +1141,11 @@ export class App {
 
   // The microphone for the walkie-talkie: the camera's own audio while it films (never stop it: shared), else a
   // microphone of its own. -> Promise<{ stream, shared }>
-  async mic() {
+  async mic(opts) {
+    // v1.4 PAGE-DEVICES: through the one shared stream (media.js): its audio when it's held, else a walkie
+    // microphone of its own that the caller stops after use
+    if (this.media && this.media.can) return this.media.audio(opts);
+    // v1.4 end PAGE-DEVICES
     try {
       const s = this.cam && typeof this.cam.stream === 'function' ? this.cam.stream() : null;
       const tracks = s && typeof s.getAudioTracks === 'function' ? s.getAudioTracks().filter((t) => t.readyState !== 'ended' && t.muted !== true) : [];
@@ -1386,6 +1542,7 @@ export class App {
       if (view.phase === 'over' && !view.summary && prev && prev.phase === 'over' && prev.summary
         && prev.overId === view.overId) view.summary = prev.summary;
       this.view = view;
+      this._rememberPast(view, this.watchGame, 'watcher');
       this.viewAt = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
       if (this.doc && this.doc.body) {
         this.doc.body.dataset.team = 'none';
@@ -1497,11 +1654,15 @@ export class App {
       if (view.phase === 'over' && !view.summary && prev && prev.phase === 'over' && prev.summary
         && prev.overId === view.overId) view.summary = prev.summary;
       this.view = view;
+      this._rememberPast(view, this.game, 'player');
       // When it came (performance.now()): a screen shown later starts its clock from here, not from then.
       this.viewAt = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
       // v1.1 PAGE-RADIO: new walkie-talkie clips (live hunters only; anyone else's radio stops)
       try { if (this.radio) this.radio.take(view); } catch (e) { console.error(e); }
       // v1.1 end PAGE-RADIO
+      // v1.4 PAGE-DEVICES: what the shared stream should hold open (a filmed player's camera, live only)
+      this._wantMedia(view);
+      // v1.4 end PAGE-DEVICES
       // v1.2 PAGE-CAM: moments for the camera (a filmed player's phone only)
       try { if (this.cam) this.cam.take(view); } catch (e) { console.error(e); }
       // v1.2 end PAGE-CAM
