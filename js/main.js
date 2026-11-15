@@ -43,7 +43,28 @@ function watchCode() {
 }
 // v1.1 end PAGE-WATCH
 
+// v1.4.1: #past=CODE.ROUND.ID.SECRET (a link made for a game kept before Your games existed) adds that round to
+// Your games as a spectator's, then leaves the address. Only the hash is read, so the secret never reaches a server
+// log; it's taken out of the address at once.
+function takePastLink(store = identity) {
+  try {
+    const url = new URL(globalThis.location.href);
+    const m = /(?:^|[#&])past=([^&]+)/.exec(url.hash.slice(1));
+    if (!m) return false;
+    const hash = url.hash.replace(/(^#|&)past=[^&]*/, '').replace(/^#&/, '#');
+    history.replaceState(history.state, '', `${url.pathname}${url.search}${hash === '#' ? '' : hash}`);
+    const [code, round, id, secret] = decodeURIComponent(m[1]).split('.');
+    const r = Number(round);
+    if (!Number.isSafeInteger(r)) return false;
+    const g = store.rememberPast({ code: normalizeCode(code || ''), round: r, id, secret, as: 'watcher', when: r, role: '', result: '' });
+    return g !== false;
+  } catch {
+    return false;
+  }
+}
+
 function boot() {
+  takePastLink();
   const root = document.getElementById('app');
   const config = globalThis.NIGHTOPS || {};
   const api = createApi(config.api || '/api', { key: config.key || '' });
