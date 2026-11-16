@@ -8,12 +8,12 @@
 // (else performance.now()) is reel time. Clip frames come from a pool of <video> elements; each frame a video is
 // compared with its target: off by more than DRIFT_MS -> playbackRate 0.9 / 1.1 for up to 1 s, over RESEEK_MS -> a
 // seek. A video still loading holds its last frame dimmed; the clock never stalls (the audio carries on).
-import { h, text } from '../dom.js?v=147';
-import { icon } from '../ui/icons.js?v=147';
-import { scenes } from '../scenes.js?v=147';
-import { drawFrame, framePlan } from '../movie.js?v=147';
-import { prepareMaps } from '../moviemap.js?v=147';
-import { fmtClock } from '../../shared/rules.js?v=147';
+import { h, text } from '../dom.js?v=148';
+import { icon } from '../ui/icons.js?v=148';
+import { scenes } from '../scenes.js?v=148';
+import { drawFrame, framePlan } from '../movie.js?v=148';
+import { prepareMaps } from '../moviemap.js?v=148';
+import { fmtClock } from '../../shared/rules.js?v=148';
 
 export const VIDEO_POOL = 4;
 export const REC_W = 720;              // a recorded file's size (render.js): about 720p, upright
@@ -328,8 +328,8 @@ export function openReel({
   function size() {
     if (record) return;
     const dpr = Math.min(2, win.devicePixelRatio || 1);
-    const w = Math.max(1, Math.round((el.clientWidth || 390) * dpr));
-    const hh = Math.max(1, Math.round((el.clientHeight || 844) * dpr));
+    const w = Math.max(1, Math.round((canvas.clientWidth || el.clientWidth || 390) * dpr));
+    const hh = Math.max(1, Math.round((canvas.clientHeight || el.clientHeight || 844) * dpr));
     if (canvas.width !== w || canvas.height !== hh) { canvas.width = w; canvas.height = hh; }
   }
 

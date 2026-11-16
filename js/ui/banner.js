@@ -3,8 +3,8 @@
 // One role=status region (outside #app, so sheets never make it inert), newest on top, at most 3.
 // clearBanners(kind?) closes them all (or one kind's).
 // The same words shown again just restart their timer. Tap a banner to close it. ms 0 = stays until tapped.
-import { h } from '../dom.js?v=147';
-import { icon } from './icons.js?v=147';
+import { h } from '../dom.js?v=148';
+import { icon } from './icons.js?v=148';
 
 export const BANNER_KINDS = {
   info: 'info',

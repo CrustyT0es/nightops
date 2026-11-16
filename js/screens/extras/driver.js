@@ -2,9 +2,9 @@
 // ctx = { app, host, setSetting(key, value), cmd(cmd) -> Promise }.
 // Host: the switch (greyed, with the reason, when a driver isn't possible: driverProblem), and when it's on,
 // "Who drives": Pick for me, or one of the players. Everyone else: the setting in words.
-import { h, fill, text, cls } from '../../dom.js?v=147';
-import { icon } from '../../ui/icons.js?v=147';
-import { EXTRAS_UI, driverProblem } from '../../../shared/rules.js?v=147';
+import { h, fill, text, cls } from '../../dom.js?v=148';
+import { icon } from '../../ui/icons.js?v=148';
+import { EXTRAS_UI, driverProblem } from '../../../shared/rules.js?v=148';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'driver') || { key: 'driver', label: 'Driver', hint: '' };
 export const PEND_MS = 5000; // a change on its way shows for at most this long before the view decides

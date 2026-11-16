@@ -34,9 +34,9 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=147';
-import { icon } from './ui/icons.js?v=147';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=147';
+import { h, text, cls } from './dom.js?v=148';
+import { icon } from './ui/icons.js?v=148';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=148';
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
