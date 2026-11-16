@@ -6,13 +6,13 @@
 //   canMakeMovie(win) -> boolean
 //   movieParts({ list, summary, whole }) -> { windows, cuts, totalMs }   (pure)
 //   renderMovie({ app, list, summary, faces, ring, whole, onProgress, signal, getUrls }) -> Promise<{ blob, type, name }>
-import { direct, movieWindows, fileTimeAt } from './director.js?v=145';
-import { fmtClock } from '../shared/rules.js?v=145';
-import { ringOutline } from '../shared/geo.js?v=145';
+import { direct, movieWindows, fileTimeAt } from './director.js?v=146';
+import { fmtClock } from '../shared/rules.js?v=146';
+import { ringOutline } from '../shared/geo.js?v=146';
 // v1.4 PAGE-REEL: the reel's frame drawer (drawFrame, framePlan, audioAt, drawMiniMap) is at the end of this file.
 // The v1.2 movieParts/renderMovie above it stay only until PAGE-RENDER's render.js takes over the downloads.
-import { fitView, boxKey } from './moviemap.js?v=145';
-import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=145';
+import { fitView, boxKey } from './moviemap.js?v=146';
+import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=146';
 
 export const W = 720;
 export const H = 1280;
@@ -854,7 +854,8 @@ function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [], ma
     }
     const sec = clock === null ? Infinity : clock / 1000;
     const mode = scene.map ? scene.map.routes : 'so-far';
-    const lo = mode === 'window' && scene.start !== null ? (scene.start - 30000) / 1000 : -Infinity;
+    // v1.4.5: the whole path so far always stays (the owner: no paths that start part-way or fade)
+    const lo = -Infinity;
     // pins (only those living at this clock)
     for (const pin of (summary && Array.isArray(summary.pins) ? summary.pins : [])) {
       if (!pin || !Array.isArray(pin.p) || clock === null || clock < pin.clock || clock > pin.until) continue;

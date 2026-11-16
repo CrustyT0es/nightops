@@ -30,19 +30,19 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=145';
-import { h, fill } from './dom.js?v=145';
-import { icon } from './ui/icons.js?v=145';
-import { banner as defaultBanner } from './ui/banner.js?v=145';
-import { closeSheets } from './ui/sheet.js?v=145';
-import { backButton } from './ui/back.js?v=145';
-import { ApiError, toApiError, WORDS } from './api.js?v=145';
-import { cleanName, cleanFace } from './identity.js?v=145';
-import { createRadio, fromBase64 } from './radio.js?v=145'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=145'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=145'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=145'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=145'; // v1.4 PAGE-DEVICES
+import { TIMING, LIMITS } from '../shared/rules.js?v=146';
+import { h, fill } from './dom.js?v=146';
+import { icon } from './ui/icons.js?v=146';
+import { banner as defaultBanner } from './ui/banner.js?v=146';
+import { closeSheets } from './ui/sheet.js?v=146';
+import { backButton } from './ui/back.js?v=146';
+import { ApiError, toApiError, WORDS } from './api.js?v=146';
+import { cleanName, cleanFace } from './identity.js?v=146';
+import { createRadio, fromBase64 } from './radio.js?v=146'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=146'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=146'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=146'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=146'; // v1.4 PAGE-DEVICES
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)

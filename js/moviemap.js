@@ -12,8 +12,8 @@
 //   prepareMaps(reel, { doc, win, load, waitMs, most }) -> store { ready, get(key), mini(scene), done }
 //   boxKey(box)
 
-import { fromLocal } from '../shared/geo.js?v=145';
-import { miniMap } from './scenes.js?v=145';
+import { fromLocal } from '../shared/geo.js?v=146';
+import { miniMap } from './scenes.js?v=146';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark'; // map.js's own (kept equal by a test)
 export const MINI_SIZE = 600;
@@ -162,7 +162,7 @@ export function prepareMaps(reel, { doc = globalThis.document, win = globalThis.
     try {
       const gl = doc.createElement('canvas');
       if (!load && !(gl.getContext && gl.getContext('webgl2'))) return false;
-      lib = load ? await load() : await import('../vendor/maplibre-gl.mjs?v=145');
+      lib = load ? await load() : await import('../vendor/maplibre-gl.mjs?v=146');
     } catch { return false; }
     let any = false;
     for (const j of jobs) {

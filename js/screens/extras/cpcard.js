@@ -4,11 +4,11 @@
 // The host: a small still map with the ring and the spots, how many there are (or what's wrong), when they open,
 // "Set up checkpoints" (the editor), and the five Checkpoints settings. Everyone else: how many there are ("Only
 // the host knows where") and the settings in words. Nobody but the host is ever sent the spots.
-import { h, fill, text, cls } from '../../dom.js?v=145';
-import { icon } from '../../ui/icons.js?v=145';
-import { createMap } from '../../map.js?v=145';
-import { ringProblem } from '../../../shared/geo.js?v=145';
-import { LIMITS, CP_SETTINGS_UI, DEFAULTS } from '../../../shared/rules.js?v=145';
+import { h, fill, text, cls } from '../../dom.js?v=146';
+import { icon } from '../../ui/icons.js?v=146';
+import { createMap } from '../../map.js?v=146';
+import { ringProblem } from '../../../shared/geo.js?v=146';
+import { LIMITS, CP_SETTINGS_UI, DEFAULTS } from '../../../shared/rules.js?v=146';
 
 const STEP_WAIT_MS = 350;
 const AUTO_NEXT = 3;   // from Auto (0) the open time steps to 3 min (1 and 2 are too short to get anywhere)
