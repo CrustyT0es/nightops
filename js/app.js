@@ -679,7 +679,27 @@ export class App {
     this.view = { ...res.view, events: Array.isArray(res.view.events) ? res.view.events : [] };
     this.viewAt = globalThis.performance && typeof performance.now === 'function' ? performance.now() : Date.now();
     this.go('over');
+    this._pastFaces(g);
     return true;
+  }
+
+  // v1.4.3: a past game's profile pictures, so the replay shows faces, not initials (asked with that game's own
+  // id and secret; the game's players now, so a round held after Play again may miss some). Failures are quiet.
+  _pastFaces(g) {
+    const v = this.view;
+    const ids = (Array.isArray(v && v.players) ? v.players : [])
+      .filter((p) => p && typeof p.id === 'string' && Number(p.faceV) > 0 && !this.faces.has(p.id)).map((p) => p.id);
+    if (!ids.length) return;
+    const who = { id: g.id, secret: g.secret };
+    this.api.post('faces', { code: g.code, ids, ...(g.as === 'watcher' ? { watcher: who } : { player: who }) }, { timeoutMs: 15000 })
+      .then((res) => {
+        if (this.pastGame !== g) return;
+        const got = res && res.faces && typeof res.faces === 'object' ? res.faces : {};
+        let any = false;
+        for (const id of ids) if (isFaceUrl(got[id])) { this.faces.set(id, got[id]); any = true; }
+        if (any) this.emit('faces', this.faces);
+      })
+      .catch(() => { /* initials stay */ });
   }
 
   leave() {
