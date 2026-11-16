@@ -8,11 +8,12 @@
 // (else performance.now()) is reel time. Clip frames come from a pool of <video> elements; each frame a video is
 // compared with its target: off by more than DRIFT_MS -> playbackRate 0.9 / 1.1 for up to 1 s, over RESEEK_MS -> a
 // seek. A video still loading holds its last frame dimmed; the clock never stalls (the audio carries on).
-import { h, text } from '../dom.js?v=144';
-import { icon } from '../ui/icons.js?v=144';
-import { scenes } from '../scenes.js?v=144';
-import { drawFrame, framePlan } from '../movie.js?v=144';
-import { fmtClock } from '../../shared/rules.js?v=144';
+import { h, text } from '../dom.js?v=145';
+import { icon } from '../ui/icons.js?v=145';
+import { scenes } from '../scenes.js?v=145';
+import { drawFrame, framePlan } from '../movie.js?v=145';
+import { prepareMaps } from '../moviemap.js?v=145';
+import { fmtClock } from '../../shared/rules.js?v=145';
 
 export const VIDEO_POOL = 4;
 export const REC_W = 720;              // a recorded file's size (render.js): about 720p, upright
@@ -89,6 +90,13 @@ export function openReel({
   const stats = { seeks: 0, nudges: 0, frames: 0 };
   const getUrls = app && typeof app.video === 'function' ? urlsFor(app) : async () => ({});
   const faces = facesOf(app, doc);
+  // a past game's pictures may come after the layer opened (app._pastFaces): take them as they come
+  const offFaces = app && typeof app.on === 'function' ? app.on('faces', () => {
+    for (const [id, img] of facesOf(app, doc)) if (!faces.has(id)) faces.set(id, img);
+  }) : null;
+  // the street map under the movie's map (made once; the grid shows until it's there, or for good)
+  let maps = null;
+  try { maps = prepareMaps(R, { doc, win }); } catch { maps = null; }
 
   // ---- the layer ----
   const canvas = h('canvas.reel-canvas', { 'aria-hidden': 'true' });
@@ -337,7 +345,7 @@ export function openReel({
       const slot = slotFor(s.id);
       if (slot && slot.v.readyState >= 2) sources.set(s.id, { img: slot.v, stale: slot.v.seeking });
     }
-    try { drawFrame(ctx2d, R, t, { sources, faces, summary, ring, w: canvas.width, h: canvas.height, progress: false }); } catch (e) { emit('error', e); }
+    try { drawFrame(ctx2d, R, t, { sources, faces, summary, ring, maps, w: canvas.width, h: canvas.height, progress: false }); } catch (e) { emit('error', e); }
     stats.frames += 1;
     fillEl.style.width = `${(100 * t) / Math.max(1, R.ms)}%`;
     text(timeEl, `${fmtClock(t)} / ${fmtClock(R.ms)}`);
@@ -414,6 +422,7 @@ export function openReel({
     if (state.closed) return;
     pause();
     state.closed = true;
+    try { if (offFaces) offFaces(); } catch { /* fine */ }
     win.cancelAnimationFrame(state.raf);
     doc.removeEventListener('visibilitychange', onHide);
     doc.removeEventListener('keydown', onKey);
@@ -430,6 +439,8 @@ export function openReel({
   canvas.addEventListener('click', () => (state.playing ? pause() : play()));
 
   const player = {
+    maps,
+    mapsReady: maps ? maps.done : Promise.resolve(false),
     reel: R, el, stats, canvas, pool, audioStream, record, ready: () => loadingBuffers,
     play, pause, seek, close,
     time: () => now(),

@@ -11,22 +11,22 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=144';
-import { icon } from '../ui/icons.js?v=144';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=144';
-import { banner, clearBanners } from '../ui/banner.js?v=144';
-import { moment } from '../ui/moment.js?v=144';
-import { startPocket } from '../ui/pocket.js?v=144';
-import { createMap, fmtAgo } from '../map.js?v=144';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=144';
-import { distanceM, isPoint } from '../../shared/geo.js?v=144';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=144';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=144'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=144'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=144'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=144'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=144'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=144'; // v1.3 PAGE-PLAY
+import { h, fill, text, cls, face, listen } from '../dom.js?v=145';
+import { icon } from '../ui/icons.js?v=145';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=145';
+import { banner, clearBanners } from '../ui/banner.js?v=145';
+import { moment } from '../ui/moment.js?v=145';
+import { startPocket } from '../ui/pocket.js?v=145';
+import { createMap, fmtAgo } from '../map.js?v=145';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=145';
+import { distanceM, isPoint } from '../../shared/geo.js?v=145';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=145';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=145'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=145'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=145'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=145'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=145'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=145'; // v1.3 PAGE-PLAY
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped

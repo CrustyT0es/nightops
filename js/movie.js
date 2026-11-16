@@ -6,12 +6,13 @@
 //   canMakeMovie(win) -> boolean
 //   movieParts({ list, summary, whole }) -> { windows, cuts, totalMs }   (pure)
 //   renderMovie({ app, list, summary, faces, ring, whole, onProgress, signal, getUrls }) -> Promise<{ blob, type, name }>
-import { direct, movieWindows, fileTimeAt } from './director.js?v=144';
-import { fmtClock } from '../shared/rules.js?v=144';
-import { ringOutline } from '../shared/geo.js?v=144';
+import { direct, movieWindows, fileTimeAt } from './director.js?v=145';
+import { fmtClock } from '../shared/rules.js?v=145';
+import { ringOutline } from '../shared/geo.js?v=145';
 // v1.4 PAGE-REEL: the reel's frame drawer (drawFrame, framePlan, audioAt, drawMiniMap) is at the end of this file.
 // The v1.2 movieParts/renderMovie above it stay only until PAGE-RENDER's render.js takes over the downloads.
-import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=144';
+import { fitView, boxKey } from './moviemap.js?v=145';
+import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=145';
 
 export const W = 720;
 export const H = 1280;
@@ -709,7 +710,16 @@ function round(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawFace(ctx, faces, summary, pid, x, y, r) {
+// a hider's ring goes red (#ff2d2d) from their catch, as on the replay map (map.js `caught`)
+export function ringColor(summary, pid, clock) {
+  const row = summary && Array.isArray(summary.players) ? summary.players.find((p) => p && p.id === pid) : null;
+  const at = row ? Number(row.caughtAt) : NaN;
+  if (row && row.caughtAt !== null && row.caughtAt !== undefined && Number.isFinite(at) && clock !== null && clock !== undefined && at <= clock) return CAUGHT_RING;
+  return person(summary, pid).color;
+}
+export const CAUGHT_RING = '#ff2d2d';
+
+function drawFace(ctx, faces, summary, pid, x, y, r, clock = null) {
   const who = person(summary, pid);
   const img = faceOf(faces, pid);
   ctx.save();
@@ -727,7 +737,7 @@ function drawFace(ctx, faces, summary, pid, x, y, r) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.lineWidth = Math.max(3, r / 8);
-  ctx.strokeStyle = who.color;
+  ctx.strokeStyle = ringColor(summary, pid, clock);
   ctx.stroke();
 }
 
@@ -780,14 +790,22 @@ function drawShot(ctx, sources, summary, shot, x, y, w, h, { name = true, small 
 // ---- the map, plain projection of the scene's box ----
 
 function projector(box, rect) {
-  if (!box) return null;
-  const [[w, s], [e, n]] = box;
-  const lat = (s + n) / 2;
-  const kx = Math.cos((lat * Math.PI) / 180);
-  const spanX = Math.max(1e-7, (e - w) * kx), spanY = Math.max(1e-7, n - s);
-  const k = Math.min((rect.w - 40) / spanX, (rect.h - 40) / spanY);
-  const cx = (w + e) / 2, cy = (s + n) / 2;
-  return (p) => [rect.x + rect.w / 2 + (p[0] - cx) * kx * k, rect.y + rect.h / 2 - (p[1] - cy) * k];
+  const v = fitView(box, rect);
+  return v ? v.toPx : null;
+}
+
+// the street map's still picture under the panel (moviemap.js), else nothing (the grid shows)
+function drawStreets(ctx, maps, box, rect) {
+  if (!maps || !box || typeof maps.get !== 'function') return false;
+  const pic = maps.get(boxKey(box)) || (typeof maps.any === 'function' ? maps.any() : null);
+  if (!pic || !pic.img) return false;
+  const v = fitView(box, rect);
+  if (!v) return false;
+  const [x0, y0] = v.toPxM([pic.bounds[0], pic.bounds[1]]), [x1, y1] = v.toPxM([pic.bounds[2], pic.bounds[3]]);
+  try { ctx.drawImage(pic.img, x0, y0, x1 - x0, y1 - y0); } catch { return false; }
+  ctx.fillStyle = 'rgba(7,9,13,0.18)'; // a touch darker, so routes and names stand out as on the replay
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  return true;
 }
 
 function headAt(pts, sec) {
@@ -812,12 +830,13 @@ function drawGrid(ctx, rect) {
   for (let y = rect.y; y < rect.y + rect.h; y += 48) { ctx.beginPath(); ctx.moveTo(rect.x, y); ctx.lineTo(rect.x + rect.w, y); ctx.stroke(); }
 }
 
-function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [] } = {}) {
+function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [], maps = null } = {}) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.w, rect.h);
   ctx.clip();
   drawGrid(ctx, rect);
+  drawStreets(ctx, maps, scene.map && scene.map.box, rect);
   const proj = projector(scene.map && scene.map.box, rect);
   if (proj) {
     const ringPts = ringPointsOf(ring);
@@ -867,7 +886,7 @@ function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [] } =
       for (const h of heads.sort((a, b) => Number(a.lit) - Number(b.lit))) {
         const r = h.lit ? 22 : 14;
         ctx.globalAlpha = h.lit ? 1 : 0.6;
-        drawFace(ctx, faces, summary, h.pid, h.xy[0], h.xy[1], r);
+        drawFace(ctx, faces, summary, h.pid, h.xy[0], h.xy[1], r, clock);
         ctx.globalAlpha = 1;
         if (h.lit && rect.h > 300) txt(ctx, person(summary, h.pid).name, h.xy[0] + r + 6, h.xy[1] + 8, { size: 22 });
       }
@@ -898,7 +917,7 @@ function headPx(list, clockMs) {
   return [l[0], l[1]];
 }
 
-export function drawMiniMap(ctx, mini, { clockMs = Infinity, faces = null, summary = null, x = 0, y = 0, still = false } = {}) {
+export function drawMiniMap(ctx, mini, { clockMs = Infinity, faces = null, summary = null, x = 0, y = 0, still = false, streets = null } = {}) {
   if (!mini) return;
   const { w, h } = mini.box;
   ctx.save();
@@ -906,6 +925,9 @@ export function drawMiniMap(ctx, mini, { clockMs = Infinity, faces = null, summa
   round(ctx, 0, 0, w, h, 18);
   ctx.clip();
   drawGrid(ctx, { x: 0, y: 0, w, h });
+  if (streets) {
+    try { ctx.drawImage(streets, 0, 0, w, h); ctx.fillStyle = 'rgba(7,9,13,0.18)'; ctx.fillRect(0, 0, w, h); } catch { /* the grid stays */ }
+  }
   // a 10 m scale tick
   const tenM = mini.box.pxPerM * 10;
   ctx.strokeStyle = 'rgba(230,235,242,0.5)';
@@ -949,8 +971,9 @@ export function drawMiniMap(ctx, mini, { clockMs = Infinity, faces = null, summa
       ctx.stroke();
     }
     const r = Math.max(12, w / 16);
-    if (ids[0]) drawFace(ctx, faces, summary, ids[0], ha[0], ha[1], r);
-    if (ids[1]) drawFace(ctx, faces, summary, ids[1], hb[0], hb[1], r);
+    const fc = still ? Infinity : clockMs;
+    if (ids[0]) drawFace(ctx, faces, summary, ids[0], ha[0], ha[1], r, fc);
+    if (ids[1]) drawFace(ctx, faces, summary, ids[1], hb[0], hb[1], r, fc);
     const mx = (ha[0] + hb[0]) / 2, my = Math.min(ha[1], hb[1]) - r - 14;
     txt(ctx, `${m} m`, Math.max(40, Math.min(w - 40, mx)), Math.max(r * 2 + 10, my), { size: Math.max(22, w / (past || still ? 7 : 10)),
       align: 'center', color: past || still ? '#ffc24a' : INK, weight: 700 });
@@ -1019,7 +1042,7 @@ function drawProgress(ctx, reel, t) {
 
 function drawCard14(ctx14, reel, scene, t, o) {
   const ctx = ctx14;
-  drawMap(ctx, scene, null, { x: 0, y: 0, w: REEL.W, h: REEL.H }, { summary: o.summary, ring: o.ring, faces: o.faces });
+  drawMap(ctx, scene, null, { x: 0, y: 0, w: REEL.W, h: REEL.H }, { summary: o.summary, ring: o.ring, faces: o.faces, maps: o.maps });
   ctx.fillStyle = 'rgba(7,9,13,0.72)';
   ctx.fillRect(0, 0, REEL.W, REEL.H);
   const into = t - scene.at;
@@ -1082,7 +1105,7 @@ function drawCard14(ctx14, reel, scene, t, o) {
   }
 }
 
-export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary = null, ring = null, w = REEL.W, h = REEL.H, scale = 1, progress = true } = {}) {
+export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary = null, ring = null, maps = null, w = REEL.W, h = REEL.H, scale = 1, progress = true } = {}) {
   ctx.save();
   ctx.fillStyle = NIGHT;
   ctx.fillRect(0, 0, w, h);
@@ -1094,7 +1117,7 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
   ctx.clip();
   const plan = framePlan(reel, t);
   const scene = plan.scene;
-  const o = { sources, faces, summary, ring };
+  const o = { sources, faces, summary, ring, maps };
   if (!scene) { ctx.restore(); return plan; }
   const clock = plan.clock;
   const by = (slot) => plan.shots.filter((s) => s.slot === slot);
@@ -1108,7 +1131,7 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
       const left = by('left')[0] || null, right = by('right')[0] || null;
       drawShot(ctx, sources, summary, left, 0, 0, REEL.W / 2 - 3, CAM_H);
       drawShot(ctx, sources, summary, right, REEL.W / 2 + 3, 0, REEL.W / 2 - 3, CAM_H);
-      drawMap(ctx, scene, clock, lower, { summary, ring, faces, focus: scene.people });
+      drawMap(ctx, scene, clock, lower, { summary, ring, faces, maps, focus: scene.people });
       break;
     }
     case 'minimap': {
@@ -1124,8 +1147,8 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
       const size = Math.min(REEL.W - 40, REEL.H - top - 300);
       const y0 = top + Math.max(20, (REEL.H - top - 300 - size) / 2 + 20);
       const mm = miniFor(scene, size, size);
-      if (mm) drawMiniMap(ctx, mm, { clockMs: clock, faces, summary, x: (REEL.W - size) / 2, y: y0 });
-      else drawMap(ctx, scene, clock, { x: 0, y: top, w: REEL.W, h: REEL.H - top }, { summary, ring, faces, focus: scene.people });
+      if (mm) drawMiniMap(ctx, mm, { clockMs: clock, faces, summary, x: (REEL.W - size) / 2, y: y0, streets: maps && typeof maps.mini === 'function' ? maps.mini(scene) : null });
+      else drawMap(ctx, scene, clock, { x: 0, y: top, w: REEL.W, h: REEL.H - top }, { summary, ring, faces, maps, focus: scene.people });
       break;
     }
     case 'mapcam': {
@@ -1133,14 +1156,14 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
       // footage that isn't there (not up yet, or past its file's end): the map fills the frame instead
       const hasMain = main && sourceOf(sources, main.id) && drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H);
       if (!hasMain && sources !== null) {
-        drawMap(ctx, scene, clock, full, { summary, ring, faces, focus: main ? [main.pid] : scene.people });
+        drawMap(ctx, scene, clock, full, { summary, ring, faces, maps, focus: main ? [main.pid] : scene.people });
         drawCaption(ctx, scene, clock, REEL.H - 140);
         break;
       }
       if (!hasMain) drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H);
       const smalls = by('small').filter((s) => !main || s.pid !== main.pid).slice(0, 3);
       smalls.forEach((s, i) => drawShot(ctx, sources, summary, s, REEL.W - 20 - (i + 1) * 176 + 16, CAM_H - 150, 160, 120, { small: true }));
-      drawMap(ctx, scene, clock, lower, { summary, ring, faces, focus: main ? [main.pid] : scene.people });
+      drawMap(ctx, scene, clock, lower, { summary, ring, faces, maps, focus: main ? [main.pid] : scene.people });
       drawCaption(ctx, scene, clock, CAM_H - 180);
       break;
     }
@@ -1150,7 +1173,7 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
       break;
     }
     default: {
-      drawMap(ctx, scene, clock, full, { summary, ring, faces, focus: scene.people });
+      drawMap(ctx, scene, clock, full, { summary, ring, faces, maps, focus: scene.people });
       if (scene.kind === 'gap') {
         ctx.fillStyle = 'rgba(7,9,13,0.4)';
         ctx.fillRect(0, 0, REEL.W, REEL.H);

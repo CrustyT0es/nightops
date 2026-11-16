@@ -10,9 +10,9 @@
 // Rules (CONTRACT.md v1.4 D and H): a walkie message is always played whole; a scene ends at a pause; highlights
 // come from the whole game (the beginning, middle and end), never "the first minutes of a long window"; "The whole
 // game" covers every clock from 0 to endClock exactly once, in order.
-import { TIMING } from '../shared/rules.js?v=144';
-import { distanceM, toLocal } from '../shared/geo.js?v=144';
-import { direct, fileTimeAt } from './director.js?v=144';
+import { TIMING } from '../shared/rules.js?v=145';
+import { distanceM, toLocal } from '../shared/geo.js?v=145';
+import { direct, fileTimeAt } from './director.js?v=145';
 
 export const REEL = Object.freeze({ W: 720, H: 1280, FPS: 30 });
 export const HIGHLIGHTS_MOST_MS = 480000;
@@ -728,5 +728,5 @@ export function miniMap(call, { w = 300, h = 300 } = {}) {
     return out;
   };
   return { box: { w, h, metres: span, pxPerM: sx }, a: map(withGap(track.a, gap && gap.a)), b: map(withGap(track.b, gap && gap.b)), gap: g,
-    ids: [gap && gap.a ? gap.a.id : null, gap && gap.b ? gap.b.id : null], origin, from: track.from, to: track.to };
+    ids: [gap && gap.a ? gap.a.id : null, gap && gap.b ? gap.b.id : null], origin, geo: { cx, cy }, from: track.from, to: track.to };
 }

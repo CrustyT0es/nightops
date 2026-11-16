@@ -10,11 +10,11 @@
 // (memory only where OPFS is missing, and then only up to MEMORY_MOST). About 720p at a rate that keeps 45 min
 // near 400 MB; storage.estimate is checked first and a smaller size offered when space is short. Paused while the
 // page is hidden (a hidden page's frames stop) and carried on when it's back; the screen kept on; Cancel any time.
-import { h, text } from './dom.js?v=144';
-import { openSheet } from './ui/sheet.js?v=144';
-import { fmtClock } from '../shared/rules.js?v=144';
-import { createMp4Muxer } from './mp4mux.js?v=144';
-import { openSink as openFileSink, clearMovies } from './sink.js?v=144';
+import { h, text } from './dom.js?v=145';
+import { openSheet } from './ui/sheet.js?v=145';
+import { fmtClock } from '../shared/rules.js?v=145';
+import { createMp4Muxer } from './mp4mux.js?v=145';
+import { openSink as openFileSink, clearMovies } from './sink.js?v=145';
 
 export const TYPES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
 export const FPS = 30;
@@ -92,8 +92,10 @@ export async function renderReel({
   const Recorder = win.MediaRecorder;
   const type = recType(Recorder);
   if (!type) throw new Error("This phone can't make a movie file. Watch it here instead.");
-  const openReel = open || (await import('./screens/reelplayer.js?v=144')).openReel;
+  const openReel = open || (await import('./screens/reelplayer.js?v=145')).openReel;
   const player = openReel({ app, summary, reel, ring, kind: reel.kind, record: true, doc, win });
+  // the street map's pictures first (never longer than MAPS_WAIT_MS: then the grid)
+  if (player.mapsReady) await Promise.race([player.mapsReady.catch(() => false), sleep(MAPS_WAIT_MS)]);
   const total = Math.max(1, reel.ms || player.reel.ms);
   const cv = player.canvas;
   let stream = null;
@@ -228,6 +230,7 @@ function offer({ blob, type, name }, doc, win) {
 // v1.4: the faster way. WebCodecs encodes each frame drawFrame draws (map-only stretches as fast as the encoder
 // takes), audio mixed in AUDIO_PIECE_S pieces with an OfflineAudioContext, written by mp4mux.js into the OPFS sink.
 
+export const MAPS_WAIT_MS = 30000; // the street map may hold the start of a movie this long at most
 export const NO_WAY = "This phone can't make the movie. Try on a computer with Chrome.";
 export const AUDIO_PIECE_S = 10;
 export const AUDIO_RATE = 48000;
@@ -322,9 +325,9 @@ async function linksFor(app, ids) {
 export async function renderFast({ app, reel, summary = {}, ring = null, signal = null, small = false, onProgress = () => {}, code = '', doc = globalThis.document, win = globalThis.window, how = null } = {}) {
   const way = how || (await chooseWay(win));
   if (way.way !== 'webcodecs') throw new Error(NO_WAY);
-  const { drawFrame, framePlan, audioAt } = await import('./movie.js?v=144');
-  const { synth } = await import('./screens/reelplayer.js?v=144');
-  const { gainOf } = await import('./scenes.js?v=144');
+  const { drawFrame, framePlan, audioAt } = await import('./movie.js?v=145');
+  const { synth } = await import('./screens/reelplayer.js?v=145');
+  const { gainOf } = await import('./scenes.js?v=145');
   const plan = renderPlan({ reel, quality: small ? 'small' : 'normal' });
   const total = Math.max(1, reel.ms);
   const stopped = () => !!(signal && signal.aborted);
@@ -372,6 +375,12 @@ export async function renderFast({ app, reel, summary = {}, ring = null, signal 
     for (const [id, url] of app.faces) { if (typeof url !== 'string') continue; const img = new win.Image(); img.src = url; faces.set(id, img); }
     await Promise.race([Promise.all([...faces.values()].map((i) => (i.decode ? i.decode().catch(() => {}) : null))), sleep(3000)]);
   }
+  let maps = null;
+  try {
+    const { prepareMaps } = await import('./moviemap.js?v=145');
+    maps = prepareMaps(reel, { doc, win });
+    await Promise.race([maps.done.catch(() => false), sleep(MAPS_WAIT_MS)]);
+  } catch { maps = null; }
   const vids = new Map(); // id -> { v, ok }
   const ids = [...new Set((reel.clips || []).map((c) => c.id))];
   const links = ids.length ? await linksFor(app, ids) : {};
@@ -504,7 +513,7 @@ export async function renderFast({ app, reel, summary = {}, ring = null, signal 
       const sources = new Map();
       for (const s of fp.shots) { const f = await frameOf(s.id, s.fileAt); if (f) sources.set(s.id, f); }
       pauseAll(new Set(fp.shots.map((s) => s.id)));
-      drawFrame(ctx, reel, t, { sources, faces, summary, ring, w: plan.w, h: plan.h, scale: plan.w / 720 });
+      drawFrame(ctx, reel, t, { sources, faces, summary, ring, maps, w: plan.w, h: plan.h, scale: plan.w / 720 });
       const vf = new win.VideoFrame(canvas, { timestamp: Math.round(t * 1000), duration: Math.round(step * 1000) });
       if (gone()) makeEncoders();
       venc.encode(vf, { keyFrame: keyNext || i % Math.round(plan.fps * KEY_EVERY_S) === 0 });
