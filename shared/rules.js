@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=144';
 
 export const LIMITS = {
   players: 20,      // most people in one game

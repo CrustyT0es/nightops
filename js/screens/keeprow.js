@@ -1,9 +1,9 @@
 // Night Ops v1.4 (PAGE-RENDER): the end screen's keep row (in over.js's div.over-keep-slot), for games without
 // the camera (with the camera the clips card has the same button). Says where a kept game goes: Your games.
 //   keepRow({ app }) -> { el, update(view) }
-import { h, text } from '../dom.js';
-import { icon } from '../ui/icons.js';
-import { keptWords } from './camparts.js';
+import { h, text } from '../dom.js?v=144';
+import { icon } from '../ui/icons.js?v=144';
+import { keptWords } from './camparts.js?v=144';
 
 export const KEEP_WHERE = "Kept on Night Ops' server for 30 days. Open it any time from Your games on the home screen. Downloads save to your phone (iPhone: the Files app, or Photos with Share > Save Video).";
 export const GOES_WHERE = 'Not kept: it goes a day after the game. Open it from Your games on the home screen until then.';

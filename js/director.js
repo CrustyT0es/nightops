@@ -14,8 +14,8 @@
 //   5. Else the loudest / fastest-moving (loud + min(50, speed x 10)); 'only' when there's one candidate.
 // A shot is held at least SHOT_MS unless its clip ends or goes dark, or a higher rule starts; within the
 // loudest rule a switch needs a score SWITCH_BY higher.
-import { TIMING } from '../shared/rules.js';
-import { distanceM } from '../shared/geo.js';
+import { TIMING } from '../shared/rules.js?v=144';
+import { distanceM } from '../shared/geo.js?v=144';
 
 export const SHOT_MS = 3000;
 export const DARK = 12;

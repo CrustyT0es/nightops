@@ -3,19 +3,19 @@
 // others see the same information read-only while they wait.
 // Everything is built once and then changed in place on each view, so a sync never moves the page or loses
 // focus. A setting the host just changed shows the new value at once (kept until the server answers).
-import { h, fill, add, face, text, cls, listen } from '../dom.js';
-import { icon } from '../ui/icons.js';
-import { openSheet } from '../ui/sheet.js';
-import { banner } from '../ui/banner.js';
-import { qrSvg } from '../qr.js';
-import { createMap } from '../map.js';
-import { ringProblem } from '../../shared/geo.js';
-import { cpCard } from './extras/cpcard.js'; // v1.3 PAGE-SETUP
-import { readyCard, notReady } from './ready.js'; // v1.4 PAGE-DEVICES
+import { h, fill, add, face, text, cls, listen } from '../dom.js?v=144';
+import { icon } from '../ui/icons.js?v=144';
+import { openSheet } from '../ui/sheet.js?v=144';
+import { banner } from '../ui/banner.js?v=144';
+import { qrSvg } from '../qr.js?v=144';
+import { createMap } from '../map.js?v=144';
+import { ringProblem } from '../../shared/geo.js?v=144';
+import { cpCard } from './extras/cpcard.js?v=144'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js?v=144'; // v1.4 PAGE-DEVICES
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
-} from '../../shared/rules.js';
+} from '../../shared/rules.js?v=144';
 
 // v1.1 PAGE-WATCH: the Extras card's three rows (each its builder's module), loaded so that one that's missing
 // or broken only leaves its row out, never the lobby.
@@ -349,7 +349,7 @@ export function mount(root, app) {
     leave.addEventListener('click', () => confirmLeave());
     const how = h('button.btn.small.ghost.icon-only.lobby-how', { type: 'button', 'aria-label': 'How to play' }, icon('info', 20));
     how.addEventListener('click', () => {
-      import('./home.js').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
+      import('./home.js?v=144').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
     });
     return h('header.lobby-top',
       h('div.lobby-top-text', h('span.label', 'Lobby'), h('h1.lobby-title', 'Get ready')),

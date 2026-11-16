@@ -16,8 +16,8 @@
 // claimed it; a claimed one runs until the moment + CAM_POST_MS (never past CAM_CLIP_MOST_MS) and is saved as one
 // whole file (a recorder's first chunk holds the file's header, so chunks are never stitched across recorders).
 // Everything: pieces of CAM_PIECE_MS, each next one started CAM_PIECE_OVERLAP_MS before the last ends.
-import { TIMING } from '../shared/rules.js';
-import { openCamStore, heldOf } from './camstore.js';
+import { TIMING } from '../shared/rules.js?v=144';
+import { openCamStore, heldOf } from './camstore.js?v=144';
 
 export const CAM_TYPES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
 export const VIDEO_BITS = 700000;

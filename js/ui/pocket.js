@@ -3,9 +3,9 @@
 // (Wake Lock, asked again when the page comes back), swallows every touch, and wakes on two taps within
 // 450 ms, or Enter / Space / Esc, or its "Wake the screen" button for screen readers. stop() removes it
 // without calling onWake.
-import { h } from '../dom.js';
-import { keepAwake } from '../alerts.js';
-import { holdInert } from './inert.js';
+import { h } from '../dom.js?v=144';
+import { keepAwake } from '../alerts.js?v=144';
+import { holdInert } from './inert.js?v=144';
 
 export const DOUBLE_TAP_MS = 450;
 const SWALLOW = ['touchstart', 'touchmove', 'touchend', 'pointerdown', 'pointermove', 'pointerup', 'click',

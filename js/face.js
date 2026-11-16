@@ -4,8 +4,8 @@
 // cancels, or when the picture can't be used (a banner then says why).
 // faceFromFile(file) -> Promise<dataUrl> does the same for a file you already have (it throws a plain
 // sentence on trouble).
-import { LIMITS } from '../shared/rules.js';
-import { banner } from './ui/banner.js';
+import { LIMITS } from '../shared/rules.js?v=144';
+import { banner } from './ui/banner.js?v=144';
 
 export const FACE_SIZE = 160;
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
