@@ -8,16 +8,16 @@
 //   confirmAgain(app, view) -> Promise<boolean>   Play again's warning when this round has clips
 //
 // Pure helpers (tested in Node): fmtMB, progressWords, clipLabel, keptWords, camOf, stillComing, mineOf.
-import { h, fill, text, cls, face } from '../dom.js?v=146';
-import { icon } from '../ui/icons.js?v=146';
-import { openSheet } from '../ui/sheet.js?v=146';
-import { fmtClock } from '../../shared/rules.js?v=146';
-import { direct, fileTimeAt } from '../director.js?v=146';
-import { canMakeMovie, talkOf } from '../movie.js?v=146';
-import { scenes as reelScenes } from '../scenes.js?v=146';
-import { renderReel } from '../render.js?v=146';
-import { createUploader } from '../upload.js?v=146';
-import { heldOf } from '../camstore.js?v=146';
+import { h, fill, text, cls, face } from '../dom.js?v=147';
+import { icon } from '../ui/icons.js?v=147';
+import { openSheet } from '../ui/sheet.js?v=147';
+import { fmtClock } from '../../shared/rules.js?v=147';
+import { direct, fileTimeAt } from '../director.js?v=147';
+import { canMakeMovie, talkOf } from '../movie.js?v=147';
+import { scenes as reelScenes } from '../scenes.js?v=147';
+import { renderReel } from '../render.js?v=147';
+import { createUploader } from '../upload.js?v=147';
+import { heldOf } from '../camstore.js?v=147';
 
 export const POLL_MS = 10000;
 export const URL_KEEP_MS = 13 * 60 * 1000;   // signed links last 15 min; asked again a little before
@@ -842,7 +842,7 @@ export function gameCamParts({ app }) {
     const st = media.state;
     const part = st.cam === 'denied' ? 'camera' : st.mic === 'denied' ? 'mic' : null;
     if (part) {
-      import('../ui/fixit.js?v=146').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
+      import('../ui/fixit.js?v=147').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
     } else media.restore();
   });
   // v1.4 end PAGE-DEVICES

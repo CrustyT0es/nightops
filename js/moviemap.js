@@ -9,11 +9,13 @@
 //   viewsBounds(box, rects) -> [x0, y0, x1, y1] (mercator, the union of what each rect shows)
 //   cameraFor(bounds, most) -> { w, h, center, zoom }
 //   miniCamera(mini) -> { w, h, center, zoom } | null
-//   prepareMaps(reel, { doc, win, load, waitMs, most }) -> store { ready, get(key), mini(scene), done }
+//   prepareMaps(reel, { doc, win, load, waitMs, most }) -> store { ready, get(key), mini(scene), cover(bounds), done }
+//   coverOf(pictures, bounds, sharp) -> the smallest picture holding bounds
 //   boxKey(box)
 
-import { fromLocal } from '../shared/geo.js?v=146';
-import { miniMap } from './scenes.js?v=146';
+import { fromLocal } from '../shared/geo.js?v=147';
+import { miniMap } from './scenes.js?v=147';
+import { tourBoxes } from './tour.js?v=147';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark'; // map.js's own (kept equal by a test)
 export const MINI_SIZE = 600;
@@ -23,6 +25,8 @@ const EARTH_C = 40075016.686;      // metres round the equator
 export const TILE = 512;           // MapLibre's world is 512 * 2^zoom pixels wide
 export const MAP_WAIT_MS = 12000;  // one picture's tiles must come within this
 export const MAPS_MOST = 10;       // pictures per reel at most (the whole game's stretches share the big one past it)
+export const TOUR_MAPS_MOST = 16; // big pictures at most, the director camera's tour views included (v1.4.6)
+export const DETAIL = 2.5;        // a picture this many times wider than a view is still sharp enough for it
 export const PAD = 20;             // movie.js leaves this much round a scene's box
 
 export function mercator(p) {
@@ -92,6 +96,19 @@ export function rectsFor(W, H, camH) {
   return [{ x: 0, y: 0, w: W, h: H }, { x: 0, y: camH, w: W, h: H - camH }, { x: 0, y: 380, w: W, h: H - 380 }];
 }
 
+// the smallest of these pictures ({ bounds }) holding b; `sharp`: only one at most DETAIL times b's width
+export function coverOf(list, b, sharp = false) {
+  let best = null;
+  const e = 1e-12;
+  for (const p of list) {
+    const q = p && p.bounds;
+    if (!q || q[0] > b[0] + e || q[1] > b[1] + e || q[2] < b[2] - e || q[3] < b[3] - e) continue;
+    if (sharp && (q[2] - q[0]) > (b[2] - b[0]) * DETAIL) continue;
+    if (!best || (q[2] - q[0]) * (q[3] - q[1]) < (best.bounds[2] - best.bounds[0]) * (best.bounds[3] - best.bounds[1])) best = p;
+  }
+  return best;
+}
+
 async function snap(lib, cam, { doc, waitMs }) {
   const MapClass = lib.Map || (lib.default && lib.default.Map);
   if (typeof MapClass !== 'function') return null;
@@ -132,6 +149,8 @@ export function prepareMaps(reel, { doc = globalThis.document, win = globalThis.
     get: (key) => big.get(key) || null,
     any: () => big.get('*') || null,
     mini: (scene) => minis.get(scene) || null,
+    // the most detailed picture holding all of these mercator bounds (a tour view between its pictures)
+    cover: (b) => coverOf([...new Set(big.values())], b),
     done: Promise.resolve(false),
   };
   if (!reel || !Array.isArray(reel.scenes) || !doc || !doc.body || typeof doc.createElement !== 'function') return store;
@@ -156,13 +175,30 @@ export function prepareMaps(reel, { doc = globalThis.document, win = globalThis.
     const cam = miniCamera(mm);
     if (cam) jobs.push({ scene: s, cam });
   }
+  // v1.4.6: the tour views, unless a picture already made covers one in enough detail
+  let bigN = jobs.filter((j) => !j.scene).length;
+  for (const s of reel.scenes) {
+    for (const box of tourBoxes(s)) {
+      if (bigN >= Math.max(most, TOUR_MAPS_MOST)) break;
+      const key = boxKey(box);
+      if (seen.has(key)) continue;
+      const bounds = viewsBounds(box, [rects[0]]);
+      if (!bounds) continue;
+      if (coverOf(jobs.filter((j) => !j.scene), bounds, true)) continue;
+      const cam = cameraFor(bounds);
+      if (!cam) continue;
+      seen.add(key);
+      jobs.push({ key, bounds, cam, first: false, tour: true });
+      bigN += 1;
+    }
+  }
   if (!jobs.length) return store;
   store.done = (async () => {
     let lib = null;
     try {
       const gl = doc.createElement('canvas');
       if (!load && !(gl.getContext && gl.getContext('webgl2'))) return false;
-      lib = load ? await load() : await import('../vendor/maplibre-gl.mjs?v=146');
+      lib = load ? await load() : await import('../vendor/maplibre-gl.mjs?v=147');
     } catch { return false; }
     let any = false;
     for (const j of jobs) {

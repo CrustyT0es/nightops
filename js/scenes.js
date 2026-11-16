@@ -10,9 +10,10 @@
 // Rules (CONTRACT.md v1.4 D and H): a walkie message is always played whole; a scene ends at a pause; highlights
 // come from the whole game (the beginning, middle and end), never "the first minutes of a long window"; "The whole
 // game" covers every clock from 0 to endClock exactly once, in order.
-import { TIMING } from '../shared/rules.js?v=146';
-import { distanceM, toLocal } from '../shared/geo.js?v=146';
-import { direct, fileTimeAt } from './director.js?v=146';
+import { TIMING } from '../shared/rules.js?v=147';
+import { distanceM, toLocal } from '../shared/geo.js?v=147';
+import { direct, fileTimeAt } from './director.js?v=147';
+import { planTour } from './tour.js?v=147';
 
 export const REEL = Object.freeze({ W: 720, H: 1280, FPS: 30 });
 export const HIGHLIGHTS_MOST_MS = 480000;
@@ -592,6 +593,15 @@ function place(reel) {
     .filter((m) => m.kind !== 'stretch' && m.kind !== 'gap');
 }
 
+// v1.4.6: the director camera's tour of each quiet map stretch (tour.js)
+function tours(reel, summary) {
+  for (const sc of reel.scenes) {
+    let t = null;
+    try { t = planTour(sc, summary); } catch { t = null; }
+    if (t) sc.tour = t;
+  }
+}
+
 function busiest(summary, endClock) {
   const routes = summary && summary.routes ? summary.routes : {};
   let best = { from: 0, m: -1 };
@@ -655,6 +665,7 @@ export function scenes({ summary = {}, clips = [], talk = null, speech = null, k
     }
     reel.scenes.push(outroScene(summary));
     place(reel);
+    tours(reel, summary);
     finishAudio(reel, list, msgs);
     return reel;
   }
@@ -681,6 +692,7 @@ export function scenes({ summary = {}, clips = [], talk = null, speech = null, k
   reel.scenes.push(outroScene(summary));
   // the gaps were budgeted at GAP_LONG_MS each, so this stays within `most`
   place(reel);
+  tours(reel, summary);
   finishAudio(reel, list, msgs);
   return reel;
 }

@@ -6,13 +6,14 @@
 //   canMakeMovie(win) -> boolean
 //   movieParts({ list, summary, whole }) -> { windows, cuts, totalMs }   (pure)
 //   renderMovie({ app, list, summary, faces, ring, whole, onProgress, signal, getUrls }) -> Promise<{ blob, type, name }>
-import { direct, movieWindows, fileTimeAt } from './director.js?v=146';
-import { fmtClock } from '../shared/rules.js?v=146';
-import { ringOutline } from '../shared/geo.js?v=146';
+import { direct, movieWindows, fileTimeAt } from './director.js?v=147';
+import { fmtClock } from '../shared/rules.js?v=147';
+import { ringOutline } from '../shared/geo.js?v=147';
 // v1.4 PAGE-REEL: the reel's frame drawer (drawFrame, framePlan, audioAt, drawMiniMap) is at the end of this file.
 // The v1.2 movieParts/renderMovie above it stay only until PAGE-RENDER's render.js takes over the downloads.
-import { fitView, boxKey } from './moviemap.js?v=146';
-import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=146';
+import { fitView, boxKey } from './moviemap.js?v=147';
+import { tourView } from './tour.js?v=147';
+import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=147';
 
 export const W = 720;
 export const H = 1280;
@@ -797,10 +798,16 @@ function projector(box, rect) {
 // the street map's still picture under the panel (moviemap.js), else nothing (the grid shows)
 function drawStreets(ctx, maps, box, rect) {
   if (!maps || !box || typeof maps.get !== 'function') return false;
-  const pic = maps.get(boxKey(box)) || (typeof maps.any === 'function' ? maps.any() : null);
-  if (!pic || !pic.img) return false;
   const v = fitView(box, rect);
   if (!v) return false;
+  // v1.4.6: a tour's view in between pictures: the most detailed picture that covers all of it (cropped), else any
+  let pic = maps.get(boxKey(box));
+  if (!pic && typeof maps.cover === 'function') {
+    const [a0, a1] = v.fromPx(rect.x, rect.y), [b0, b1] = v.fromPx(rect.x + rect.w, rect.y + rect.h);
+    pic = maps.cover([a0, a1, b0, b1]);
+  }
+  if (!pic && typeof maps.any === 'function') pic = maps.any();
+  if (!pic || !pic.img) return false;
   const [x0, y0] = v.toPxM([pic.bounds[0], pic.bounds[1]]), [x1, y1] = v.toPxM([pic.bounds[2], pic.bounds[3]]);
   try { ctx.drawImage(pic.img, x0, y0, x1 - x0, y1 - y0); } catch { return false; }
   ctx.fillStyle = 'rgba(7,9,13,0.18)'; // a touch darker, so routes and names stand out as on the replay
@@ -830,14 +837,15 @@ function drawGrid(ctx, rect) {
   for (let y = rect.y; y < rect.y + rect.h; y += 48) { ctx.beginPath(); ctx.moveTo(rect.x, y); ctx.lineTo(rect.x + rect.w, y); ctx.stroke(); }
 }
 
-function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [], maps = null } = {}) {
+function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [], maps = null, box = null } = {}) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.w, rect.h);
   ctx.clip();
   drawGrid(ctx, rect);
-  drawStreets(ctx, maps, scene.map && scene.map.box, rect);
-  const proj = projector(scene.map && scene.map.box, rect);
+  const view = box || (scene.map && scene.map.box);
+  drawStreets(ctx, maps, view, rect);
+  const proj = projector(view, rect);
   if (proj) {
     const ringPts = ringPointsOf(ring);
     if (ringPts.length > 2) {
@@ -894,6 +902,66 @@ function drawMap(ctx, scene, clock, rect, { summary, ring, faces, focus = [], ma
     }
   }
   ctx.restore();
+}
+
+// ---- v1.4.6: the director camera's "everyone" corner map (ring, every player's dot, the main view's frame) ----
+
+export const OVERVIEW = { x: REEL.W - 196, y: 84, w: 176, h: 250 };
+
+function drawOverview(ctx, scene, clock, view, { summary, ring, faces, maps } = {}) {
+  const sbox = scene.map && scene.map.box;
+  if (!sbox) return;
+  const r = OVERVIEW;
+  ctx.save();
+  round(ctx, r.x, r.y, r.w, r.h, 14);
+  ctx.clip();
+  drawGrid(ctx, r);
+  drawStreets(ctx, maps, sbox, r);
+  ctx.fillStyle = 'rgba(7,9,13,0.25)';
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  const v = fitView(sbox, r, 10);
+  if (v) {
+    const pts = ringPointsOf(ring);
+    if (pts.length > 2) {
+      ctx.beginPath();
+      pts.forEach((p, i) => { const [x, y] = v.toPx(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.closePath();
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = 'rgba(230,235,242,0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    const sec = clock === null ? Infinity : clock / 1000;
+    for (const pid of Object.keys((summary && summary.routes) || {}).sort()) {
+      const h = headAt(summary.routes[pid], sec);
+      if (!h) continue;
+      const [x, y] = v.toPx(h);
+      ctx.beginPath();
+      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = ringColor(summary, pid, clock);
+      ctx.fill();
+    }
+    if (view && view.box) {
+      // what the big map shows (its view fitted to the whole frame)
+      const big = fitView(view.box, { x: 0, y: 0, w: REEL.W, h: REEL.H });
+      if (big) {
+        const [a0, a1] = big.fromPx(0, 0), [b0, b1] = big.fromPx(REEL.W, REEL.H);
+        const [x0, y0] = v.toPxM([a0, a1]), [x1, y1] = v.toPxM([b0, b1]);
+        ctx.strokeStyle = ACCENT;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      }
+    }
+  }
+  ctx.restore();
+  round(ctx, r.x, r.y, r.w, r.h, 14);
+  ctx.strokeStyle = LINE14;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  if (view && view.label) {
+    txt(ctx, view.label, r.x + r.w, r.y + r.h + 30, { size: 20, align: 'right', color: INK, weight: 600 });
+  }
 }
 
 // ---- the close-call mini map ----
@@ -1174,7 +1242,10 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
       break;
     }
     default: {
-      drawMap(ctx, scene, clock, full, { summary, ring, faces, maps, focus: scene.people });
+      const view = scene.tour ? tourView(scene, t) : null;
+      drawMap(ctx, scene, clock, full, { summary, ring, faces, maps, box: view ? view.box : null,
+        focus: view && view.pids.length ? view.pids : scene.people });
+      if (view) drawOverview(ctx, scene, clock, view, o);
       if (scene.kind === 'gap') {
         ctx.fillStyle = 'rgba(7,9,13,0.4)';
         ctx.fillRect(0, 0, REEL.W, REEL.H);
