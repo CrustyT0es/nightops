@@ -1323,9 +1323,25 @@ export function replayRadioUi({ onSwitch = () => {}, onPlay = () => {} } = {}) {
   const title = h('h2#over-radio-title.label', 'Walkie-talkie');
   const note = h('p.over-hint.over-radio-note', { hidden: true });
   const list = h('ul.over-radio-list', { role: 'list' });
+  // v1.4.4: a long game has 100+ clips: the first few show, the rest behind "Show all" (a playing one always shows)
+  const FEW = 4;
+  let open = false;
+  const more = h('button.btn.small.wide.over-radio-more', { type: 'button', 'aria-expanded': 'false', hidden: true });
   const card = h('section.over-card.over-radio', { 'aria-labelledby': 'over-radio-title', hidden: true },
-    h('div.over-card-head', title), note, list);
+    h('div.over-card-head', title), note, list, more);
   let rows = [];
+  function fold() {
+    const many = rows.length > FEW + 1;
+    more.hidden = !many;
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    text(more, open ? 'Show fewer' : `Show all ${rows.length} clips`);
+    rows.forEach((r, i) => { r.li.hidden = many && !open && i >= FEW && !r.li.classList.contains('playing'); });
+  }
+  more.addEventListener('click', () => {
+    open = !open;
+    fold();
+    if (!open) { try { card.scrollIntoView({ block: 'nearest' }); } catch { /* fine */ } }
+  });
   let key = '';
 
   function set(clips, nameOf = () => 'A hunter', saved = true) {
@@ -1354,6 +1370,7 @@ export function replayRadioUi({ onSwitch = () => {}, onPlay = () => {} } = {}) {
       return { n: c.n, li, state };
     });
     list.replaceChildren(...rows.map((r) => r.li));
+    fold();
   }
 
   function paint(rr) {
@@ -1365,6 +1382,7 @@ export function replayRadioUi({ onSwitch = () => {}, onPlay = () => {} } = {}) {
       const words = playing ? 'Playing' : st.startsWith('failed:') ? st.slice(7) : '';
       if (r.state.textContent !== words) text(r.state, words);
     }
+    fold();
   }
 
   return { switchRow, card, set, paint, get on() { return sw.getAttribute('aria-checked') === 'true'; } };

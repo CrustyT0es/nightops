@@ -254,3 +254,7 @@ body[data-team='hider'] .radio[data-state='recording'] .radio-icon { background:
    squeezed into the next one). */
 .tray-more:has(> .radio-held) { grid-auto-rows: max-content; }
 /* v1.2 end PAGE-RADIO */
+
+/* v1.4.4: the rest of a long list folds behind Show all */
+.over-radio-row[hidden] { display: none !important; }
+.over-radio-more { margin-top: 10px; }
