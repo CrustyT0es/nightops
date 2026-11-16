@@ -10,7 +10,7 @@
 // starts open, unless its screen is shorter than TUCK_BELOW_PX: there the open tray would leave little map.
 // The handle is a 28px row with a bar; its button's hit area is 44px (16px reaching up over the map, see map.css).
 // Swiping it down tucks the tray, up opens it; a tap toggles. With nothing in the more rows there's no handle.
-import { h, fill } from '../dom.js?v=148';
+import { h, fill } from '../dom.js?v=149';
 
 export const TRAY_KEY = 'nightops-tray';
 export const TRAY_STATES = ['open', 'tucked'];
