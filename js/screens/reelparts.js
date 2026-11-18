@@ -4,11 +4,11 @@
 //   callMini(call, { summary, faces, onWatch, onShow }) -> element | null   a close call's still mini map + buttons
 //   followRow({ players, faces, onPick }) -> { el, set(players, following) }
 //   loadFaces(app) -> Map id -> HTMLImageElement (for canvases)
-import { h, fill, text, face } from '../dom.js?v=150';
-import { icon } from '../ui/icons.js?v=150';
-import { scenes, miniMap } from '../scenes.js?v=150';
-import { drawMiniMap } from '../movie.js?v=150';
-import { fmtClock } from '../../shared/rules.js?v=150';
+import { h, fill, text, face } from '../dom.js?v=151';
+import { icon } from '../ui/icons.js?v=151';
+import { scenes, miniMap } from '../scenes.js?v=151';
+import { drawMiniMap } from '../movie.js?v=151';
+import { fmtClock } from '../../shared/rules.js?v=151';
 
 const imgCache = new Map(); // data URL -> img
 export function loadFaces(app) {
@@ -45,13 +45,24 @@ export function moviesCard({ onWatch = () => {}, onDownload = () => {}, onReplay
     ? h('button.btn.small.ghost.over-movie-replay', { type: 'button' }, icon('locate', 16), h('span', 'Replay map'))
     : null;
   if (replayBtn) replayBtn.addEventListener('click', () => onReplay());
+  // v1.5: the PC's edit goes first in the card (setPro), and a summary-less round still shows it
+  const proSlot = h('div.over-pro-slot', { hidden: true });
+  let hasPro = false;
   const el = h('section.over-card.over-movies-card', { 'aria-labelledby': 'over-movies-title', hidden: true },
     h('div.over-card-head', h('h2#over-movies-title.label', 'Movies')),
+    proSlot,
     h('div.over-movies', hi.el, wh.el, replayBtn));
   return {
     el,
+    proSlot,
+    setPro(node) {
+      hasPro = !!node;
+      fill(proSlot, node || []);
+      proSlot.hidden = !node;
+      if (node) el.hidden = false;
+    },
     set({ summary, clips }) {
-      if (!summary || !Number.isFinite(summary.endClock)) { el.hidden = true; return; }
+      if (!summary || !Number.isFinite(summary.endClock)) { el.hidden = !hasPro; return; }
       const s = `${summary.endClock}|${(clips || []).length}|${(clips || []).map((c) => c.id).join(',').length}|${(summary.radio || []).length}`;
       el.hidden = false;
       if (s === sig) return;

@@ -1,8 +1,8 @@
 // Night Ops: who you are on this phone (name + selfie) and the game you're in ({code, id, secret}).
 // Kept in localStorage under 'nightops-me' and 'nightops-game'. Every access is in try/catch: private
 // browsing, a full or blocked storage never breaks the page (it falls back to memory for this visit).
-import { LIMITS } from '../shared/rules.js?v=150';
-import { cleanName as engineName } from '../shared/engine.js?v=150';
+import { LIMITS } from '../shared/rules.js?v=151';
+import { cleanName as engineName } from '../shared/engine.js?v=151';
 
 export const ME_KEY = 'nightops-me';
 export const GAME_KEY = 'nightops-game';
@@ -45,6 +45,7 @@ export function cleanPast(g) {
     when: Number.isFinite(g.when) && g.when > 0 ? g.when : g.round,
     role: text(g.role, 20),
     result: text(g.result, 60),
+    ...(g.pro === 'ready' ? { pro: 'ready' } : {}), // v1.5: the PC's edit of this round is ready
   };
 }
 
@@ -165,6 +166,8 @@ export function createIdentity(getStorage = () => globalThis.localStorage) {
   function rememberPast(g) {
     const c = cleanPast(g);
     if (!c) return null;
+    const was = loadPast().find((x) => x.code === c.code && x.round === c.round);
+    if (was && was.pro && !c.pro) c.pro = was.pro; // v1.5 (an over view arriving again never forgets it)
     const list = [c, ...loadPast().filter((x) => !(x.code === c.code && x.round === c.round))].slice(0, PAST_MOST);
     write(PAST_KEY, JSON.stringify(list));
     return c;

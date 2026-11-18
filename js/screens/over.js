@@ -9,23 +9,24 @@
 //
 // Pure helpers (no DOM, tested in Node): overFacts(view), playerLines(row, facts), shareText(facts), listNames,
 // ticksFor(facts, endS), captionAt(events, clockMs), phaseAt(facts, clockMs), defaultSpeed(endS), facesSig.
-import { h, fill, face, text, cls, listen } from '../dom.js?v=150';
-import { icon } from '../ui/icons.js?v=150';
-import { banner } from '../ui/banner.js?v=150';
-import { openSheet } from '../ui/sheet.js?v=150';
-import { createMap, cleanRoute, routeAt, toBounds } from '../map.js?v=150';
-import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js?v=150';
-import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js?v=150';
-import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js?v=150'; // v1.1 PAGE-RADIO
-import { createTray } from '../ui/tray.js?v=150'; // v1.2 PAGE-MAP
-import { attachCamParts, confirmAgain } from './camparts.js?v=150'; // v1.2 PAGE-CAM
-import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js?v=150'; // v1.3 PAGE-AFTER
+import { h, fill, face, text, cls, listen } from '../dom.js?v=151';
+import { icon } from '../ui/icons.js?v=151';
+import { banner } from '../ui/banner.js?v=151';
+import { openSheet } from '../ui/sheet.js?v=151';
+import { createMap, cleanRoute, routeAt, toBounds } from '../map.js?v=151';
+import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js?v=151';
+import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js?v=151';
+import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js?v=151'; // v1.1 PAGE-RADIO
+import { createTray } from '../ui/tray.js?v=151'; // v1.2 PAGE-MAP
+import { attachCamParts, confirmAgain } from './camparts.js?v=151'; // v1.2 PAGE-CAM
+import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js?v=151'; // v1.3 PAGE-AFTER
 // v1.4 PAGE-REEL: the map camera, the scene player, the Movies card, the close calls' mini maps
-import { createMapCam } from '../mapcam.js?v=150';
-import { openReel } from './reelplayer.js?v=150';
-import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js?v=150';
-import { scenes as reelScenes } from '../scenes.js?v=150';
-import { keepRow } from './keeprow.js?v=150'; // v1.4 PAGE-RENDER
+import { createMapCam } from '../mapcam.js?v=151';
+import { openReel } from './reelplayer.js?v=151';
+import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js?v=151';
+import { scenes as reelScenes } from '../scenes.js?v=151';
+import { keepRow } from './keeprow.js?v=151'; // v1.4 PAGE-RENDER
+import { proRows, linkSheet, linkedPc } from '../pcedit.js?v=151'; // v1.5: the PC edit
 // v1.4 end PAGE-REEL
 
 // v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
@@ -1218,7 +1219,7 @@ export function mount(root, app) {
     if (S.chat || S.dead) return;
     S.chat = 'opening';
     try {
-      const mod = await import('./chat.js?v=150');
+      const mod = await import('./chat.js?v=151');
       if (S.dead) { S.chat = null; return; }
       S.unread = 0;
       paintChat();
@@ -1384,6 +1385,58 @@ export function mount(root, app) {
     try { movies.set({ summary: withEnd, clips: movieClips() }); } catch (e) { console.error(e); }
   }
   if (camUi && camUi.list && typeof camUi.list.on === 'function') offs.push(camUi.list.on(() => paintMovies()));
+  // v1.5: the PC's edit (first in the Movies card), asked again every 30 s while it's being made
+  const PRO_EVERY_MS = 30000;
+  let proTimer = null;
+  let proSig = '';
+  let proBusy = false;
+  async function paintPro() {
+    clearTimeout(proTimer);
+    proTimer = null;
+    if (proBusy || S.dead || !app || typeof app.proEdit !== 'function') return;
+    const view = app.view;
+    if (!view || view.phase !== 'over') return;
+    let m = null;
+    proBusy = true;
+    try { m = await app.proEdit(); } catch { m = null; } finally { proBusy = false; }
+    if (S.dead) return;
+    const sig = JSON.stringify(m && { s: m.status, p: m.progress, n: m.note, f: m.files && Object.keys(m.files) });
+    if (sig !== proSig) {
+      proSig = sig;
+      const node = proRows(m, { onWatch: (kind, file) => watchPro(kind, file), onDownload: (kind, file) => downloadPro(kind, file) });
+      const link = !m && !linkedPc() ? linkPcButton() : null;
+      try { movies.setPro(node || link); } catch (e) { console.error(e); }
+    }
+    if (m && (m.status === 'queued' || m.status === 'making')) proTimer = setTimeout(paintPro, PRO_EVERY_MS);
+  }
+  offs.push(() => clearTimeout(proTimer));
+  function linkPcButton() {
+    const b = h('button.btn.small.ghost.over-pro-link', { type: 'button' }, icon('link', 16), h('span', 'Link my PC for a pro edit'));
+    b.addEventListener('click', () => openLinkPc());
+    return h('div.over-pro.is-link', b);
+  }
+  function openLinkPc() {
+    const ui = linkSheet({ linked: linkedPc(), onLink: async (code) => { const name = await app.linkPc(code); proSig = ''; paintPro(); return name; } });
+    openSheet({ title: 'Link my PC', body: ui.el, actions: [{ label: 'Done', kind: 'ghost' }], className: 'pc-link-sheet' });
+  }
+  function proName(kind) {
+    const code = (app.view && app.view.code) || 'nightops';
+    return `night-ops-${code}-${kind === 'highlights' ? 'pro-edit' : kind}.mp4`;
+  }
+  function watchPro(kind, file) {
+    if (!file || typeof file.url !== 'string') return;
+    const video = h('video.over-pro-video', { controls: true, playsinline: true, preload: 'metadata', src: file.url });
+    openSheet({ title: kind === 'whole' ? 'The whole game' : 'Pro edit', body: video, actions: [
+      { label: 'Download', kind: 'primary', keepOpen: true, onClick: () => downloadPro(kind, file) }], className: 'over-pro-sheet' });
+  }
+  function downloadPro(kind, file) {
+    if (!file || typeof file.url !== 'string') return;
+    const sep = file.url.includes('?') ? '&' : '?';
+    const a = h('a', { href: `${file.url}${sep}download=${encodeURIComponent(proName(kind))}`, download: proName(kind), rel: 'noopener' });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
   function watchMovie(kind, reel, sceneIndex = null) {
     const r = reel || movies.reel(kind);
     if (!r) return;
@@ -1409,7 +1462,7 @@ export function mount(root, app) {
     const r = reel || movies.reel(kind);
     if (!r) return;
     let mod = null;
-    try { mod = await import('../render.js?v=150'); } catch { mod = null; }
+    try { mod = await import('../render.js?v=151'); } catch { mod = null; }
     if (!mod || typeof mod.downloadReel !== 'function') {
       banner("Downloads aren't ready on this phone yet. Watch it here for now.", 'warn', 5000);
       return;
@@ -1445,6 +1498,7 @@ export function mount(root, app) {
     try { camUi.update(view); } catch (e) { console.error(e); } // v1.2 PAGE-CAM
     try { keepUi.update(view); } catch (e) { console.error(e); } // v1.4 PAGE-RENDER
     paintMovies(); // v1.4 PAGE-REEL
+    if (!proSig && !proTimer) paintPro(); // v1.5: the PC's edit
     // v1.3 PAGE-AFTER: the Checkpoints card and the replay's zones
     try { cpUi.update(view); cpR.setData(view.summary, f.cp); } catch (e) { console.error(e); }
     const cpTickSig = JSON.stringify(f.cpTicks);

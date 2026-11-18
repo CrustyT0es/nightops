@@ -3,8 +3,8 @@
 // inside the ring's box, and offers them as suggestions. One plain POST: no credentials, no other headers, nothing
 // about the game or the players is sent (only the box). It never throws: a problem comes back as a sentence that
 // says the way on (tapping the map always works).
-import { LIMITS, cleanLine, nameKey } from '../shared/rules.js?v=150';
-import { isPoint, ringCenter, ringProblem, outsideByM, distanceM, ringOutline, scaleRing } from '../shared/geo.js?v=150';
+import { LIMITS, cleanLine, nameKey } from '../shared/rules.js?v=151';
+import { isPoint, ringCenter, ringProblem, outsideByM, distanceM, ringOutline, scaleRing } from '../shared/geo.js?v=151';
 
 export const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 export const PLACES_MOST = 40;

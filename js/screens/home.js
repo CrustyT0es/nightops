@@ -1,13 +1,14 @@
 // Night Ops: the home screen. Who you are (name + optional selfie), then Create a game or Join one with a
 // 6-letter code (typed, pasted, or from an invite link). A "How to play" sheet, and a note about location.
 // There's no game yet, so this screen renders from the App (app.me, app.args, app.savedGame), not a view.
-import { h, fill, face, text, listen } from '../dom.js?v=150';
-import { icon } from '../ui/icons.js?v=150';
-import { openSheet } from '../ui/sheet.js?v=150';
-import { pickFace } from '../face.js?v=150';
-import { cleanName } from '../identity.js?v=150';
-import { normalizeCode } from '../app.js?v=150';
-import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=150';
+import { h, fill, face, text, listen } from '../dom.js?v=151';
+import { icon } from '../ui/icons.js?v=151';
+import { openSheet } from '../ui/sheet.js?v=151';
+import { linkSheet, linkedPc } from '../pcedit.js?v=151'; // v1.5: the PC edit
+import { pickFace } from '../face.js?v=151';
+import { cleanName } from '../identity.js?v=151';
+import { normalizeCode } from '../app.js?v=151';
+import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=151';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -516,6 +517,13 @@ export function mount(root, app, args = {}) {
   const watchOpenBtn = h('button.btn.ghost.home-watch-open', { type: 'button' }, icon('eye', 20), 'Watch a game');
   watchOpenBtn.addEventListener('click', () => watchSheet());
   // v1.1 end PAGE-WATCH
+  // v1.5: "Link my PC" (the owner's PC makes a pro edit of every game this phone plays in)
+  const pcBtn = h('button.btn.ghost.home-pc-open', { type: 'button' }, icon('link', 20), 'Link my PC');
+  pcBtn.addEventListener('click', () => {
+    if (typeof app.linkPc !== 'function') return;
+    const ui = linkSheet({ linked: linkedPc(), onLink: (code) => app.linkPc(code) });
+    openSheet({ title: 'Link my PC', body: ui.el, actions: [{ label: 'Done', kind: 'ghost' }], className: 'pc-link-sheet' });
+  });
 
   // v1.4 Your games: games this phone was in or watched, while the server still has them.
   const gamesCard = h('section.home-card.home-games', { 'aria-labelledby': 'home-games-title', hidden: true });
@@ -540,7 +548,7 @@ export function mount(root, app, args = {}) {
         if (!ul.children.length) gamesCard.hidden = true;
       });
       const li = h('li.home-game', h('div.home-game-text', h('p.home-game-title', w.title),
-        w.line ? h('p.home-hint', w.line) : null, w.keep ? h(`p.home-hint.home-game-keep${Number.isFinite(g.kept) ? '.kept' : ''}`, w.keep) : null),
+        w.line ? h('p.home-hint', w.line) : null, g.pro === 'ready' ? h('p.home-hint.home-game-pro', 'Pro edit ready') : null, w.keep ? h(`p.home-hint.home-game-keep${Number.isFinite(g.kept) ? '.kept' : ''}`, w.keep) : null),
         h('div.home-game-btns', btn, rm));
       return li;
     });
@@ -563,7 +571,7 @@ export function mount(root, app, args = {}) {
       gamesCard, // v1.4 Your games
       order,
       h('footer.home-foot',
-        h('div.home-foot-btns', howBtn, watchOpenBtn), // v1.1 PAGE-WATCH: Watch a game beside How to play
+        h('div.home-foot-btns', howBtn, watchOpenBtn, pcBtn), // v1.1 PAGE-WATCH: Watch a game beside How to play; v1.5 Link my PC
         h('p.home-note', icon('pin', 18), h('span', 'Night Ops uses your location while a game is on, so the map works. Your phone asks when the game starts.')))));
 
   drawFace();

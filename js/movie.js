@@ -6,14 +6,14 @@
 //   canMakeMovie(win) -> boolean
 //   movieParts({ list, summary, whole }) -> { windows, cuts, totalMs }   (pure)
 //   renderMovie({ app, list, summary, faces, ring, whole, onProgress, signal, getUrls }) -> Promise<{ blob, type, name }>
-import { direct, movieWindows, fileTimeAt } from './director.js?v=150';
-import { fmtClock } from '../shared/rules.js?v=150';
-import { ringOutline } from '../shared/geo.js?v=150';
+import { direct, movieWindows, fileTimeAt } from './director.js?v=151';
+import { fmtClock } from '../shared/rules.js?v=151';
+import { ringOutline } from '../shared/geo.js?v=151';
 // v1.4 PAGE-REEL: the reel's frame drawer (drawFrame, framePlan, audioAt, drawMiniMap) is at the end of this file.
 // The v1.2 movieParts/renderMovie above it stay only until PAGE-RENDER's render.js takes over the downloads.
-import { fitView, boxKey } from './moviemap.js?v=150';
-import { tourView } from './tour.js?v=150';
-import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames, loudAt } from './scenes.js?v=150';
+import { fitView, boxKey } from './moviemap.js?v=151';
+import { tourView } from './tour.js?v=151';
+import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames, loudAt } from './scenes.js?v=151';
 
 export const W = 720;
 export const H = 1280;

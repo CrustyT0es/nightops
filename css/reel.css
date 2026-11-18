@@ -75,3 +75,24 @@
 /* 10 s back / forward beside play */
 .reel-skip { position: relative; }
 .reel-skip-n { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; font-weight: 700; pointer-events: none; padding-top: 1px; }
+
+/* v1.5: the PC's edit, first in the Movies card */
+.over-pro-slot { margin-bottom: 10px; }
+.over-pro { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: rgba(78, 168, 255, 0.08); border: 1px solid rgba(78, 168, 255, 0.45); }
+.over-pro.is-ready { padding: 0; background: transparent; border: 0; }
+.over-pro.is-ready .over-movie-row { border-color: rgba(78, 168, 255, 0.55); background: rgba(78, 168, 255, 0.1); }
+.over-pro.is-failed { background: rgba(255, 176, 32, 0.08); border-color: rgba(255, 176, 32, 0.45); }
+.over-pro.is-link { background: transparent; border-style: dashed; border-color: var(--line, #1f2836); }
+.over-pro-name { font-weight: 700; display: block; }
+.over-pro-bar { height: 6px; border-radius: 3px; background: var(--line, #1f2836); overflow: hidden; }
+.over-pro-fill { display: block; height: 100%; background: var(--hider, #4ea8ff); transition: width 0.4s ease; }
+.over-pro-extra { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.over-pro-more { min-height: 56px; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; padding: 8px 12px; white-space: normal; }
+.over-pro-link { min-height: 44px; justify-self: start; }
+.over-pro-video { width: 100%; max-height: 70vh; border-radius: 12px; background: #000; display: block; }
+.pc-link { display: grid; gap: 10px; }
+.pc-link .pc-code { font-family: var(--mono, monospace); font-size: 22px; letter-spacing: 2px; text-transform: uppercase; text-align: center; min-height: 52px; }
+.pc-intro, .pc-now { color: var(--muted, #9aa6b8); margin: 0; }
+.pc-say { min-height: 1.4em; margin: 0; }
+.home-game-pro { color: var(--hider, #4ea8ff); font-weight: 600; }
+@media (max-width: 360px) { .over-pro-extra { grid-template-columns: 1fr; } }

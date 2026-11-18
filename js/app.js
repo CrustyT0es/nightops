@@ -30,19 +30,20 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=150';
-import { h, fill } from './dom.js?v=150';
-import { icon } from './ui/icons.js?v=150';
-import { banner as defaultBanner } from './ui/banner.js?v=150';
-import { closeSheets } from './ui/sheet.js?v=150';
-import { backButton } from './ui/back.js?v=150';
-import { ApiError, toApiError, WORDS } from './api.js?v=150';
-import { cleanName, cleanFace } from './identity.js?v=150';
-import { createRadio, fromBase64 } from './radio.js?v=150'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=150'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=150'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=150'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=150'; // v1.4 PAGE-DEVICES
+import { TIMING, LIMITS } from '../shared/rules.js?v=151';
+import { h, fill } from './dom.js?v=151';
+import { icon } from './ui/icons.js?v=151';
+import { banner as defaultBanner } from './ui/banner.js?v=151';
+import { closeSheets } from './ui/sheet.js?v=151';
+import { backButton } from './ui/back.js?v=151';
+import { ApiError, toApiError, WORDS } from './api.js?v=151';
+import { cleanName, cleanFace } from './identity.js?v=151';
+import { createRadio, fromBase64 } from './radio.js?v=151'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=151'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=151'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=151'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=151'; // v1.4 PAGE-DEVICES
+import { deviceSecret, rememberPc } from './pcedit.js?v=151'; // v1.5: the PC edit
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)
@@ -566,7 +567,7 @@ export class App {
     if (!me.name) return this._fail(new ApiError({ code: 'name', message: 'Type your name first.' }), opts);
     const old = this.game || this.savedGame;
     try {
-      const res = await this.api.post('create', { name: me.name, ...(me.face ? { face: me.face } : {}) }, { timeoutMs: 20000 });
+      const res = await this.api.post('create', { name: me.name, ...this._device(), ...(me.face ? { face: me.face } : {}) }, { timeoutMs: 20000 });
       const g = {
         code: String(res?.code || res?.view?.code || '').toUpperCase(),
         id: res?.player?.id,
@@ -600,7 +601,7 @@ export class App {
     if (!me.name) return this._fail(new ApiError({ code: 'name', message: 'Type your name first.' }), opts);
     const old = this.game || this.savedGame;
     try {
-      const res = await this.api.post('join', { code: c, name: me.name, ...(me.face ? { face: me.face } : {}) }, { timeoutMs: 20000 });
+      const res = await this.api.post('join', { code: c, name: me.name, ...this._device(), ...(me.face ? { face: me.face } : {}) }, { timeoutMs: 20000 });
       const g = {
         code: String(res?.view?.code || c).toUpperCase(),
         id: res?.player?.id,
@@ -633,6 +634,60 @@ export class App {
         result: resultOf(view),
       });
     } catch { /* ignore */ }
+  }
+
+  // ---- v1.5: the PC edit ----
+  // This phone's device secret (for a PC it's linked to), sent with create / join / watch; {} when there's no storage.
+  _device() {
+    // (Only a real browser's storage: a page with none, like the tests' stand-in, sends nothing new.)
+    try { return globalThis.localStorage ? { device: deviceSecret(globalThis.localStorage) } : {}; } catch { return {}; }
+  }
+
+  // The credentials of the round on screen: the game, the spectated game or a past game. null when there's none.
+  _roundCred() {
+    const v = this.view;
+    if (!v || !Number.isFinite(v.round)) return null;
+    if (this.pastGame) {
+      const g = this.pastGame;
+      return { code: g.code, round: v.round, [g.as === 'watcher' ? 'watcher' : 'player']: { id: g.id, secret: g.secret } };
+    }
+    if (this.watching && this.watchGame) return { code: this.watchGame.code, round: v.round, watcher: { id: this.watchGame.id, secret: this.watchGame.secret } };
+    if (this.game) return { code: this.game.code, round: v.round, player: { id: this.game.id, secret: this.game.secret } };
+    return null;
+  }
+
+  // Link this phone to a PC with the code the PC shows. -> Promise<the PC's name> (rejects with an ApiError)
+  async linkPc(pair) {
+    const me = this._meFrom({});
+    const cred = this._roundCred();
+    const body = { pair, ...this._device(), name: me.name || '' };
+    if (cred) {
+      body.code = cred.code;
+      if (cred.player) body.player = cred.player;
+      if (cred.watcher) body.watcher = cred.watcher;
+    }
+    const res = await this.api.post('maker-link', body, { timeoutMs: 20000 });
+    const name = res && res.linked && typeof res.linked.name === 'string' ? res.linked.name : '';
+    try { rememberPc(globalThis.localStorage, name); } catch { /* fine */ }
+    this.emit('pc-linked', name);
+    return name;
+  }
+
+  // The PC edit of the round on screen: { status, progress, note, by, files? } or null (none). Never rejects.
+  async proEdit() {
+    const cred = this._roundCred();
+    if (!cred) return null;
+    try {
+      const res = await this.api.post('maker-movies', cred, { timeoutMs: 15000 });
+      const m = res && res.maker && typeof res.maker === 'object' ? res.maker : null;
+      if (m && m.status === 'ready' && this.identity && typeof this.identity.loadPast === 'function') {
+        const g = this.identity.loadPast().find((x) => x.code === cred.code && x.round === cred.round);
+        if (g && g.pro !== 'ready') { try { this.identity.rememberPast({ ...g, pro: 'ready' }); } catch { /* fine */ } }
+      }
+      return m;
+    } catch {
+      return null;
+    }
   }
 
   // v1.4 Your games: the remembered games and whether the server still has them ([{...item, there, kept, until}]).
@@ -1417,7 +1472,7 @@ export class App {
     const me = this._meFrom(opts);
     if (!me.name) return this._fail(new ApiError({ code: 'name', message: 'Type your name first.' }), opts);
     try {
-      const res = await this.api.post('watch', { code: c, name: me.name }, { timeoutMs: 20000 });
+      const res = await this.api.post('watch', { code: c, name: me.name, ...this._device() }, { timeoutMs: 20000 });
       const w = {
         code: String(res?.code || res?.view?.code || c).toUpperCase(),
         id: res?.watcher?.id,
