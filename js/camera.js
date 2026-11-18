@@ -16,8 +16,9 @@
 // claimed it; a claimed one runs until the moment + CAM_POST_MS (never past CAM_CLIP_MOST_MS) and is saved as one
 // whole file (a recorder's first chunk holds the file's header, so chunks are never stitched across recorders).
 // Everything: pieces of CAM_PIECE_MS, each next one started CAM_PIECE_OVERLAP_MS before the last ends.
-import { TIMING } from '../shared/rules.js?v=149';
-import { openCamStore, heldOf } from './camstore.js?v=149';
+// v1.4.7 (Highlights): talking near the phone is a moment too ('talk', talkStep below), with a cooldown and a cap.
+import { TIMING, LIMITS } from '../shared/rules.js?v=150';
+import { openCamStore, heldOf } from './camstore.js?v=150';
 
 export const CAM_TYPES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
 export const VIDEO_BITS = 700000;
@@ -293,6 +294,40 @@ export function firstFrameClock({ startClock, timecodeMs = 0, start }) {
 }
 // v1.4 end PAGE-DEVICES
 
+// v1.4.7: talking counts as a moment (Highlights). Fed every LOUD_MS with the microphone's loudness (loudOf):
+// when at least TALK_NEED_MS of the last TALK_WINDOW_MS is over TALK_LEVEL (talking, shouting, laughing near the
+// phone), one 'talk' moment from the first loud sample to now; then nothing for TALK_COOLDOWN_MS, at most
+// TALK_MOST a round, and none once this round's clips on the phone reach TALK_BUDGET bytes (a talk clip is ~35 s,
+// ~3.5 MB; the rest of camPlayerBytes.highlights stays for tags, close calls and the walkie-talkie). While the
+// walkie-talkie records or plays (`busy`) nothing counts: its own 'radio' moment keeps that clip.
+// ts = { loud: [times over the level], last: time of the last moment | null, count }
+export const TALK_LEVEL = 45;           // about -33 dBFS: a voice at arm's length, not wind or footsteps
+export const TALK_NEED_MS = 1500;
+export const TALK_WINDOW_MS = 4000;
+export const TALK_COOLDOWN_MS = 90000;
+export const TALK_MOST = 10;
+export const TALK_BUDGET = Math.round(((LIMITS.camPlayerBytes && LIMITS.camPlayerBytes.highlights) || 150000000) * 0.5);
+
+export function newTalk() {
+  return { loud: [], last: null, count: 0 };
+}
+
+export function talkStep(ts0, { t, level, busy = false, held = 0, budget = TALK_BUDGET, step = LOUD_MS, need = TALK_NEED_MS,
+  window = TALK_WINDOW_MS, cooldown = TALK_COOLDOWN_MS, most = TALK_MOST, threshold = TALK_LEVEL } = {}) {
+  const ts = { ...ts0, loud: ts0.loud.filter((x) => x > t - window) };
+  if (busy) { ts.loud = []; return { ts, moment: null }; }
+  if (num(level) !== null && level >= threshold) ts.loud.push(t);
+  if (ts.count >= most) return { ts, moment: null };
+  if (num(held) !== null && held >= budget) return { ts, moment: null };
+  if (ts.last !== null && t - ts.last < cooldown) return { ts, moment: null };
+  if (ts.loud.length * step < need) return { ts, moment: null };
+  const at = ts.loud[0];
+  ts.last = t;
+  ts.count += 1;
+  ts.loud = [];
+  return { ts, moment: { at, until: t, kind: 'talk' } };
+}
+
 // ---- the camera -----------------------------------------------------------------------------------------------
 
 export function createCamera({
@@ -342,6 +377,7 @@ export function createCamera({
     video: null, canvas: null, ctx2d: null, audio: null, analyser: null, buf: null,
     pruned: false,
     asked: null,
+    talk: newTalk(),    // v1.4.7
   };
 
   function setState(s) {
@@ -484,7 +520,25 @@ export function createCamera({
       const lv = loudOf(Math.sqrt(s / S.buf.length));
       S.loudMax = Math.max(S.loudMax, lv);
       for (const rec of S.live.values()) rec.loudQ.push(lv); // v1.4 PAGE-DEVICES
+      // v1.4.7: talking near the phone keeps the rolling clip (Highlights only; never while filming is ending)
+      if (S.mode === 'highlights' && S.plan && !S.ending && !S.plan.ending) {
+        const t = now();
+        const r = talkStep(S.talk, { t, level: lv, busy: walkieBusy(), held: S.held.bytes });
+        S.talk = r.ts;
+        if (r.moment) {
+          const c = clockNow();
+          if (c !== null) S.queue.push({ clock: c - (t - r.moment.at), kind: 'talk', local: r.moment });
+        }
+      }
     } catch { /* ignore */ }
+  }
+
+  // v1.4.7: the walkie-talkie recording or playing (its words aren't someone talking near this phone)
+  function walkieBusy() {
+    try {
+      const r = app && app.radio;
+      return !!(r && (r.talking || r.state === 'recording'));
+    } catch { return false; }
   }
 
   function readBright() {
@@ -679,6 +733,7 @@ export function createCamera({
   function run() {
     if (S.stepId) return;
     S.plan = S.mode === 'everything' ? newPieces() : newRoll();
+    S.talk = { ...S.talk, loud: [] }; // (the round's count and cooldown go on across a hidden page or a new stream)
     S.stepId = timers.set(step, STEP_MS);
     S.loudId = timers.set(readLoud, LOUD_MS);
     secondId = timers.set(tickSecond, 1000);
@@ -826,6 +881,7 @@ export function createCamera({
         S.taken = 0;
         S.ending = false;
         S.held = { count: 0, bytes: 0, left: 0, leftBytes: 0 };
+        S.talk = newTalk(); // v1.4.7: TALK_MOST counts per round
         countHeld();
         if (!S.pruned && code) {
           S.pruned = true;

@@ -716,3 +716,8 @@ button.nmark-hit:active .face { transform: scale(0.94); }
 .drive-map .nmark.me { --half: 28px; } /* the car: 56 px */
 @media (prefers-reduced-motion: reduce) { .npin { transition: none; } }
 /* v1.4 end PAGE-PLAY */
+/* v1.4.8: the driver's route line on the plain map (the street map draws it with MapLibre layers, map.js NAV_COLORS) */
+.nmap-nav-done { fill: none; stroke: #6b7689; stroke-opacity: 0.6; stroke-width: 7; stroke-linejoin: round; stroke-linecap: round; }
+.nmap-nav-edge { fill: none; stroke: #06132e; stroke-opacity: 0.95; stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; }
+.nmap-nav { fill: none; stroke: #2f86ff; stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
+/* v1.4.8 end */

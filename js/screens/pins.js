@@ -2,12 +2,13 @@
 //
 //   pinsFor(view, d)          -> the list for map.setPins (pure; d = ms since the view came)
 //   pinWords(pin)             -> "Sam: go here. Note: by the gate"
-//   createPinTool(app, { map, getView, banner }) -> { btn, update(view), arm(), tapPin(key), destroy() }
-//       the tray's "Pin" button: the next map tap opens the drop sheet; a pin tapped shows its words (+ Remove)
-import { h, text, cls } from '../dom.js?v=149';
-import { icon } from '../ui/icons.js?v=149';
-import { openSheet } from '../ui/sheet.js?v=149';
-import { LIMITS } from '../../shared/rules.js?v=149';
+//   createPinTool(app, { map, getView, banner, navigate }) -> { btn, update(view), arm(), tapPin(key), destroy() }
+//       the tray's "Pin" button: the next map tap opens the drop sheet; a pin tapped shows its words (+ Remove;
+//       v1.4.8: + Navigate on the driver's phone, for a Driver: go here or Go here pin, when `navigate(pin)` is given)
+import { h, text, cls } from '../dom.js?v=150';
+import { icon } from '../ui/icons.js?v=150';
+import { openSheet } from '../ui/sheet.js?v=150';
+import { LIMITS } from '../../shared/rules.js?v=150';
 
 // 'Hider seen' pins are never shown to the driver (they only see hunters): use 'Driver: go here' for them.
 export const PIN_HINT = "The driver doesn't see Hider seen pins. Use Driver: go here.";
@@ -104,22 +105,25 @@ export function openDropSheet(app, view, p, { banner = null } = {}) {
   });
 }
 
-export function openPinInfo(app, view, pin) {
+export function openPinInfo(app, view, pin, { navigate = null } = {}) {
   const me = (view && view.me) || {};
   const host = !!me.host;
   const canRemove = !!pin.mine || host;
+  // v1.4.8: the driver's turn-by-turn to this pin
+  const canGo = typeof navigate === 'function' && !!me.driver && (pin.kind === 'driver' || pin.kind === 'go');
   return openSheet({
     title: PIN_LABEL[pin.kind] || 'Pin',
     className: 'pin-sheet',
     body: [h('p.pin-info', pinWords(pin)), h('p.pin-line', `${agoShort(pin.age)} old · ${Math.max(1, Math.ceil((Number(pin.left) || 0) / 60000))} min left`)],
     actions: [
+      canGo ? { label: 'Navigate', kind: 'primary', onClick: () => navigate(pin) } : null, // v1.4.8
       canRemove ? { label: 'Remove it', kind: 'danger', onClick: () => app.cmd({ type: 'pin', do: 'remove', pinId: pin.id }) } : null,
       { label: 'Close', kind: 'ghost' },
     ],
   });
 }
 
-export function createPinTool(app, { map = null, getView = () => app.view, banner = null } = {}) {
+export function createPinTool(app, { map = null, getView = () => app.view, banner = null, navigate = null } = {}) {
   const S = { armed: false, offTap: null, offPin: null, dead: false };
   const word = h('span', 'Pin');
   const btn = h('button.btn.tray-btn.pin-btn', { type: 'button', hidden: true, 'aria-pressed': 'false', 'aria-label': 'Drop a team pin' }, icon('pin', 22), word);
@@ -156,7 +160,7 @@ export function createPinTool(app, { map = null, getView = () => app.view, banne
     const view = getView();
     const id = String(key || '').replace(/^pin:/, '');
     const pin = view && Array.isArray(view.pins) ? view.pins.find((x) => x && x.id === id) : null;
-    if (pin) openPinInfo(app, view, pin);
+    if (pin) openPinInfo(app, view, pin, { navigate }); // v1.4.8: navigate
   }
   if (map && typeof map.onPinTap === 'function') S.offPin = map.onPinTap(tapPin);
 

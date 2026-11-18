@@ -19,6 +19,7 @@ import { CAM_FILMED, camClips, PEOPLE } from './fixtures.js'; // v1.2 PAGE-CAM
 import { cleanCheckpoints } from '../shared/rules.js'; // v1.3 PAGE-SETUP
 import { lobbyCp } from './cpsetup-fixtures.js'; // v1.3 PAGE-SETUP
 import { strikeCp } from './cpafter-fixtures.js'; // v1.3 PAGE-AFTER
+import { stubRoute, navTarget } from '../shared/nav.js'; // v1.4.8
 
 // v1.2 PAGE-CAM: a 3 s WebM drawn here (a moving bar and the time), made once, for the preview's clip links.
 let webm = null;
@@ -215,6 +216,18 @@ const api = {
         return { ok: true, view: snapshot(body.since), done: { n: 3, k: body.k } };
       }
       // v1.3 end PAGE-PLAY
+      // v1.4.8: the driver's route: made up here (an L along two streets), like the dev server's stand-in.
+      // &route=none answers "no route" (the straight-line fallback).
+      case 'route': {
+        say('route', body.to);
+        const t = current ? navTarget(current, body.to) : null;
+        const from = mySpot();
+        if (!t || !from) throw new ApiError({ code: 'no_place', message: "That place isn't on your map any more.", fromServer: true, status: 404 });
+        if (params.route === 'none') return { ok: true, route: null, why: 'unreachable', wait: 20000, view: snapshot(body.since) };
+        const key = body.to.kind === 'hunters' ? 'hunters' : `${body.to.kind}:${body.to.id}`;
+        return { ok: true, route: stubRoute(from, t.p, { key, made: Date.now() }), view: snapshot(body.since) };
+      }
+      // v1.4.8 end
       case 'cmd':
         onCmd(body.cmd);
         return { ok: true, view: snapshot(body.since) };

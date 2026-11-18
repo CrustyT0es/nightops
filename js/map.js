@@ -31,12 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=149';
-import { icon } from './ui/icons.js?v=149';
+import { h, face as makeFace, text, listen } from './dom.js?v=150';
+import { icon } from './ui/icons.js?v=150';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
-} from '../shared/geo.js?v=149';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=149';
+  moveM, // v1.4.8
+} from '../shared/geo.js?v=150';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=150';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -550,6 +551,11 @@ class PlainMap {
       dfill: path('nmap-draft-fill'),
       dline: path('nmap-draft-line'),
       dclose: path('nmap-draft-close'),
+      // v1.4.8: the driver's route line (over everything drawn here; faces and pins sit above in their own layers)
+      navDone: path('nmap-nav-done'),
+      navEdge: path('nmap-nav-edge'),
+      navLine: path('nmap-nav'),
+      // v1.4.8 end
     };
     this.scaleBar = h('span.nmap-scale-bar');
     this.scaleText = h('span.nmap-scale-text');
@@ -748,6 +754,13 @@ class PlainMap {
     setD(P.routes.hunter, routes.hunter);
     setD(P.routes.hider, routes.hider);
     setD(P.routes.other, routes.other);
+    // v1.4.8: the driver's route line
+    const nav = placed ? m.nav : null;
+    setD(P.navDone, nav && nav.done && nav.done.length >= 2 ? this.pathOf(nav.done, false) : '');
+    const ahead = nav && nav.ahead && nav.ahead.length >= 2 ? this.pathOf(nav.ahead, false) : '';
+    setD(P.navEdge, ahead);
+    setD(P.navLine, ahead);
+    // v1.4.8 end
   }
 
   // ---- gestures: drag to pan, pinch or wheel to zoom, tap, double tap, keys ----
@@ -935,6 +948,18 @@ function routesData(m) {
   return { type: 'FeatureCollection', features: f };
 }
 
+// v1.4.8: the driver's route line (setNavRoute): the part driven, then the way ahead.
+export const NAV_PITCH_MOST = 60;
+export const NAV_COLORS = Object.freeze({ line: '#2f86ff', edge: '#06132e', done: '#6b7689' });
+export function navData(m) {
+  const f = [];
+  const nav = m && m.nav;
+  if (nav && nav.done && nav.done.length >= 2) f.push(feature({ type: 'LineString', coordinates: nav.done }, { part: 'done' }));
+  if (nav && nav.ahead && nav.ahead.length >= 2) f.push(feature({ type: 'LineString', coordinates: nav.ahead }, { part: 'ahead' }));
+  return { type: 'FeatureCollection', features: f };
+}
+// v1.4.8 end
+
 class GlMap {
   constructor(lib, host, { interactive, onMove, onUserMove, onTap }) {
     this.kind = 'maplibre';
@@ -957,7 +982,7 @@ class GlMap {
       dragRotate: false,
       pitchWithRotate: false,
       touchPitch: false,
-      maxPitch: 0,
+      maxPitch: NAV_PITCH_MOST, // v1.4.8: the driver's nav camera tilts (gestures still never rotate or tilt)
       keyboard: interactive,
       cooperativeGestures: false,
       doubleClickZoom: interactive,
@@ -996,6 +1021,13 @@ class GlMap {
     map.addLayer({ id: 'nightops-draft-fill', type: 'fill', source: 'nightops-shapes', filter: part('dfill'), paint: { 'fill-color': colors.hider, 'fill-opacity': 0.14 } });
     map.addLayer({ id: 'nightops-draft-line', type: 'line', source: 'nightops-shapes', filter: part('dline'), layout: round, paint: { 'line-color': colors.hider, 'line-width': 2.5 } });
     map.addLayer({ id: 'nightops-draft-close', type: 'line', source: 'nightops-shapes', filter: part('dclose'), layout: round, paint: { 'line-color': colors.hider, 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [1.5, 2] } });
+    // v1.4.8: the driver's route: the way ahead thick and bright blue on a dark edge, the part driven dimmed
+    map.addSource('nightops-nav', { type: 'geojson', data: EMPTY, tolerance: 0.2 });
+    const navW = (w) => ['interpolate', ['linear'], ['zoom'], 12, w * 0.45, 16, w, 19, w * 1.5];
+    map.addLayer({ id: 'nightops-nav-done', type: 'line', source: 'nightops-nav', filter: part('done'), layout: round, paint: { 'line-color': NAV_COLORS.done, 'line-width': navW(7), 'line-opacity': 0.6 } });
+    map.addLayer({ id: 'nightops-nav-edge', type: 'line', source: 'nightops-nav', filter: part('ahead'), layout: round, paint: { 'line-color': NAV_COLORS.edge, 'line-width': navW(14), 'line-opacity': 0.95 } });
+    map.addLayer({ id: 'nightops-nav', type: 'line', source: 'nightops-nav', filter: part('ahead'), layout: round, paint: { 'line-color': NAV_COLORS.line, 'line-width': navW(8) } });
+    // v1.4.8 end
     this.styleReady = true;
   }
 
@@ -1010,6 +1042,12 @@ class GlMap {
       this.pushed.shapes = m.shapesV;
       map.getSource('nightops-shapes')?.setData(shapesData(m));
     }
+    // v1.4.8: the driver's route line
+    if (this.pushed.nav !== m.navV) {
+      this.pushed.nav = m.navV;
+      map.getSource('nightops-nav')?.setData(navData(m));
+    }
+    // v1.4.8 end
     if (this.pushed.routes !== m.routesV) {
       if (now - this.pushed.routesAt < ROUTES_EVERY_MS && m.routesThrottle) return true;
       this.pushed.routes = m.routesV;
@@ -1050,6 +1088,19 @@ class GlMap {
   fitBounds(bounds, pad, { animate = false, maxZoom = FIT_MAX_ZOOM } = {}) {
     this.map.fitBounds(bounds, { padding: pad, maxZoom, animate, duration: animate ? 600 : 0, essential: true });
   }
+  // v1.4.8: the driver's nav camera: on the car (shown offsetY px below the middle), turned to its heading, tilted.
+  // Not `essential`: with reduced motion it jumps instead of gliding.
+  navTo({ center, zoom, bearing, pitch, offsetY = 0, ms = 0 }) {
+    if (!isPoint(center)) return;
+    const o = { center, duration: Math.max(0, ms || 0), easing: (t) => t };
+    if (Number.isFinite(zoom)) o.zoom = Math.max(1, Math.min(MAX_ZOOM, zoom));
+    if (Number.isFinite(bearing)) o.bearing = bearing;
+    if (Number.isFinite(pitch)) o.pitch = Math.max(0, Math.min(NAV_PITCH_MOST, pitch));
+    if (Number.isFinite(offsetY) && offsetY) o.offset = [0, Math.round(offsetY)];
+    this.map.easeTo(o);
+  }
+  view() { return { bearing: this.map.getBearing(), pitch: this.map.getPitch() }; }
+  // v1.4.8 end
   destroy() {
     try { this.map.remove(); } catch { /* already gone */ }
     this.el.remove();
@@ -1091,6 +1142,7 @@ export function createMap(container, { interactive = true } = {}) {
     seenZ: null,         // the zoom the last frame was drawn at
     clusterTimer: 0,
     clusterAt: 0,
+    navV: 0,             // v1.4.8: the driver's route line's version
   };
 
   // Keep the container a positioning box for the map's layers.
@@ -1262,7 +1314,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=149');
+      lib = await import('../vendor/maplibre-gl.mjs?v=150');
     } catch {
       cancel(deadline);
       giveUp();
@@ -1426,9 +1478,15 @@ export function createMap(container, { interactive = true } = {}) {
 
   // ---- shapes ----
 
-  function rebuild({ shapes = false, routes = false, throttle = false } = {}) {
+  function rebuild({ shapes = false, routes = false, throttle = false, nav = undefined } = {}) {
     const prev = S.model || {};
     const m = { ...prev };
+    // v1.4.8: the driver's route line
+    if (nav !== undefined) {
+      m.nav = nav;
+      m.navV = ++S.navV;
+    }
+    // v1.4.8 end
     if (shapes) {
       const now = S.ringNow || S.ring;
       m.ringNow = now;
@@ -2437,6 +2495,56 @@ export function createMap(container, { interactive = true } = {}) {
   }
   // v1.4 end PAGE-PLAY
 
+  // v1.4.8: the driver's turn-by-turn.
+  //   setNavRoute({ done, ahead } | null)   the route line: `ahead` thick bright blue on a dark edge, `done` dimmed
+  //   navCamera({ center, zoom, bearing, pitch, ms })   follow the car: it shows a little below the middle (the way
+  //       ahead gets the room), turned to its heading and tilted on the street map; the plain map stays north up
+  //   flatView(ms)   north up and flat again (navigating ended);  navView() -> { bearing, pitch }
+  const navLine = (pts) => (Array.isArray(pts) ? pts.filter(isPoint).map((p) => [p[0], p[1]]) : []);
+  function setNavRoute(parts) {
+    if (S.destroyed) return;
+    const done = navLine(parts && parts.done);
+    const ahead = navLine(parts && parts.ahead);
+    rebuild({ nav: done.length >= 2 || ahead.length >= 2 ? { done: done.length >= 2 ? done : [], ahead: ahead.length >= 2 ? ahead : [] } : null });
+  }
+
+  function navCamera({ center, zoom, bearing, pitch, ms = 900 } = {}) {
+    if (S.destroyed || !isPoint(center) || !active) return;
+    if (!S.w || !S.h) return;
+    S.cameraSet = true;
+    // What shows between the screen's bars (setInsets: the turn card at the top), and the car a fifth of it behind
+    // the middle, so the road ahead gets the room.
+    const ins = S.insets;
+    const visH = Math.max(1, S.h - ins.top - ins.bottom);
+    const ahead = Math.round(visH * 0.2);
+    if (active === gl) {
+      const offsetY = Math.round(ins.top + visH / 2 - S.h / 2 + ahead);
+      try { gl.navTo({ center, zoom, bearing, pitch, offsetY, ms: S.reduced ? 0 : ms }); } catch (e) { console.error(e); }
+    } else if (active === plain) {
+      // (North up: the middle moves ahead of the car the way it's heading.)
+      let z = Number.isFinite(zoom) ? zoom : null;
+      if (z === null) { try { z = plain.hasPlace() ? plain.getZoom() : DEFAULT_ZOOM; } catch { z = DEFAULT_ZOOM; } }
+      const ppm = metresToPixels(1, center[1], z);
+      const c = ppm > 0 ? moveM(center, ahead / ppm, Number.isFinite(bearing) ? bearing : 0) : center;
+      originFrom(center);
+      plain.jumpTo({ center: shifted(c, z, plain), zoom: z }, !S.reduced);
+    }
+    requestFrame();
+  }
+
+  function flatView(ms = 400) {
+    if (S.destroyed || active !== gl) return;
+    try {
+      const v = gl.view();
+      if (v.bearing || v.pitch) gl.map.easeTo({ bearing: 0, pitch: 0, duration: S.reduced ? 0 : ms });
+    } catch (e) { console.error(e); }
+  }
+
+  function navView() {
+    try { return active === gl ? gl.view() : { bearing: 0, pitch: 0 }; } catch { return { bearing: 0, pitch: 0 }; }
+  }
+  // v1.4.8 end
+
   // ---- start ----
 
   makePlain();
@@ -2456,6 +2564,7 @@ export function createMap(container, { interactive = true } = {}) {
     setRoutes,
     setSpots, onSpotTap, // v1.3 PAGE-SETUP
     setPins, onPinTap, // v1.4 PAGE-PLAY
+    setNavRoute, navCamera, flatView, navView, // v1.4.8
     setInsets,
     fitAll,
     zoomBy,

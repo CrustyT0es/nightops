@@ -30,19 +30,19 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=149';
-import { h, fill } from './dom.js?v=149';
-import { icon } from './ui/icons.js?v=149';
-import { banner as defaultBanner } from './ui/banner.js?v=149';
-import { closeSheets } from './ui/sheet.js?v=149';
-import { backButton } from './ui/back.js?v=149';
-import { ApiError, toApiError, WORDS } from './api.js?v=149';
-import { cleanName, cleanFace } from './identity.js?v=149';
-import { createRadio, fromBase64 } from './radio.js?v=149'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=149'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=149'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=149'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=149'; // v1.4 PAGE-DEVICES
+import { TIMING, LIMITS } from '../shared/rules.js?v=150';
+import { h, fill } from './dom.js?v=150';
+import { icon } from './ui/icons.js?v=150';
+import { banner as defaultBanner } from './ui/banner.js?v=150';
+import { closeSheets } from './ui/sheet.js?v=150';
+import { backButton } from './ui/back.js?v=150';
+import { ApiError, toApiError, WORDS } from './api.js?v=150';
+import { cleanName, cleanFace } from './identity.js?v=150';
+import { createRadio, fromBase64 } from './radio.js?v=150'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=150'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=150'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=150'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=150'; // v1.4 PAGE-DEVICES
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)
@@ -1136,6 +1136,31 @@ export class App {
     }
   }
   // v1.1 end PAGE-RADIO ----------------------------------------------------------------------------------
+
+  // v1.4.8: the driver's turn-by-turn. Asks the server for a route to `to` ({ kind: 'pickup'|'pin', id } or
+  // { kind: 'hunters' }); the server asks the routing servers, never the page. opts: { start, heading }.
+  // -> Promise<{ route, why, wait } | ApiError> (never rejects; the view that comes with it is taken as a sync's).
+  async route(to, { start = false, heading = null } = {}) {
+    if (!this.game || this.watching) return new ApiError({ code: 'not_in_game', message: "You're not in a game right now." });
+    const game = this.game;
+    const body = { to, since: this._since, radioSince: this._radioSince(), camSince: this._camSince() };
+    if (start) body.start = true;
+    if (typeof heading === 'number' && Number.isFinite(heading)) body.heading = Math.round(((heading % 360) + 360) % 360) % 360;
+    const pos = this._posToSend();
+    if (pos) body.pos = pos;
+    try {
+      const res = await this._post('route', body, { timeoutMs: 25000 });
+      if (game !== this.game) return new ApiError({ code: 'not_in_game', message: "You're not in this game any more." });
+      this._ok();
+      this._take(res && res.view);
+      return { route: (res && res.route) || null, why: (res && res.why) || null, wait: res && Number.isFinite(res.wait) ? res.wait : null };
+    } catch (e) {
+      const err = toApiError(e);
+      if (game === this.game && isGone(err, 'route')) this.syncNow();
+      return err;
+    }
+  }
+  // v1.4.8 end
 
   // v1.2 PAGE-CAM: the highlight cam ---------------------------------------------------------------------
 

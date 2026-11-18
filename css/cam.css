@@ -166,6 +166,10 @@
 .cam-mine { display: grid; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .cam-mine-title { margin: 0; font-weight: 700; font-size: 17px; }
 .cam-wifi { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+/* v1.4.7: uploads wait for wifi: the calm line ("Waiting for wifi...", "Are you on wifi?"), the later button, time left */
+.cam-wifi.net { color: var(--text-2); font-size: 15px; }
+.cam-left { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+/* v1.4.7 end */
 .cam-bar {
   position: relative;
   height: 8px;

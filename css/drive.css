@@ -289,3 +289,166 @@
   .drive-pk-count { max-width: none; }
 }
 /* v1.4 end PAGE-PLAY */
+/* v1.4.8: turn-by-turn (js/screens/drivenav.js). The next turn big over the top of the map (the arrow, the distance,
+   the words), the strip at the bottom (time left, arrival, distance left, End; where to and Open in Maps), and the
+   safety line. Read at a glance from a phone holder: the distance 40px mono, the turn's words 22px, buttons >= 56px. */
+.nav-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 10px;
+  padding: 12px 14px 12px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  background: rgba(11, 15, 21, 0.95);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.nav-card[hidden] { display: none; }
+.nav-arrow {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: #2f86ff;
+  color: #ffffff;
+}
+.nav-arrow svg { display: block; }
+.nav-card.is-arrived .nav-arrow { background: var(--ok); color: #04150c; }
+.nav-card.is-straight .nav-arrow { background: var(--raised); color: var(--driver); }
+.nav-card.is-straight .nav-arrow svg { transform: rotate(var(--turn, 0deg)); transition: transform 400ms ease; }
+.nav-card.is-asking .nav-arrow { background: var(--raised); color: var(--muted); }
+.nav-words { display: grid; gap: 3px; min-width: 0; }
+.drive-lines .nav-dist {
+  font: 700 40px/1.05 var(--mono);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.nav-card.is-asking .nav-dist { font-family: var(--font); font-size: 26px; color: var(--text-2); }
+.drive-lines .nav-card.is-straight .nav-dist { font-family: var(--font); font-size: 30px; letter-spacing: 0; }
+.drive-lines .nav-in { font: 700 22px/1 var(--font); color: var(--text-2); }
+.nav-in:empty { display: none; }
+.drive-lines .nav-line {
+  font: 700 22px/1.2 var(--font);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.drive-lines .nav-note {
+  font: 700 13px/1.2 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+.nav-note[hidden], .nav-then[hidden], .nav-picked[hidden] { display: none; }
+.drive-lines .nav-then {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--text-2);
+  font: 700 15px/1 var(--font);
+}
+.nav-picked { grid-column: 1 / -1; min-height: 56px; font-size: 20px; }
+.btn.primary.nav-picked { background: var(--driver); color: var(--on-driver); }
+
+.nav-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px 4px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--card);
+  min-width: 0;
+}
+.nav-strip[hidden] { display: none; }
+.nav-strip-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.nav-stats { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 14px; row-gap: 2px; min-width: 0; }
+.nav-mins { font: 700 28px/1 var(--mono); color: var(--ok); font-variant-numeric: tabular-nums; }
+.nav-eta, .nav-km { font: 700 18px/1 var(--mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.nav-eta:empty, .nav-mins:empty, .nav-km:empty { display: none; }
+.btn.nav-end { flex: none; min-height: 56px; min-width: 88px; font-size: 18px; color: var(--hunter); border-color: rgba(255, 90, 90, 0.55); }
+.nav-strip-sub { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.nav-dest {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 700 16px/1.2 var(--font);
+  text-align: left;
+}
+.nav-dest .icon { flex: none; color: var(--driver); }
+.nav-dest-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-maps {
+  flex: none;
+  min-height: 44px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: 500 14px/1 var(--font);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nav-maps[hidden] { display: none; }
+.btn.nav-go { min-height: 56px; padding: 0 16px; gap: 8px; color: var(--driver); border-color: rgba(255, 194, 74, 0.55); font-size: 18px; }
+.nav-go[hidden] { display: none; }
+.drive-safety { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.3; text-align: center; }
+
+/* Navigating: a slimmer walkie, so the map keeps its room. */
+.drive-layer.navigating .radio-big .radio-btn { min-height: 64px; padding-top: 6px; padding-bottom: 6px; font-size: 22px; }
+.drive-layer.navigating .radio-big .radio-icon { width: 48px; height: 48px; }
+.drive-layer.navigating .radio-big .radio-line { display: none; }
+@media (max-width: 400px) {
+  .drive-layer.navigating .drive-foot { grid-template-columns: minmax(0, 1fr) auto; }
+  .drive-layer.navigating .drive-pk-count { max-width: 42vw; }
+  .drive-lines .nav-dist { font-size: 34px; }
+  .drive-lines .nav-line { font-size: 20px; }
+  .nav-arrow { width: 64px; height: 64px; border-radius: 16px; }
+  .nav-arrow svg { width: 52px; height: 52px; }
+}
+
+/* The sheets: Where to?, Open in Maps?, a pickup's Navigate */
+.nav-where-list { display: grid; gap: 10px; }
+.nav-where-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.nav-where-words { display: grid; gap: 2px; min-width: 0; }
+.nav-where-words strong { font-size: 20px; overflow-wrap: anywhere; }
+.nav-where-words span { color: var(--text-2); font: 500 15px/1.2 var(--mono); }
+.btn.nav-where-go { flex: none; min-height: 56px; min-width: 120px; font-size: 18px; }
+.btn.primary.nav-where-go, .btn.primary.nav-sheet-go, .nav-maps-go.btn.primary { background: #2f86ff; color: #ffffff; }
+.nav-where-none { margin: 0; color: var(--text-2); font-size: 16px; line-height: 1.4; }
+.btn.nav-where-end { min-height: 56px; margin-top: 12px; color: var(--hunter); border-color: rgba(255, 90, 90, 0.55); }
+.btn.nav-sheet-go { min-height: 64px; gap: 10px; font-size: 22px; margin-bottom: 12px; }
+.nav-maps-warn { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 8px; color: var(--text); font-size: 17px; line-height: 1.35; }
+.nav-maps-warn .icon { flex: none; margin-top: 2px; color: var(--warn); }
+.nav-maps-line { margin: 0 0 14px; color: var(--text-2); font-size: 15px; line-height: 1.35; }
+.nav-maps-go { min-height: 56px; text-decoration: none; }
+/* News banners under the turn card, never over the next turn (drive.js sets --drive-banners-top) */
+html.drive-shown body[data-screen='game'] .banners { top: calc(var(--drive-banners-top, 0px) + 8px); }
+html.drive-shown.sheet-open body[data-screen='game'] .banners { top: calc(max(8px, var(--safe-top)) + 6px); }
+/* v1.4.8 end */

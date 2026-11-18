@@ -10,10 +10,10 @@
 // Rules (CONTRACT.md v1.4 D and H): a walkie message is always played whole; a scene ends at a pause; highlights
 // come from the whole game (the beginning, middle and end), never "the first minutes of a long window"; "The whole
 // game" covers every clock from 0 to endClock exactly once, in order.
-import { TIMING } from '../shared/rules.js?v=149';
-import { distanceM, toLocal } from '../shared/geo.js?v=149';
-import { direct, fileTimeAt } from './director.js?v=149';
-import { planTour } from './tour.js?v=149';
+import { TIMING } from '../shared/rules.js?v=150';
+import { distanceM, toLocal } from '../shared/geo.js?v=150';
+import { direct, fileTimeAt } from './director.js?v=150';
+import { planTour } from './tour.js?v=150';
 
 export const REEL = Object.freeze({ W: 720, H: 1280, FPS: 30 });
 export const HIGHLIGHTS_MOST_MS = 480000;
@@ -41,14 +41,21 @@ export const FILL_MS = 12000;
 export const TITLE_MS = 3000;
 export const CAPTION_MS = 4000;
 const Q = 250;                            // loudQ's step
+// v1.4.7: what someone said near their phone, and near approaches (a hunter within CAM_NEAR_M of a hider)
+export const VOICE_LEVEL = 45;            // camera.js TALK_LEVEL (director.js VOICE_LEVEL)
+export const VOICE_NEED_MS = 1500;
+export const DARK_LEVEL = 12;             // director.js DARK
+export const NEAR_JOIN_MS = 30000;        // a camera 'near' moment this close to a close call is that close call
+export const NEAR_RUN_MS = 90000;         // the same pair's 'near' moments this close (one a minute) are one approach
+export const SIDE_GAIN = 0.8;             // both phones' sound at once in a split: a little lower each
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 const CLOSE_M = TIMING.CLOSE_CALL_M || 15;
 
-const SCORE = { caught: 100, tag: 90, denied: 85, tap: 70, hack: 65, checkpoint: 60, overstay: 50, power: 40, outside: 30, stretch: 10 };
+const SCORE = { voice: 50, caught: 100, tag: 90, denied: 85, tap: 70, hack: 65, checkpoint: 60, overstay: 50, power: 40, outside: 30, stretch: 10 };
 const TITLES = {
   caught: 'CAUGHT', tag: 'TAGGED', denied: 'NOT CAUGHT', near: 'CLOSE CALL', talk: 'ON THE RADIO', tap: 'WIRETAP',
-  hack: 'HACKED', power: 'POWER', checkpoint: 'CHECKPOINT', overstay: 'TIME UP', outside: 'OUT OF THE RING', stretch: 'ON THE MOVE',
+  voice: 'OUT LOUD', hack: 'HACKED', power: 'POWER', checkpoint: 'CHECKPOINT', overstay: 'TIME UP', outside: 'OUT OF THE RING', stretch: 'ON THE MOVE',
 };
 
 // ---- small helpers ----
@@ -194,6 +201,36 @@ function candidates(summary, clips, talk) {
       line: joinNames(who.map(name)), s: Math.min(70, 40 + 5 * c.msgs.length) });
   }
 
+  // v1.4.7: near approaches the camera saw (a hunter within CAM_NEAR_M of a hider; the summary names the filmed
+  // ones of the two, hider first) that aren't a close call already. One a minute while they stay close: one approach.
+  const nearM = TIMING.CAM_NEAR_M || 50;
+  const approaches = [];
+  for (const m of moments.filter((x) => x && x.kind === 'near' && num(x.clock) !== null).slice().sort((a, b) => a.clock - b.clock)) {
+    const ids = Array.isArray(m.ids) ? [...new Set(m.ids.filter((id) => typeof id === 'string'))].slice(0, 2) : [];
+    if (!ids.length) continue;
+    const key = ids.slice().sort().join(':');
+    const run = approaches.find((a) => a.key === key && m.clock - a.last <= NEAR_RUN_MS);
+    if (run) { run.last = m.clock; continue; }
+    approaches.push({ key, ids, first: m.clock, last: m.clock });
+  }
+  for (const a of approaches) {
+    if (out.some((c) => c.kind === 'near' && c.clock >= a.first - NEAR_JOIN_MS && c.clock <= a.last + NEAR_JOIN_MS && a.ids.some((id) => c.people.includes(id)))) continue;
+    let line;
+    if (a.ids.length >= 2) line = `${joinNames(a.ids.map(name))}: within ${nearM} m`;
+    else {
+      const p = names.get(a.ids[0]);
+      const other = p && p.startTeam === 'hider' ? 'a hunter' : 'a hider';
+      line = `${name(a.ids[0])} was within ${nearM} m of ${other}`;
+    }
+    out.push({ kind: 'near', clock: a.first, from: a.first - 10000, to: a.last + 8000, people: a.ids, m: null, line, s: 72, mini: null });
+  }
+
+  // v1.4.7: what people said out loud (a clip the phone kept for talking): its loudest stretch of speech
+  for (const v of voices(clips)) {
+    out.push({ kind: 'voice', clock: v.clock, from: v.from - 3000, to: v.to + 3000, people: [v.pid], voiceClip: v.id,
+      line: name(v.pid), s: SCORE.voice + Math.min(15, v.ms / 1000) });
+  }
+
   // Filmed people score more.
   for (const c of out) {
     const filmed = c.people.filter((pid) => covering(clips, pid, c.clock).length).length;
@@ -201,6 +238,61 @@ function candidates(summary, clips, talk) {
     c.title = c.title || TITLES[c.kind];
   }
   return out;
+}
+
+// v1.4.7: each clip kept for talking ('talk' in its kinds) -> its longest run of speech (loudQ over VOICE_LEVEL,
+// pauses under a second bridged), as game clocks. Only runs of VOICE_NEED_MS or more.
+export function voices(clips) {
+  const out = [];
+  for (const c of clips) {
+    if (!c || !Array.isArray(c.kinds) || !c.kinds.includes('talk')) continue;
+    // per 250 ms (loudQ), else each second's loudest taken for its four quarters (clips sent before v1.4.7's server)
+    const q = Array.isArray(c.loudQ) && c.loudQ.length ? c.loudQ
+      : Array.isArray(c.loud) ? c.loud.flatMap((v) => [v, v, v, v]) : [];
+    if (!q.length) continue;
+    let best = null, run = null, gap = 0;
+    q.forEach((v, i) => {
+      if (num(v) !== null && v >= VOICE_LEVEL) {
+        if (!run) run = { a: i, b: i };
+        run.b = i;
+        gap = 0;
+      } else if (run) {
+        gap += 1;
+        if (gap * Q >= 1000) { if (!best || run.b - run.a > best.b - best.a) best = run; run = null; gap = 0; }
+      }
+    });
+    if (run && (!best || run.b - run.a > best.b - best.a)) best = run;
+    if (!best) continue;
+    const ms = (best.b - best.a + 1) * Q;
+    if (ms < VOICE_NEED_MS) continue;
+    const from = clockOfFile(c, best.a * Q), to = clockOfFile(c, (best.b + 1) * Q);
+    out.push({ id: c.id, pid: c.pid, from, to, ms, clock: Math.round((from + to) / 2) });
+  }
+  return out;
+}
+
+// The game clock at a file time (ms): clocks per second when there, else start + t.
+function clockOfFile(c, ms) {
+  const list = Array.isArray(c.clocks) ? c.clocks : [];
+  const i = Math.floor(ms / 1000);
+  if (i < list.length && num(list[i]) !== null) return Math.round(list[i] + (ms - i * 1000));
+  return Math.round(c.start + ms);
+}
+
+// v1.4.7: a shot is "dark" when most of its seconds are under DARK_LEVEL: the movie then shows the player's face
+// with a sound-wave (and still plays the clip's audio)
+function darkShot(clip, from, to) {
+  if (!clip || !Array.isArray(clip.bright) || !clip.bright.length) return false;
+  let n = 0, dark = 0;
+  for (let t = from; t < to; t += 1000) {
+    const s = fileTimeAt(clip, t);
+    if (s === null) continue;
+    const b = num(clip.bright[Math.max(0, Math.min(clip.bright.length - 1, Math.floor(s)))]);
+    if (b === null) continue;
+    n += 1;
+    if (b < DARK_LEVEL) dark += 1;
+  }
+  return n > 0 && dark * 2 > n;
 }
 
 // Highlights only: plain footage, one "on the move" candidate per FILL_EVERY_MS at its loudest moment.
@@ -304,7 +396,7 @@ function merge(list) {
       last.from = Math.min(last.from, c.from);
       last.to = Math.max(last.to, c.to);
       last.people = [...new Set([...(top === c ? c.people : last.people), ...(top === c ? last.people : c.people)])];
-      if (top === c) Object.assign(last, { kind: c.kind, title: c.title, line: c.line, clock: c.clock, mini: c.mini || last.mini, m: c.m });
+      if (top === c) Object.assign(last, { kind: c.kind, title: c.title, line: c.line, clock: c.clock, mini: c.mini || last.mini, m: c.m, voiceClip: c.voiceClip }); // v1.4.7: voiceClip
       else if (!last.mini && c.mini) last.mini = c.mini;
       last.s = Math.max(last.s, c.s) + 5;
       last.parts = (last.parts || 1) + 1;
@@ -374,23 +466,30 @@ function boxOf(summary, people, from, to) {
   return [[w - padX, s - padY], [e + padX, n + padY]];
 }
 
+// v1.4.7: [left, right] of a two-person scene: the hider left, the hunter right (as v1.4's split)
+function sidesOf(people, summary) {
+  const [x, y] = people;
+  if (!y) return [x || null, null];
+  const sides = namesOf(summary);
+  const hider = sides.get(x) && sides.get(x).startTeam === 'hunter' ? y : x;
+  return [hider, hider === x ? y : x];
+}
+
 function shotsFor(sc, clips, talk, summary) {
   const shots = [];
   if (sc.start === null || !clips.length) return shots;
-  const cuts = direct({ clips, talk, moments: summary && summary.cam ? summary.cam.moments : [], routes: summary ? summary.routes : null,
-    from: sc.start, to: sc.end, follow: sc.layout === 'single' ? sc.people[0] : null });
-  const sides = namesOf(summary);
   if (sc.layout === 'split' || (sc.layout === 'minimap' && sc.people.length >= 2)) {
-    const [x, y] = sc.people;
-    const hider = sides.get(x) && sides.get(x).startTeam === 'hunter' ? y : x;
-    const hunter = hider === x ? y : x;
-    for (const [pid, slot] of [[hider, sc.layout === 'split' ? 'left' : 'left'], [hunter, 'right']]) {
+    // every clip of either player that overlaps the scene (v1.4.7: any of it)
+    const [hider, hunter] = sidesOf(sc.people, summary);
+    for (const [pid, slot] of [[hider, 'left'], [hunter, 'right']]) {
       for (const c of clips.filter((k) => k.pid === pid && k.start < sc.end && k.end > sc.start)) {
         shots.push({ from: Math.max(sc.start, c.start), to: Math.min(sc.end, c.end), id: c.id, pid, slot, why: 'near' });
       }
     }
     return shots;
   }
+  const cuts = direct({ clips, talk, moments: summary && summary.cam ? summary.cam.moments : [], routes: summary ? summary.routes : null,
+    from: sc.start, to: sc.end, follow: sc.layout === 'single' ? sc.people[0] : null });
   for (const c of cuts) shots.push({ ...c, slot: 'main' });
   if (sc.layout === 'mapcam') {
     // up to 3 others small, the ones filmed at the same time
@@ -408,7 +507,8 @@ function shotsFor(sc, clips, talk, summary) {
 function layoutFor(c, clips) {
   if (c.kind === 'near') {
     if (c.mini) return 'minimap';
-    if (c.people.length >= 2 && c.people.every((pid) => filmedFor(clips, pid, c.from, c.to) > 0.5)) return 'split';
+    // v1.4.7: both players side by side whenever both have footage of the approach (any of it)
+    if (c.people.length >= 2 && c.people.slice(0, 2).every((pid) => filmedFor(clips, pid, c.from, c.to) > 0)) return 'split';
   }
   let any = false;
   for (let t = c.from; t < c.to; t += 1000) if (anyCover(clips, t)) { any = true; break; }
@@ -429,6 +529,29 @@ function makeScene(c, clips, talk, summary, kind) {
   sc.layout = layoutFor({ ...c, people: sc.people }, clips);
   if (c.kind === 'near' && c.mini) sc.mini = { a: c.mini.a, b: c.mini.b, track: c.mini.track, gap: c.mini.gap };
   sc.shots = shotsFor(sc, clips, talk, summary);
+  // v1.4.7: both players of a close call or a near approach, hider left and hunter right, even one with no footage
+  // (the movie shows their face there)
+  if (sc.layout === 'split' || sc.layout === 'minimap') sc.sides = sidesOf(sc.people, summary);
+  // v1.4.7: a scene of what someone said shows that clip (dark or not) for as long as it covers the scene
+  if (c.voiceClip && sc.kind === 'voice') {
+    const vc = clips.find((k) => k.id === c.voiceClip);
+    if (vc) {
+      const a = Math.max(sc.start, vc.start), b = Math.min(sc.end, vc.end);
+      const kept = [];
+      for (const x of sc.shots) {
+        // other main shots keep only what's outside [a, b)
+        if (x.slot !== 'main' || x.to <= a || x.from >= b) { kept.push(x); continue; }
+        if (x.from < a) kept.push({ ...x, to: a });
+        if (x.to > b) kept.push({ ...x, from: b });
+      }
+      if (b > a) kept.push({ from: a, to: b, id: vc.id, pid: vc.pid, slot: 'main', why: 'voice' });
+      sc.shots = kept.sort((x, y) => (x.from - y.from) || (x.slot < y.slot ? -1 : 1));
+    }
+  }
+  for (const x of sc.shots) {
+    const k = clips.find((y) => y.id === x.id);
+    if (darkShot(k, x.from, x.to)) x.dark = true;
+  }
   if (!sc.shots.length && (sc.layout === 'mapcam' || sc.layout === 'split')) sc.layout = 'map';
   sc.map = { box: boxOf(summary, kind === 'whole' && c.kind === 'stretch' ? null : sc.people, c.from, c.to),
     follow: sc.people[0] || null, routes: kind === 'whole' ? 'so-far' : 'window', ring: true };
@@ -483,15 +606,23 @@ function gapScene(from, to, summary) {
 function camTracksOf(sc, clips) {
   const out = [];
   if (sc.start === null || sc.kind === 'gap') return out;
-  const main = sc.shots.filter((s) => s.slot === 'main' || s.slot === 'left').sort((a, b) => a.from - b.from);
+  // v1.4.7: a split or a close call plays both players' real sound (left and right), each its own track, a little
+  // lower while both play; a dark shot's sound plays too (the movie shows the face)
+  const both = sc.layout === 'split' || sc.layout === 'minimap';
+  const shots = sc.shots.filter((s) => s.slot === 'main' || s.slot === 'left' || (both && s.slot === 'right'))
+    .sort((a, b) => (a.from - b.from) || (a.slot < b.slot ? -1 : 1));
   const byId = new Map(clips.map((c) => [c.id, c]));
-  for (const s of main) {
+  for (const s of shots) {
     const clip = byId.get(s.id);
     if (!clip) continue;
-    const at = sc.at + (s.from - sc.start);
     const fa = fileTimeAt(clip, s.from);
     if (fa === null) continue;
-    out.push({ kind: 'cam', src: s.id, at, ms: s.to - s.from, fileAt: fa });
+    const t = { kind: 'cam', src: s.id, at: sc.at + (s.from - sc.start), ms: s.to - s.from, fileAt: fa };
+    if (both) {
+      t.side = s.slot === 'right' ? 'right' : 'left';
+      if (shots.some((o) => o.slot !== s.slot && o.from < s.to && o.to > s.from)) t.base = SIDE_GAIN;
+    }
+    out.push(t);
   }
   return out;
 }
@@ -515,15 +646,18 @@ function finishAudio(reel, clips, talk) {
     const sc = reel.scenes[i];
     const cams = camTracksOf(sc, clips);
     if (!cams.length) continue;
-    const first = cams[0], last = cams[cams.length - 1];
-    // the J-cut: its audio starts JCUT_MS before the picture
-    if (Math.abs(first.at - sc.at) < 5) {
+    // (v1.4.7: every track starting with the scene, and every one ending with it: both sides of a split)
+    for (const first of cams) {
+      // the J-cut: its audio starts JCUT_MS before the picture
+      if (Math.abs(first.at - sc.at) >= 5) continue;
       const back = Math.min(JCUT_MS, first.fileAt * 1000);
       first.at -= back; first.ms += back; first.fileAt -= back / 1000;
       first.fadeIn = true;
     }
-    // the crossfade: it runs XFADE_MS - JCUT_MS past the scene's end, fading out
-    if (Math.abs(last.at + last.ms - (sc.at + sc.ms)) < 5) { last.ms += Math.max(0, XFADE_MS - JCUT_MS); last.fadeOut = true; }
+    for (const last of cams) {
+      // the crossfade: it runs XFADE_MS - JCUT_MS past the scene's end, fading out
+      if (Math.abs(last.at + last.ms - (sc.at + sc.ms)) < 5) { last.ms += Math.max(0, XFADE_MS - JCUT_MS); last.fadeOut = true; }
+    }
     for (const t of cams) tracks.push(t);
   }
   for (const t of tracks) {
@@ -549,9 +683,10 @@ function finishAudio(reel, clips, talk) {
     if (t.fadeIn) keys.add(t.at + XFADE_MS);
     if (t.fadeOut) keys.add(end - XFADE_MS);
     for (const [a, b] of duckSpans) for (const k of [a - DUCK_RAMP_MS, a, b, b + DUCK_RAMP_MS]) if (k > t.at && k < end) keys.add(k);
-    t.gain = [...keys].filter((k) => k >= t.at && k <= end).sort((x, y) => x - y).map((k) => [Math.round(k), Math.round(fade(k) * duck(k) * 1000) / 1000]);
+    const base = num(t.base) !== null ? t.base : 1; // v1.4.7: SIDE_GAIN while both sides of a split play
+    t.gain = [...keys].filter((k) => k >= t.at && k <= end).sort((x, y) => x - y).map((k) => [Math.round(k), Math.round(fade(k) * duck(k) * base * 1000) / 1000]);
     if (!t.fadeIn) t.gain[0][1] = Math.max(t.gain[0][1], 0); // a hard cut inside a scene
-    delete t.fadeIn; delete t.fadeOut;
+    delete t.fadeIn; delete t.fadeOut; delete t.base;
   }
   // stings: a whoosh under each gap, a pad under the intro and outro, the room tone under everything
   for (const sc of reel.scenes) {
@@ -618,6 +753,14 @@ function busiest(summary, endClock) {
   return { from: best.from, to: Math.min(Math.max(endClock, 60000), best.from + 60000) };
 }
 
+// What the reel keeps of a clip: when it plays, and (v1.4.7) its loudness for a dark shot's sound wave.
+function reelClip(c) {
+  const out = { id: c.id, pid: c.pid, start: c.start, end: c.end, ms: c.ms, clocks: c.clocks, t0: c.t0 };
+  if (Array.isArray(c.loudQ) && c.loudQ.length) out.loudQ = c.loudQ;
+  else if (Array.isArray(c.loud) && c.loud.length) out.loud = c.loud;
+  return out;
+}
+
 export function scenes({ summary = {}, clips = [], talk = null, speech = null, kind = 'highlights', most = HIGHLIGHTS_MOST_MS } = {}) {
   const list = cleanClips(clips);
   const msgs = cleanTalk(talk || (summary && summary.radio) || []);
@@ -626,7 +769,7 @@ export function scenes({ summary = {}, clips = [], talk = null, speech = null, k
   const endClock = num(summary && summary.endClock) !== null ? summary.endClock : Math.max(lastClip, lastMsg, 60000);
   const cands = candidates(summary, list, msgs).filter((c) => c.clock >= 0 && c.clock <= endClock + 30000);
   const done = merge(cands.map((c) => edges({ ...c }, list, msgs, speech, endClock)));
-  const reel = { kind, ms: 0, scenes: [], audio: [], marks: [], endClock, clips: list.map((c) => ({ id: c.id, pid: c.pid, start: c.start, end: c.end, ms: c.ms, clocks: c.clocks, t0: c.t0 })) };
+  const reel = { kind, ms: 0, scenes: [], audio: [], marks: [], endClock, clips: list.map(reelClip) };
 
   if (kind === 'whole') {
     reel.scenes.push(introScene(summary));

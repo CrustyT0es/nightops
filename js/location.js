@@ -6,7 +6,7 @@
 // fn(status, latest) runs on every change. A phone standing still may stop sending fixes, so while started
 // it asks for a fresh one now and then; and it restarts the watch when the page comes back to the front
 // (iPhones can stop a watch in the background).
-import { isPoint } from '../shared/geo.js?v=149';
+import { isPoint } from '../shared/geo.js?v=150';
 
 const WATCH = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 };
 const FRESHEN = { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 };

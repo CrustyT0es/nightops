@@ -11,11 +11,12 @@
 //   3. Talk: the speaker's clip while their walkie message plays; else the other talker of the exchange.
 //   4. A tag, "no", catch or close call (its clip window around the moment): its people, cutting every SHOT_MS.
 //      (v1.3: a checkpoint done or a safe time run out too, why 'checkpoint'.)
+//   4b. (v1.4.7) Someone talking near their phone: a 'talk' clip while it hears speech, dark or not, why 'voice'.
 //   5. Else the loudest / fastest-moving (loud + min(50, speed x 10)); 'only' when there's one candidate.
 // A shot is held at least SHOT_MS unless its clip ends or goes dark, or a higher rule starts; within the
 // loudest rule a switch needs a score SWITCH_BY higher.
-import { TIMING } from '../shared/rules.js?v=149';
-import { distanceM } from '../shared/geo.js?v=149';
+import { TIMING } from '../shared/rules.js?v=150';
+import { distanceM } from '../shared/geo.js?v=150';
 
 export const SHOT_MS = 3000;
 export const DARK = 12;
@@ -39,8 +40,14 @@ SCENE_KINDS.add('hack');
 SCENE_KINDS.add('tap');
 const sceneWhy14 = (kind) => (kind === 'hack' || kind === 'tap' ? kind : sceneWhy(kind));
 // v1.4 end PAGE-REEL
-const weighty = (why) => why === 'hack' || why === 'tap' || why === 'talk' || why === 'tag' || why === 'near' || why === 'checkpoint';
+const weighty = (why) => why === 'hack' || why === 'tap' || why === 'talk' || why === 'tag' || why === 'near' || why === 'checkpoint' || why === 'voice';
 // v1.3 end PAGE-AFTER
+// v1.4.7: someone talking near their phone: a clip the phone kept for talking ('talk' in its kinds) while its
+// loudness says they speak is shown over the loudest (even a dark one: the movie shows their face and plays it);
+// below the walkie-talkie and the big moments. Everything's pieces never have 'talk', so they're unchanged.
+export const VOICE_LEVEL = 45; // camera.js TALK_LEVEL
+RANK.voice = 1.5;
+// v1.4.7 end
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
@@ -97,6 +104,28 @@ export function speedAt(routes, pid, clock) {
   if (!(dt > 0) || Math.abs(t - a[2]) > 120) return 0;
   const d = distanceM([a[0], a[1]], [b[0], b[1]]);
   return Number.isFinite(d) ? d / dt : 0;
+}
+
+// v1.4.7: how loud a talk clip's speech is in the second from t (loudQ: at least 2 of its 4 quarters over
+// VOICE_LEVEL; else the per-second loud), or null when nobody speaks there (or it isn't a talk clip).
+export function speaksAt(clip, t) {
+  if (!clip || !Array.isArray(clip.kinds) || !clip.kinds.includes('talk')) return null;
+  const s = fileTimeAt(clip, t);
+  if (s === null) return null;
+  if (Array.isArray(clip.loudQ) && clip.loudQ.length) {
+    const i = Math.floor(s * 4);
+    let n = 0;
+    let top = 0;
+    for (let k = i; k < i + 4 && k < clip.loudQ.length; k += 1) {
+      const v = num(clip.loudQ[k]);
+      if (v === null) continue;
+      if (v >= VOICE_LEVEL) n += 1;
+      top = Math.max(top, v);
+    }
+    return n >= 2 ? top : null;
+  }
+  const v = perSecond(clip, 'loud', t);
+  return v !== null && v >= VOICE_LEVEL ? v : null;
 }
 
 function covers(clip, t) {
@@ -193,6 +222,15 @@ export function direct({ clips, talk, moments, routes, from, to, follow = null }
         }
       }
     }
+    // v1.4.7: someone talking near their phone (the one already showing while they still talk)
+    if (!want) {
+      const talking = all.map((c) => ({ c, v: speaksAt(c, t) })).filter((x) => x.v !== null)
+        .sort((a, b) => (b.v - a.v) || (a.c.id < b.c.id ? -1 : 1));
+      if (talking.length) {
+        const mine = cur ? talking.find((x) => x.c.id === cur.id) : null;
+        want = { clip: (mine || talking[0]).c, why: 'voice' };
+      }
+    }
     let scores = null;
     if (!want) {
       scores = pool.map((c) => ({ c, s: (perSecond(c, 'loud', t) || 0) + Math.min(50, speedAt(routes, c.pid, t) * 10) }))
@@ -203,7 +241,7 @@ export function direct({ clips, talk, moments, routes, from, to, follow = null }
     // Hold the shot unless it ended, went dark, or a higher rule starts.
     let next = want;
     if (cur) {
-      const stillThere = pool.some((c) => c.id === cur.id) || (cur.why === 'follow' && all.some((c) => c.id === cur.id));
+      const stillThere = pool.some((c) => c.id === cur.id) || ((cur.why === 'follow' || cur.why === 'voice') && all.some((c) => c.id === cur.id)); // v1.4.7: voice
       const held = t - cur.since;
       const higher = RANK[want.why] > RANK[cur.why];
       if (stillThere && !higher && want.clip.id !== cur.id) {

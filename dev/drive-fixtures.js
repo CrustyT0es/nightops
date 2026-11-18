@@ -1,5 +1,7 @@
 // Night Ops: the dev preview's driver samples (v1.1, PAGE-DRIVER). fixtures.js calls withDriver for
 //   ?screen=game&as=driver&state=moving|parked[&pickup=open|coming|none]   the driver (Sam) moving or parked
+//       (v1.4.8: an open pickup starts turn-by-turn by itself; preview.js answers `route` with a made-up route, and
+//       &route=none with no route, for the straight-line fallback)
 //   ?screen=game&as=hunter&driver=1[&pickup=open|coming]                    another hunter, Mia driving
 //   ?screen=reveal&as=driver   ?screen=lobby&host=1&driver=1[&pick=1]
 const NEAR_OFFSET = [-0.0012, 0.0006]; // about 115 m from the car
@@ -63,6 +65,7 @@ export const DRIVER_SAMPLES = [
   { screen: 'reveal', as: 'driver' },
   { screen: 'game', as: 'driver', state: 'moving' },
   { screen: 'game', as: 'driver', state: 'parked' },
+  { screen: 'game', as: 'driver', state: 'moving', route: 'none' }, // v1.4.8: no route right now
   { screen: 'game', as: 'hunter', driver: '1' },
   { screen: 'game', as: 'hunter', driver: '1', pickup: 'coming' },
 ];

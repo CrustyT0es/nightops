@@ -6,14 +6,14 @@
 //   canMakeMovie(win) -> boolean
 //   movieParts({ list, summary, whole }) -> { windows, cuts, totalMs }   (pure)
 //   renderMovie({ app, list, summary, faces, ring, whole, onProgress, signal, getUrls }) -> Promise<{ blob, type, name }>
-import { direct, movieWindows, fileTimeAt } from './director.js?v=149';
-import { fmtClock } from '../shared/rules.js?v=149';
-import { ringOutline } from '../shared/geo.js?v=149';
+import { direct, movieWindows, fileTimeAt } from './director.js?v=150';
+import { fmtClock } from '../shared/rules.js?v=150';
+import { ringOutline } from '../shared/geo.js?v=150';
 // v1.4 PAGE-REEL: the reel's frame drawer (drawFrame, framePlan, audioAt, drawMiniMap) is at the end of this file.
 // The v1.2 movieParts/renderMovie above it stay only until PAGE-RENDER's render.js takes over the downloads.
-import { fitView, boxKey } from './moviemap.js?v=149';
-import { tourView } from './tour.js?v=149';
-import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames } from './scenes.js?v=149';
+import { fitView, boxKey } from './moviemap.js?v=150';
+import { tourView } from './tour.js?v=150';
+import { REEL, sceneAt, clockAt, gainOf, miniMap, TITLE_MS, joinNames, loudAt } from './scenes.js?v=150';
 
 export const W = 720;
 export const H = 1280;
@@ -636,7 +636,10 @@ export function framePlan(reel, t) {
       const clip = clipOf(reel, s.id);
       const fileAt = clip ? fileTimeAt(clip, clock) : null;
       if (fileAt === null) continue;
-      shots.push({ id: s.id, pid: s.pid, fileAt, slot: s.slot });
+      const shot = { id: s.id, pid: s.pid, fileAt, slot: s.slot };
+      // v1.4.7: too dark to see: the movie draws the face and a sound wave at this loudness (no frame needed)
+      if (s.dark) { shot.dark = true; shot.level = loudAt(clip, clock) || 0; }
+      shots.push(shot);
     }
   }
   return { scene, index, clock, shots };
@@ -750,7 +753,52 @@ function sourceOf(sources, id) {
   return { img: v, stale: false };
 }
 
-function drawShot(ctx, sources, summary, shot, x, y, w, h, { name = true, small = false } = {}) {
+// v1.4.7: a shot too dark to see (shot.dark), or a side of a close call with no footage (shot.none): the player's
+// face, a sound wave moving with their loudness (shot.level, 0..100; none for no footage) and their name under it.
+// Deterministic in t (reel ms), so the page's player and the file match frame for frame.
+export const WAVE_BARS = 23;
+function drawVoice(ctx, faces, summary, shot, x, y, w, h, { small = false, t = 0, clock = null } = {}) {
+  const who = person(summary, shot.pid);
+  ctx.save();
+  round(ctx, x, y, w, h, small ? 12 : 0);
+  ctx.clip();
+  ctx.fillStyle = '#0d131c';
+  ctx.fillRect(x, y, w, h);
+  const r = Math.max(14, Math.min(w, h) * (small ? 0.2 : 0.17));
+  const cx = x + w / 2;
+  const cy = y + h * (small ? 0.36 : 0.38);
+  ctx.globalAlpha = shot.none ? 0.55 : 1;
+  drawFace(ctx, faces, summary, shot.pid, cx, cy, r, clock);
+  ctx.globalAlpha = 1;
+  const waveY = cy + r + (small ? 18 : 46);
+  const most = Math.min(h * 0.14, small ? 22 : 64);
+  if (!shot.none) {
+    const level = Number.isFinite(shot.level) ? shot.level : 0;
+    const amp = Math.max(0.12, Math.min(1, (level - 8) / 55));
+    const bars = small ? 13 : WAVE_BARS;
+    const span = Math.min(w * 0.72, small ? 150 : 420);
+    const bw = span / bars;
+    ctx.fillStyle = who.color;
+    for (let i = 0; i < bars; i += 1) {
+      const wob = Math.abs(Math.sin(i * 1.7 + t / 140) * 0.6 + Math.sin(i * 0.55 - t / 230) * 0.4);
+      const hump = Math.sin((Math.PI * (i + 0.5)) / bars);
+      const bh = Math.max(3, most * amp * (0.25 + 0.75 * wob) * (0.45 + 0.55 * hump));
+      ctx.fillRect(x + (w - span) / 2 + i * bw + bw * 0.2, waveY - bh / 2, Math.max(2, bw * 0.6), bh);
+    }
+  }
+  ctx.restore();
+  txt(ctx, who.name, cx, Math.min(y + h - (small ? 8 : 20), waveY + most / 2 + (small ? 24 : 50)), { size: small ? 20 : 38, color: who.color, align: 'center' });
+  if (small) {
+    round(ctx, x, y, w, h, 12);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = who.color;
+    ctx.stroke();
+  }
+  return true;
+}
+
+function drawShot(ctx, sources, summary, shot, x, y, w, h, { name = true, small = false, faces = null, t = 0, clock = null } = {}) {
+  if (shot && (shot.dark || shot.none) && shot.pid) return drawVoice(ctx, faces, summary, shot, x, y, w, h, { small, t, clock }); // v1.4.7
   ctx.save();
   round(ctx, x, y, w, h, small ? 12 : 0);
   ctx.clip();
@@ -1174,6 +1222,13 @@ function drawCard14(ctx14, reel, scene, t, o) {
   }
 }
 
+// v1.4.7: a split's two sides now: each side's shot, else that person's face (no footage of them at this moment)
+function sidesNow(scene, by) {
+  const sides = Array.isArray(scene.sides) ? scene.sides : [];
+  const pick = (slot, pid) => by(slot)[0] || (pid ? { pid, none: true } : null);
+  return [pick('left', sides[0]), pick('right', sides[1])];
+}
+
 export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary = null, ring = null, maps = null, w = REEL.W, h = REEL.H, scale = 1, progress = true } = {}) {
   ctx.save();
   ctx.fillStyle = NIGHT;
@@ -1197,20 +1252,21 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
       drawCard14(ctx, reel, scene, t, o);
       break;
     case 'split': {
-      const left = by('left')[0] || null, right = by('right')[0] || null;
-      drawShot(ctx, sources, summary, left, 0, 0, REEL.W / 2 - 3, CAM_H);
-      drawShot(ctx, sources, summary, right, REEL.W / 2 + 3, 0, REEL.W / 2 - 3, CAM_H);
+      const [left, right] = sidesNow(scene, by);
+      drawShot(ctx, sources, summary, left, 0, 0, REEL.W / 2 - 3, CAM_H, { faces, t, clock });
+      drawShot(ctx, sources, summary, right, REEL.W / 2 + 3, 0, REEL.W / 2 - 3, CAM_H, { faces, t, clock });
       drawMap(ctx, scene, clock, lower, { summary, ring, faces, maps, focus: scene.people });
       break;
     }
     case 'minimap': {
-      const left = by('left')[0] || null, right = by('right')[0] || null;
-      const top = left || right ? 380 : 0;
+      const filmed = by('left')[0] || by('right')[0] || null;
+      const [left, right] = sidesNow(scene, by);
+      const top = filmed ? 380 : 0;
       ctx.fillStyle = PANEL;
       ctx.fillRect(0, 0, REEL.W, REEL.H);
       if (top) {
-        drawShot(ctx, sources, summary, left, 20, 20, REEL.W / 2 - 30, top - 40, { small: true });
-        drawShot(ctx, sources, summary, right, REEL.W / 2 + 10, 20, REEL.W / 2 - 30, top - 40, { small: true });
+        drawShot(ctx, sources, summary, left, 20, 20, REEL.W / 2 - 30, top - 40, { small: true, faces, t, clock });
+        drawShot(ctx, sources, summary, right, REEL.W / 2 + 10, 20, REEL.W / 2 - 30, top - 40, { small: true, faces, t, clock });
       }
       // the mini map in the middle of what's left; the title and the distance under it
       const size = Math.min(REEL.W - 40, REEL.H - top - 300);
@@ -1223,21 +1279,22 @@ export function drawFrame(ctx, reel, t, { sources = null, faces = null, summary 
     case 'mapcam': {
       const main = by('main')[0] || by('left')[0] || null;
       // footage that isn't there (not up yet, or past its file's end): the map fills the frame instead
-      const hasMain = main && sourceOf(sources, main.id) && drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H);
+      // (v1.4.7: a dark shot needs no frame: its face and sound wave)
+      const hasMain = main && (main.dark || sourceOf(sources, main.id)) && drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H, { faces, t, clock });
       if (!hasMain && sources !== null) {
         drawMap(ctx, scene, clock, full, { summary, ring, faces, maps, focus: main ? [main.pid] : scene.people });
         drawCaption(ctx, scene, clock, REEL.H - 140);
         break;
       }
-      if (!hasMain) drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H);
+      if (!hasMain) drawShot(ctx, sources, summary, main, 0, 0, REEL.W, CAM_H, { faces, t, clock });
       const smalls = by('small').filter((s) => !main || s.pid !== main.pid).slice(0, 3);
-      smalls.forEach((s, i) => drawShot(ctx, sources, summary, s, REEL.W - 20 - (i + 1) * 176 + 16, CAM_H - 150, 160, 120, { small: true }));
+      smalls.forEach((s, i) => drawShot(ctx, sources, summary, s, REEL.W - 20 - (i + 1) * 176 + 16, CAM_H - 150, 160, 120, { small: true, faces, t, clock }));
       drawMap(ctx, scene, clock, lower, { summary, ring, faces, maps, focus: main ? [main.pid] : scene.people });
       drawCaption(ctx, scene, clock, CAM_H - 180);
       break;
     }
     case 'single': {
-      drawShot(ctx, sources, summary, by('main')[0] || null, 0, 0, REEL.W, REEL.H);
+      drawShot(ctx, sources, summary, by('main')[0] || null, 0, 0, REEL.W, REEL.H, { faces, t, clock });
       drawCaption(ctx, scene, clock, REEL.H - 120);
       break;
     }

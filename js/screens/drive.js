@@ -7,22 +7,27 @@
 //       distance; a tap on it: On my way / Picked up. A slim top bar (time left, voice, SOS, menu) and a bottom
 //       bar (the walkie-talkie and the open pickups). It speaks pickups, pins, catches, closing in and the time
 //       calls; never where a hider is (the server never tells the driver).
+//   v1.4.8: turn-by-turn (js/screens/drivenav.js): the route along the roads, the next turn big at the top, spoken
+//       turns, ETA / time / distance left and End at the bottom; it starts by itself for a pickup or a "Driver: go
+//       here" pin, and each pickup, pin and the hunters have a Navigate button. The map then turns with the car and
+//       tilts; a pan shows Recentre.
 //   pickMeUp(app) -> { el, update(view) }      a hunter's "Pick me up" (and Waiting / coming / Cancel)
 //   driverCard(app) -> { el, update(view) }    the driver's part of the hunter panel (pickups, words)
 //   driverReveal(words, view)                  the reveal screen's words for the driver (and the others)
 //
 // Pure helpers are exported for tests (tests/page-driver.test.mjs, tests/page-play14.test.mjs).
-import { h, fill, text, cls, listen } from '../dom.js?v=149';
-import { icon } from '../ui/icons.js?v=149';
-import { holdInert } from '../ui/inert.js?v=149';
-import { fmtClock, fmtDistance } from '../../shared/rules.js?v=149';
-import { directionWords, isPoint } from '../../shared/geo.js?v=149';
-import { speechReady } from '../alerts.js?v=149';
-import { cpSpeech, cpDriveLine } from './cpplay.js?v=149'; // v1.3 PAGE-PLAY
-import { createMap } from '../map.js?v=149';
-import { createMapCam } from '../mapcam.js?v=149';
-import { openSheet } from '../ui/sheet.js?v=149';
-import { pinsFor, createPinTool } from './pins.js?v=149';
+import { h, fill, text, cls, listen } from '../dom.js?v=150';
+import { icon } from '../ui/icons.js?v=150';
+import { holdInert } from '../ui/inert.js?v=150';
+import { fmtClock, fmtDistance } from '../../shared/rules.js?v=150';
+import { directionWords, isPoint } from '../../shared/geo.js?v=150';
+import { speechReady } from '../alerts.js?v=150';
+import { cpSpeech, cpDriveLine } from './cpplay.js?v=150'; // v1.3 PAGE-PLAY
+import { createMap } from '../map.js?v=150';
+import { createMapCam } from '../mapcam.js?v=150';
+import { openSheet } from '../ui/sheet.js?v=150';
+import { pinsFor, createPinTool } from './pins.js?v=150';
+import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=150'; // v1.4.8
 
 export const VOICE_KEY = 'nightops-drive-voice';   // 'off' = the driver muted the voice
 export const DRIVE_STALE_MS = 120000;              // events older than this aren't spoken (a phone that slept)
@@ -456,7 +461,8 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
   const talking = h('p.drive-talking', { hidden: true, role: 'status' });
   const cpLine = h('p.drive-cp', { hidden: true }); // v1.3 PAGE-PLAY
   const mapBox = h('div.drive-map');
-  const followBtn = h('button.drive-follow', { type: 'button', hidden: true }, icon('locate', 24), h('span', 'Follow me'));
+  // v1.4.8: "Recentre" (it was "Follow me"): back on the car, and while navigating turned and tilted again
+  const followBtn = h('button.drive-follow', { type: 'button', hidden: true }, icon('locate', 24), h('span', 'Recentre'));
   const pkCount = h('button.drive-pk-count', { type: 'button', hidden: true });
   let radioBtn = null;
   try { radioBtn = app.radio && typeof app.radio.button === 'function' ? app.radio.button({ big: true }) : null; } catch (e) { console.error(e); }
@@ -473,18 +479,29 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
   let map = null;
   let cam = null;
   let pinTool = null;
+  let nav = null; // v1.4.8
   try {
     map = createMap(mapBox, { interactive: true });
+    // v1.4.8: turn-by-turn: its card over the top of the map, its strip at the bottom, Navigate, the safety line
+    try {
+      nav = createNav(app, { map, voice, onChange: () => paint() });
+      layer.querySelector('.drive-lines').prepend(nav.card);
+      const foot = layer.querySelector('.drive-foot');
+      foot.prepend(nav.strip);
+      foot.append(nav.go, nav.safety);
+    } catch (e) { console.error(e); nav = null; }
+    // v1.4.8 end
     cam = createMapCam(map, {
       fitAll: () => map.fitAll({ ring: S.view && (S.view.ringNow || S.view.ring), marks: driveMarks(S.view) }),
       pointOf: () => driverSpot(S.view),
       follow: 'me',
     });
     offs.push(cam.on('mode', (mode) => { followBtn.hidden = mode === 'follow'; }));
-    pinTool = createPinTool(app, { map, getView: () => S.view });
+    pinTool = createPinTool(app, { map, getView: () => S.view, navigate: nav ? (pin) => nav.start({ kind: 'pin', id: pin.id }) : null }); // v1.4.8: navigate
     if (typeof map.onPinTap === 'function') offs.push(map.onPinTap((key) => tapPin(key)));
   } catch (e) { console.error(e); }
-  followBtn.addEventListener('click', () => { if (cam) cam.follow('me'); });
+  if (!nav) layer.querySelector('.drive-foot').append(h('p.drive-safety', SAFETY)); // v1.4.8
+  followBtn.addEventListener('click', () => { if (cam) cam.follow('me'); S.navCamAt = 0; });
   pkCount.addEventListener('click', () => {
     const first = pickupLines(S.view)[0];
     if (first) pickupSheet(first.id);
@@ -498,7 +515,18 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     let sheet = null;
     const list = pickupList(app, true, () => { if (sheet) sheet.close(); });
     list.update(lines ? [lines] : []);
-    sheet = openSheet({ title: `${k.name || 'Someone'}${k.pinned ? ': pick me up here' : ': pick me up'}`, className: 'drive-pk-sheet', body: [list.el], actions: [{ label: 'Close', kind: 'ghost' }] });
+    // v1.4.8: Navigate there (turn-by-turn)
+    let go = null;
+    if (nav) {
+      const on = nav.navigating(`pickup:${id}`);
+      go = h(`button.btn.wide.nav-sheet-go${on ? '' : '.primary'}`, { type: 'button', ...(on ? { 'aria-disabled': 'true' } : {}) }, icon('car', 22), h('span', on ? 'Navigating' : 'Navigate'));
+      go.addEventListener('click', () => {
+        if (!on) nav.start({ kind: 'pickup', id });
+        if (sheet) sheet.close();
+      });
+    }
+    // v1.4.8 end
+    sheet = openSheet({ title: `${k.name || 'Someone'}${k.pinned ? ': pick me up here' : ': pick me up'}`, className: 'drive-pk-sheet', body: [go, list.el].filter(Boolean), actions: [{ label: 'Close', kind: 'ghost' }] });
   }
 
   function tapPin(key) {
@@ -551,8 +579,10 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
       S.ringKey = rk;
       try { map.setRing(view.ring, view.ringNow); } catch (e) { console.error(e); }
     }
-    try { map.setMarks(driveMarks(view), { faces: app.faces, players: view.players, meId: view.me ? view.me.id : null, paused: !!view.paused }); } catch (e) { console.error(e); }
-    const pins = driveMapPins(view, elapsed());
+    // (v1.4.8: while navigating the car sits at this phone's own newest fix, which is fresher than the server's)
+    const marks = nav ? nav.carMarks(driveMarks(view)) : driveMarks(view);
+    try { map.setMarks(marks, { faces: app.faces, players: view.players, meId: view.me ? view.me.id : null, paused: !!view.paused }); } catch (e) { console.error(e); }
+    const pins = nav ? nav.pinLines(driveMapPins(view, elapsed())) : driveMapPins(view, elapsed()); // v1.4.8: no straight line under a route
     const key = JSON.stringify(pins);
     if (key !== S.pinKey) {
       S.pinKey = key;
@@ -560,6 +590,28 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     }
     // the first look: close on the car (about 600 m across), then Follow keeps it in the middle
     if (cam && !S.zoomed && driverSpot(view)) { S.zoomed = true; try { map.center(driverSpot(view), 16, { animate: false }); } catch { /* fine */ } }
+    // v1.4.8: navigating: the map follows the car turned to its heading and tilted (a pan leaves it: Recentre);
+    // otherwise north up and flat, as before
+    const navCam = nav && nav.active() ? nav.camera() : null;
+    if (cam && navCam && typeof map.navCamera === 'function') {
+      S.tilted = true;
+      // (The turn card and the lines under it cover the map's top: the car is placed in what's left.)
+      try {
+        const lines = layer.querySelector('.drive-lines');
+        const top = Math.max(0, Math.round(lines.getBoundingClientRect().bottom - mapBox.getBoundingClientRect().top));
+        if (typeof map.setInsets === 'function') map.setInsets({ top: top > 16 ? top : 0 });
+      } catch { /* fine */ }
+      if (cam.mode === 'follow' && perfNow() - (S.navCamAt || 0) >= CAMERA_EVERY_MS) {
+        S.navCamAt = perfNow();
+        try { map.navCamera(navCam); } catch (e) { console.error(e); }
+      }
+      return;
+    }
+    if (S.tilted && typeof map.flatView === 'function') {
+      S.tilted = false;
+      try { map.flatView(); if (typeof map.setInsets === 'function') map.setInsets({ top: 0 }); } catch { /* fine */ }
+    }
+    // v1.4.8 end
     if (cam) cam.frame();
   }
 
@@ -573,6 +625,9 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
       cls(container, 'drive-on', shown);
       holdUnder(shown);
       if (shown && map && map.resize) map.resize();
+      // v1.4.8: the screen stays on while the Driving layer shows (the app's own wake lock); banners under the card
+      try { if (app.alerts && typeof app.alerts.keepAwake === 'function') app.alerts.keepAwake(shown, 'drive'); } catch { /* fine */ }
+      bannersUnder(shown);
     }
     const d = elapsed();
     const t = view.timing || {};
@@ -584,8 +639,11 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
     }
     S.lastLeft = left;
     setHidden(sosBtn, view.phase !== 'live' || !!view.paused);
+    if (nav) { try { nav.update(view); } catch (e) { console.error(e); } } // v1.4.8
     if (!shown) return;
+    placeBanners(); // v1.4.8
     { const cl = cpDriveLine(view, driverSpot(view), d); setHidden(cpLine, !cl); text(cpLine, cl); } // v1.3 PAGE-PLAY
+    cls(layer, 'navigating', !!(nav && nav.active())); // v1.4.8
     const pk = pickupLines(view);
     setHidden(pkCount, !pk.length);
     text(pkCount, pk.length === 1 ? `Pickup: ${pk[0].name}` : `${pk.length} pickups`);
@@ -594,6 +652,30 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
   }
 
   function setHidden(el, hide) { if (el.hidden !== !!hide) el.hidden = !!hide; }
+
+  // v1.4.8: news banners sit under the turn card (and the lines under it) while the Driving layer shows, never over
+  // the next turn (drive.css reads --drive-banners-top while <html> has .drive-shown).
+  function placeBanners() {
+    try {
+      const root = document.documentElement;
+      const lines = layer.querySelector('.drive-lines');
+      const top = layer.querySelector('.drive-top');
+      const r = lines ? lines.getBoundingClientRect() : null;
+      const bottom = Math.round(r && r.height > 0 ? r.bottom : top ? top.getBoundingClientRect().bottom : 0);
+      if (S.bannersTop !== bottom) {
+        S.bannersTop = bottom;
+        root.style.setProperty('--drive-banners-top', `${bottom}px`);
+      }
+    } catch { /* fine */ }
+  }
+
+  function bannersUnder(on) {
+    try {
+      document.documentElement.classList.toggle('drive-shown', !!on);
+      if (!on) { document.documentElement.style.removeProperty('--drive-banners-top'); S.bannersTop = null; }
+    } catch { /* fine */ }
+  }
+  // v1.4.8 end
 
   function holdUnder(on) {
     for (const release of S.held.splice(0)) release();
@@ -627,6 +709,7 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
   return {
     el: layer,
     voice,
+    nav: () => nav, // v1.4.8
     map: () => map,
     cam: () => cam,
     shown: () => S.shown,
@@ -647,6 +730,9 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
       clearInterval(timer);
       for (const off of offs.splice(0)) { try { off(); } catch { /* ignore */ } }
       voice.destroy();
+      try { if (nav) nav.destroy(); } catch { /* ignore */ } // v1.4.8
+      bannersUnder(false); // v1.4.8
+      try { if (app.alerts && typeof app.alerts.keepAwake === 'function') app.alerts.keepAwake(false, 'drive'); } catch { /* ignore */ } // v1.4.8
       try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ }
       try { if (cam) cam.destroy(); } catch { /* ignore */ }
       try { if (map) map.destroy(); } catch { /* ignore */ }

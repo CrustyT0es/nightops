@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=149';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=150';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -190,9 +190,9 @@ export const CAM_MODES_UI = [
 ];
 
 // Moment kinds ('mark' = the phone's own "Record this", never from the server).
-// (v1.3 appended 'checkpoint' and 'overstay', so older lists stay valid.)
+// (v1.4.7 appended 'talk': the phone heard talking. v1.3 appended 'checkpoint' and 'overstay', so older lists stay valid.)
 export const CAM_KINDS = Object.freeze(['radio', 'tag', 'denied', 'caught', 'near', 'power', 'sos', 'outside', 'over', 'mark',
-  'checkpoint', 'overstay', 'hack', 'tap']);
+  'checkpoint', 'overstay', 'hack', 'tap', 'talk']);
 
 export const PRESETS = {
   quick: { label: 'Quick', line: '20 min, pings every 3', settings: { durationMin: 20, headStartMin: 3, pingEveryMin: 3, closingMin: 5, closingPingEveryMin: 1 } },

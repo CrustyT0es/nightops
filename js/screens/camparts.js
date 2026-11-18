@@ -3,21 +3,22 @@
 //   attachCamParts({ app, videoSlot, cardSlot, hooks }) -> { update(view), destroy() }
 //       what over.js mounts: the clips card (into cardSlot) and the replay's video window (into videoSlot, fed from
 //       hooks = { frame, open, close, jump }). Nothing shows for a game without the camera.
-//   clipsCard({ app, list }) -> { el, update(view), destroy() }
+//   clipsCard({ app, list, urls, nav, storage }) -> { el, update(view), destroy() }   (v1.4.7: uploads wait for wifi, netgate.js)
 //   createVideoWindow({ app, slot, list }) -> { setData({ list, summary }), frame(f), jump(clockMs), follow(pid), destroy() }
 //   confirmAgain(app, view) -> Promise<boolean>   Play again's warning when this round has clips
 //
 // Pure helpers (tested in Node): fmtMB, progressWords, clipLabel, keptWords, camOf, stillComing, mineOf.
-import { h, fill, text, cls, face } from '../dom.js?v=149';
-import { icon } from '../ui/icons.js?v=149';
-import { openSheet } from '../ui/sheet.js?v=149';
-import { fmtClock } from '../../shared/rules.js?v=149';
-import { direct, fileTimeAt } from '../director.js?v=149';
-import { canMakeMovie, talkOf } from '../movie.js?v=149';
-import { scenes as reelScenes } from '../scenes.js?v=149';
-import { renderReel } from '../render.js?v=149';
-import { createUploader } from '../upload.js?v=149';
-import { heldOf } from '../camstore.js?v=149';
+import { h, fill, text, cls, face } from '../dom.js?v=150';
+import { icon } from '../ui/icons.js?v=150';
+import { openSheet } from '../ui/sheet.js?v=150';
+import { fmtClock } from '../../shared/rules.js?v=150';
+import { direct, fileTimeAt } from '../director.js?v=150';
+import { canMakeMovie, talkOf } from '../movie.js?v=150';
+import { scenes as reelScenes } from '../scenes.js?v=150';
+import { renderReel } from '../render.js?v=150';
+import { createUploader } from '../upload.js?v=150';
+import { heldOf } from '../camstore.js?v=150';
+import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=150'; // v1.4.7
 
 export const POLL_MS = 10000;
 export const URL_KEEP_MS = 13 * 60 * 1000;   // signed links last 15 min; asked again a little before
@@ -200,16 +201,19 @@ export function confirmAgain(app, view) {
 
 // ---- the clips card ---------------------------------------------------------------------------------------
 
-export function clipsCard({ app, list, urls }) {
-  const S = { view: null, rows: [], up: null, dead: false, key: '', keeping: false };
+export function clipsCard({ app, list, urls, nav, storage }) { // v1.4.7: nav, storage (the wifi gate's; tests)
+  const S = { view: null, rows: [], up: null, dead: false, key: '', keeping: false, gate: null, offGate: null, tried: false, gateWas: null };
   const mineTitle = h('p.cam-mine-title');
   const uploadBtn = h('button.btn.primary.wide.cam-upload', { type: 'button' }, icon('send', 20), h('span', WORDS.upload));
-  const wifi = h('p.cam-wifi', WORDS.wifi);
+  const wifi = h('p.cam-wifi', { role: 'status', 'aria-live': 'polite' }, WORDS.wifi);
+  // v1.4.7: uploads wait for wifi: "Wait, I'll upload later on wifi" beside the question, and the time left
+  const laterBtn = h('button.btn.ghost.wide.cam-later', { type: 'button', hidden: true }, h('span', NET_WORDS.later));
+  const leftLine = h('p.cam-left', { hidden: true });
   const bar = h('div.cam-bar', { role: 'progressbar', 'aria-label': 'Uploading your clips', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', hidden: true }, h('span.cam-bar-fill'));
   const upLine = h('p.cam-up-line', { role: 'status', 'aria-live': 'polite' });
   const delBtn = h('button.btn.ghost.small.cam-del', { type: 'button' }, icon('trash', 18), h('span', WORDS.del));
   const forgetBtn = h('button.btn.ghost.small.cam-forget', { type: 'button', hidden: true }, icon('trash', 18), h('span', WORDS.forget));
-  const mine = h('div.cam-mine', { hidden: true }, mineTitle, uploadBtn, wifi, bar, upLine, delBtn, forgetBtn);
+  const mine = h('div.cam-mine', { hidden: true }, mineTitle, wifi, uploadBtn, laterBtn, leftLine, bar, upLine, delBtn, forgetBtn);
 
   const progList = h('ul.cam-progress', { role: 'list' });
   const nothing = h('p.cam-nothing', WORDS.nothingYet);
@@ -244,12 +248,43 @@ export function clipsCard({ app, list, urls }) {
     return S.up;
   }
 
-  uploadBtn.addEventListener('click', () => {
+  function startUpload() {
     const up = uploader();
     if (!up) return;
-    up.run().then(async () => { await countMine(); paintMine(); });
+    up.run().then(async () => { await countMine(); paintMine(); drive(); });
+    paintMine();
+  }
+
+  // v1.4.7: the button by hand: on mobile data "Upload now anyway", after the question "Upload now", later on "Upload
+  // my clips" (they say they're on wifi now); on wifi it carries on (and still waits if the wifi goes).
+  uploadBtn.addEventListener('click', () => {
+    const g = S.gate ? S.gate.state : 'go';
+    if (S.gate && g === 'wait') S.gate.choose('anyway');
+    else if (S.gate && g !== 'go') S.gate.choose('now');
+    S.tried = true;
+    startUpload();
+  });
+  laterBtn.addEventListener('click', () => {
+    if (S.gate) S.gate.choose('later');
     paintMine();
   });
+
+  // v1.4.7: start (or hold) uploads by themselves as the connection allows; once per opening of the gate
+  function drive() {
+    if (S.dead || !mineOf(S.view) || !store() || !S.gate) return;
+    const h0 = heldOf(S.rows);
+    const filming = !!(app.cam && app.cam.state === 'on');
+    const sending = !!(S.up && S.up.state === 'sending');
+    const what = uploadStep({ state: S.gate.state, left: h0.left, filming, sending, tried: S.tried });
+    if (what === 'run') { S.tried = true; startUpload(); } else if (what === 'hold' && S.up) S.up.stop();
+  }
+  function onGate(state) {
+    if (S.dead) return;
+    if (state === 'go' && S.gateWas !== 'go') S.tried = false; // wifi again: carry on by itself
+    S.gateWas = state;
+    paintMine();
+    drive();
+  }
 
   delBtn.addEventListener('click', () => {
     openSheet({
@@ -334,8 +369,23 @@ export function clipsCard({ app, list, urls }) {
     // (The camera films 20 s past the end: the last clip is waited for first.)
     const filming = !!(app.cam && app.cam.state === 'on');
     uploadBtn.disabled = !!sending || filming;
-    text(uploadBtn.querySelector('span'), sending ? 'Uploading...' : filming ? 'Saving the last clip...' : (h0.left < h0.count ? WORDS.again : WORDS.upload));
+    // v1.4.7: what the connection allows (go / wait for wifi / ask once / later on wifi) and the time left
+    const g = S.gate ? S.gate.state : 'go';
+    const idle = (h0.left < h0.count ? WORDS.again : WORDS.upload);
+    text(uploadBtn.querySelector('span'), sending ? 'Uploading...' : filming ? 'Saving the last clip...'
+      : g === 'wait' ? NET_WORDS.anyway : g === 'ask' ? NET_WORDS.now : idle);
+    text(wifi, sending ? WORDS.wifi : g === 'wait' ? NET_WORDS.waiting(left) : g === 'ask' ? NET_WORDS.ask(fmtMB(h0.leftBytes || h0.bytes))
+      : g === 'later' ? NET_WORDS.laterLine : WORDS.wifi);
+    cls(wifi, 'net', !sending && g !== 'go');
+    // (waiting for wifi is the calm choice: "Upload now anyway" is the quieter button then)
+    cls(uploadBtn, 'primary', sending || g !== 'wait');
+    cls(uploadBtn, 'ghost', !sending && g === 'wait');
     wifi.hidden = !left;
+    laterBtn.hidden = !left || !!sending || g !== 'ask';
+    const until = untilOf({ view: S.view, list: list.list });
+    const lw = leftWords(until);
+    leftLine.hidden = !left || !Number.isFinite(until);
+    text(leftLine, lw ? NET_WORDS.left(lw) : NET_WORDS.gone);
     delBtn.hidden = !h0.count || !!sending;
     forgetBtn.hidden = !upMine() || !!sending;
     bar.hidden = !sending;
@@ -540,9 +590,18 @@ export function clipsCard({ app, list, urls }) {
   const off = list.on(() => paintAll());
   // A clip saved after the end screen opened (the camera films 20 s more): counted at once.
   const offClip = app.cam && typeof app.cam.on === 'function'
-    ? app.cam.on('clip', () => { countMine().then(() => { if (!S.dead) paintMine(); }); })
+    ? app.cam.on('clip', () => {
+      countMine().then(() => {
+        if (S.dead) return;
+        paintMine();
+        drive();
+        // v1.4.7: the others' "Ava: 0 of 3 clips" counts a clip saved after the end screen opened too
+        const st = store();
+        if (st && mineOf(S.view)) createUploader({ app, store: st, code: code(), round: round() }).tellHave();
+      });
+    })
     : () => {};
-  const offState = app.cam && typeof app.cam.on === 'function' ? app.cam.on('state', () => { if (!S.dead) paintMine(); }) : () => {};
+  const offState = app.cam && typeof app.cam.on === 'function' ? app.cam.on('state', () => { if (!S.dead) { paintMine(); drive(); } }) : () => {}; // v1.4.7: drive
 
   return {
     el,
@@ -554,6 +613,13 @@ export function clipsCard({ app, list, urls }) {
       if (camOf(view) && key !== S.key) {
         S.key = key;
         S.up = null;
+        // v1.4.7: this round's wifi gate
+        if (S.offGate) S.offGate();
+        if (S.gate) S.gate.destroy();
+        S.gate = createNetGate({ key, nav, storage });
+        S.gateWas = S.gate.state;
+        S.tried = false;
+        S.offGate = S.gate.on(onGate);
         list.start();
         await countMine();
         if (mineOf(view) && store()) {
@@ -564,6 +630,7 @@ export function clipsCard({ app, list, urls }) {
         }
       }
       paintAll();
+      drive(); // v1.4.7
     },
     destroy() {
       S.dead = true;
@@ -571,6 +638,8 @@ export function clipsCard({ app, list, urls }) {
       offClip();
       offState();
       if (S.up) S.up.stop();
+      if (S.offGate) S.offGate(); // v1.4.7
+      if (S.gate) S.gate.destroy();
     },
   };
 }
@@ -842,7 +911,7 @@ export function gameCamParts({ app }) {
     const st = media.state;
     const part = st.cam === 'denied' ? 'camera' : st.mic === 'denied' ? 'mic' : null;
     if (part) {
-      import('../ui/fixit.js?v=149').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
+      import('../ui/fixit.js?v=150').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
     } else media.restore();
   });
   // v1.4 end PAGE-DEVICES
