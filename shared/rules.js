@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=151';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=152';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -47,7 +47,7 @@ export const TIMING = {
   SPRINT_MS: 120000,           // Sprint lasts 2 min
   DECOY_MIN_M: 200,
   DECOY_MAX_M: 400,
-  OUTSIDE_SHOW_MS: 30000,      // outside the ring this long: hunters see you live
+  OUTSIDE_SHOW_MS: 15000,      // outside the ring this long: hunters see you live (15 s since 1.5.1)
   OUTSIDE_CATCH_MS: 120000,    // outside the ring this long: you're caught
   OFFLINE_MS: 60000,           // no location for this long: "offline"
   OFFLINE_SHOW_MS: 180000,     // offline this long (a hider): hunters see the last known spot

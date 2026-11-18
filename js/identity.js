@@ -1,8 +1,8 @@
 // Night Ops: who you are on this phone (name + selfie) and the game you're in ({code, id, secret}).
 // Kept in localStorage under 'nightops-me' and 'nightops-game'. Every access is in try/catch: private
 // browsing, a full or blocked storage never breaks the page (it falls back to memory for this visit).
-import { LIMITS } from '../shared/rules.js?v=151';
-import { cleanName as engineName } from '../shared/engine.js?v=151';
+import { LIMITS } from '../shared/rules.js?v=152';
+import { cleanName as engineName } from '../shared/engine.js?v=152';
 
 export const ME_KEY = 'nightops-me';
 export const GAME_KEY = 'nightops-game';
