@@ -8,17 +8,17 @@
 //   confirmAgain(app, view) -> Promise<boolean>   Play again's warning when this round has clips
 //
 // Pure helpers (tested in Node): fmtMB, progressWords, clipLabel, keptWords, camOf, stillComing, mineOf.
-import { h, fill, text, cls, face } from '../dom.js?v=152';
-import { icon } from '../ui/icons.js?v=152';
-import { openSheet } from '../ui/sheet.js?v=152';
-import { fmtClock } from '../../shared/rules.js?v=152';
-import { direct, fileTimeAt } from '../director.js?v=152';
-import { canMakeMovie, talkOf } from '../movie.js?v=152';
-import { scenes as reelScenes } from '../scenes.js?v=152';
-import { renderReel } from '../render.js?v=152';
-import { createUploader } from '../upload.js?v=152';
-import { heldOf } from '../camstore.js?v=152';
-import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=152'; // v1.4.7
+import { h, fill, text, cls, face } from '../dom.js?v=153';
+import { icon } from '../ui/icons.js?v=153';
+import { openSheet } from '../ui/sheet.js?v=153';
+import { fmtClock } from '../../shared/rules.js?v=153';
+import { direct, fileTimeAt } from '../director.js?v=153';
+import { canMakeMovie, talkOf } from '../movie.js?v=153';
+import { scenes as reelScenes } from '../scenes.js?v=153';
+import { renderReel } from '../render.js?v=153';
+import { createUploader } from '../upload.js?v=153';
+import { heldOf } from '../camstore.js?v=153';
+import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=153'; // v1.4.7
 
 export const POLL_MS = 10000;
 export const URL_KEEP_MS = 13 * 60 * 1000;   // signed links last 15 min; asked again a little before
@@ -39,12 +39,12 @@ export const WORDS = {
   forgot: 'Your clips are out of the game.',
   movie: 'Download the movie',
   all: 'Download all clips',
-  keep: 'Keep this game',
-  keepLine: "Kept on Night Ops' server for 30 days. Open it any time from Your games on the home screen. Only 3 games can be kept at once, so the oldest one goes. Downloads save to your phone (iPhone: the Files app, or Photos with Share > Save Video).",
-  stopKeep: 'Stop keeping it',
+  // (v1.5.2: no Keep button: every finished round is saved 30 days by itself; keeprow.js says so. Where a download
+  // goes is still said beside the download buttons.)
+  saved: 'Downloads save to your phone (iPhone: the Files app, or Photos with Share > Save Video).',
   nothingYet: 'No clips are up yet. They show here as phones upload them.',
   noCamera: 'No camera here',
-  againWarn: "This round's clips and replay will be deleted.",
+  againWarn: "This round stays saved for 30 days, but clips that aren't uploaded yet can't be added after Play again.",
   movieKeep: 'Keep this screen on and Night Ops open.',
   moviePaused: 'Paused while Night Ops is in the background. Come back to carry on.',
   movieCant: "This phone can't make the movie. Download the clips instead.",
@@ -202,7 +202,7 @@ export function confirmAgain(app, view) {
 // ---- the clips card ---------------------------------------------------------------------------------------
 
 export function clipsCard({ app, list, urls, nav, storage }) { // v1.4.7: nav, storage (the wifi gate's; tests)
-  const S = { view: null, rows: [], up: null, dead: false, key: '', keeping: false, gate: null, offGate: null, tried: false, gateWas: null };
+  const S = { view: null, rows: [], up: null, dead: false, key: '', gate: null, offGate: null, tried: false, gateWas: null };
   const mineTitle = h('p.cam-mine-title');
   const uploadBtn = h('button.btn.primary.wide.cam-upload', { type: 'button' }, icon('send', 20), h('span', WORDS.upload));
   const wifi = h('p.cam-wifi', { role: 'status', 'aria-live': 'polite' }, WORDS.wifi);
@@ -219,12 +219,10 @@ export function clipsCard({ app, list, urls, nav, storage }) { // v1.4.7: nav, s
   const nothing = h('p.cam-nothing', WORDS.nothingYet);
   const movieBtn = h('button.btn.wide.cam-movie', { type: 'button', hidden: true }, icon('play', 20), h('span', WORDS.movie));
   const allBtn = h('button.btn.ghost.wide.cam-all', { type: 'button', hidden: true }, icon('share', 20), h('span', WORDS.all));
-  const keepLine = h('p.cam-kept', { hidden: true });
-  const keepBtn = h('button.btn.ghost.wide.cam-keep', { type: 'button', hidden: true }, icon('pin', 20), h('span', WORDS.keep));
-  const keepHint = h('p.cam-keep-hint', { hidden: true }, WORDS.keepLine);
+  const savedHint = h('p.cam-keep-hint', { hidden: true }, WORDS.saved);
   const el = h('section.over-card.over-cam', { 'aria-labelledby': 'over-cam-title', hidden: true },
     h('div.over-card-head', h('h2#over-cam-title.label', WORDS.title)),
-    mine, progList, nothing, movieBtn, allBtn, keepLine, keepBtn, keepHint);
+    mine, progList, nothing, movieBtn, allBtn, savedHint);
 
   const code = () => String((S.view && S.view.code) || (app.game && app.game.code) || (app.watchGame && app.watchGame.code) || '').toUpperCase();
   const round = () => (S.view && Number.isFinite(S.view.round) ? S.view.round : (list.list ? list.list.round : null));
@@ -334,24 +332,6 @@ export function clipsCard({ app, list, urls, nav, storage }) { // v1.4.7: nav, s
     });
   });
 
-  keepBtn.addEventListener('click', async () => {
-    const kept = list.list && Number.isFinite(list.list.kept) ? list.list.kept : (S.view && S.view.cam && S.view.cam.kept);
-    S.keeping = true;
-    keepBtn.disabled = true;
-    try {
-      const r = await app.video('cam-keep', { keep: !Number.isFinite(kept) });
-      if (list.list) list.list.kept = Number.isFinite(r && r.kept) ? r.kept : null;
-      if (r && Array.isArray(r.released) && r.released.length) {
-        app.banner(`Game ${r.released.join(', ')} isn't kept any more, to make room.`, 'info', 6000);
-      }
-    } catch (e) {
-      app.banner(e && e.message ? e.message : "That didn't work. Try again.", 'warn', 5000);
-    }
-    S.keeping = false;
-    keepBtn.disabled = false;
-    paintAll();
-  });
-
   movieBtn.addEventListener('click', () => openMovie());
   allBtn.addEventListener('click', () => openAll());
 
@@ -425,13 +405,7 @@ export function clipsCard({ app, list, urls, nav, storage }) { // v1.4.7: nav, s
     movieBtn.hidden = true;
     // v1.4 end PAGE-REEL
     allBtn.hidden = !any;
-    const kept = l && Number.isFinite(l.kept) ? l.kept : (v && v.cam && Number.isFinite(v.cam.kept) ? v.cam.kept : null);
-    keepLine.hidden = !Number.isFinite(kept);
-    text(keepLine, keptWords(kept));
-    const host = !!(v && v.me && v.me.host);
-    keepBtn.hidden = !host;
-    keepHint.hidden = !host || Number.isFinite(kept);
-    text(keepBtn.querySelector('span'), Number.isFinite(kept) ? WORDS.stopKeep : WORDS.keep);
+    savedHint.hidden = !any;
   }
 
   // ---- Download the movie ----
@@ -911,7 +885,7 @@ export function gameCamParts({ app }) {
     const st = media.state;
     const part = st.cam === 'denied' ? 'camera' : st.mic === 'denied' ? 'mic' : null;
     if (part) {
-      import('../ui/fixit.js?v=152').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
+      import('../ui/fixit.js?v=153').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
     } else media.restore();
   });
   // v1.4 end PAGE-DEVICES

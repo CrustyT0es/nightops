@@ -12,9 +12,11 @@
 //       gate.kind, gate.state, gate.choice; gate.choose('now' | 'anyway' | 'later'); gate.on(fn) -> off(); destroy()
 //       'later' (and any answer to the question) is remembered on the phone for that round, so the question is
 //       asked once; opening the game again from Your games shows Upload my clips with no question.
-//   leftWords(until, now) -> '23 hours left' | '26 days left' | '40 min left' | ''
+//   leftWords(until, now) -> '23 hours left' | '29 days left' | '40 min left' | ''
 //   untilOf({ view, list, now }) -> epoch | null   when this game's clips are deleted
-export const KEEP_MS = 24 * 60 * 60 * 1000;   // server/handler.js KEEP_MS: a game goes a day after it was last used
+// v1.5.2: every finished round is saved 30 days from its end (server/handler.js KEEP_ROUND_MS), so the line under
+// Upload my clips counts days: "29 days left to upload. After that the clips are deleted."
+export const KEEP_ROUND_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const NET_WORDS = {
   waiting: (n) => `Waiting for wifi to upload ${n} ${n === 1 ? 'clip' : 'clips'}.`,
@@ -60,18 +62,18 @@ export function leftWords(until, now = Date.now()) {
   if (ms < 3600000) return `${Math.max(1, Math.round(ms / 60000))} min left`;
   const h = Math.round(ms / 3600000);
   if (h < 48) return `${h} ${h === 1 ? 'hour' : 'hours'} left`;
-  return `${Math.floor(ms / 86400000)} days left`;
+  return `${Math.round(ms / 86400000)} days left`;
 }
 
-// Kept: its keep date. A game from Your games: the date the server gave (a day after it was last used). Else the
-// game is open on this screen right now, and it goes a day after the last time anyone opened it: about a day from now.
+// Kept: its keep date (every finished round has one, v1.5.2). A game from Your games: the date the server gave. Else
+// (the date not come yet, or an older server): 30 days from now, the keep date the server gives a round as it ends.
 export function untilOf({ view = null, list = null, now = Date.now() } = {}) {
   const fin = (x) => (Number.isFinite(x) && x > now ? x : null);
   const kept = fin(list && list.kept) ?? fin(view && view.cam && view.cam.kept) ?? fin(view && view.kept)
     ?? fin(view && view.past && view.past.kept);
   if (kept !== null) return kept;
   if (view && view.past) return Number.isFinite(view.past.until) ? view.past.until : null;
-  return now + KEEP_MS;
+  return now + KEEP_ROUND_MS;
 }
 
 function defaultStorage() {

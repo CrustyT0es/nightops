@@ -1,12 +1,12 @@
 // Night Ops: boot. Reads the invite code (?code=) and the saved identity, makes the App and shows the first
 // screen: the saved game when there is one (a reload or a crash mid-game), else home.
-import { createAlarm } from './hack.js?v=152';
-import { createWiretap } from './wiretap.js?v=152'; // v1.4 PAGE-PLAY
-import { App, normalizeCode } from './app.js?v=152';
-import { createApi } from './api.js?v=152';
-import * as identity from './identity.js?v=152';
-import { createLocation } from './location.js?v=152';
-import * as alerts from './alerts.js?v=152';
+import { createAlarm } from './hack.js?v=153';
+import { createWiretap } from './wiretap.js?v=153'; // v1.4 PAGE-PLAY
+import { App, normalizeCode } from './app.js?v=153';
+import { createApi } from './api.js?v=153';
+import * as identity from './identity.js?v=153';
+import { createLocation } from './location.js?v=153';
+import * as alerts from './alerts.js?v=153';
 
 function inviteCode() {
   try {

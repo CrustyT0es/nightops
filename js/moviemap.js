@@ -13,9 +13,9 @@
 //   coverOf(pictures, bounds, sharp) -> the smallest picture holding bounds
 //   boxKey(box)
 
-import { fromLocal } from '../shared/geo.js?v=152';
-import { miniMap } from './scenes.js?v=152';
-import { tourBoxes } from './tour.js?v=152';
+import { fromLocal } from '../shared/geo.js?v=153';
+import { miniMap } from './scenes.js?v=153';
+import { tourBoxes } from './tour.js?v=153';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark'; // map.js's own (kept equal by a test)
 export const MINI_SIZE = 600;
@@ -198,7 +198,7 @@ export function prepareMaps(reel, { doc = globalThis.document, win = globalThis.
     try {
       const gl = doc.createElement('canvas');
       if (!load && !(gl.getContext && gl.getContext('webgl2'))) return false;
-      lib = load ? await load() : await import('../vendor/maplibre-gl.mjs?v=152');
+      lib = load ? await load() : await import('../vendor/maplibre-gl.mjs?v=153');
     } catch { return false; }
     let any = false;
     for (const j of jobs) {
