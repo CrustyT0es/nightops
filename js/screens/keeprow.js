@@ -3,7 +3,7 @@
 // where to find it again: Your games on the home screen. Shown on every end screen (players and spectators, with
 // the camera or not), never on a past game opened from Your games (the home list says its date there).
 //   keepRow({ app }) -> { el, update(view) }
-import { h } from '../dom.js?v=153';
+import { h } from '../dom.js?v=154';
 
 export const SAVED_LINE = 'Saved for 30 days. Open it any time from Your games on the home screen.';
 

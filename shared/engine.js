@@ -5,14 +5,14 @@
 // run on it, so an SOS pause stops every timer at once.
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal,
-} from './geo.js?v=153';
+} from './geo.js?v=154';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=153';
+} from './rules.js?v=154';
 
 export const ENGINE_V = 1;
 

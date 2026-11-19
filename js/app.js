@@ -30,20 +30,20 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=153';
-import { h, fill } from './dom.js?v=153';
-import { icon } from './ui/icons.js?v=153';
-import { banner as defaultBanner } from './ui/banner.js?v=153';
-import { closeSheets } from './ui/sheet.js?v=153';
-import { backButton } from './ui/back.js?v=153';
-import { ApiError, toApiError, WORDS } from './api.js?v=153';
-import { cleanName, cleanFace } from './identity.js?v=153';
-import { createRadio, fromBase64 } from './radio.js?v=153'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=153'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=153'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=153'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=153'; // v1.4 PAGE-DEVICES
-import { deviceSecret, rememberPc } from './pcedit.js?v=153'; // v1.5: the PC edit
+import { TIMING, LIMITS } from '../shared/rules.js?v=154';
+import { h, fill } from './dom.js?v=154';
+import { icon } from './ui/icons.js?v=154';
+import { banner as defaultBanner } from './ui/banner.js?v=154';
+import { closeSheets } from './ui/sheet.js?v=154';
+import { backButton } from './ui/back.js?v=154';
+import { ApiError, toApiError, WORDS } from './api.js?v=154';
+import { cleanName, cleanFace } from './identity.js?v=154';
+import { createRadio, fromBase64 } from './radio.js?v=154'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=154'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=154'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=154'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=154'; // v1.4 PAGE-DEVICES
+import { deviceSecret, rememberPc } from './pcedit.js?v=154'; // v1.5: the PC edit
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)

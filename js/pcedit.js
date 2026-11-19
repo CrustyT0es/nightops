@@ -8,8 +8,8 @@
 //   proState(maker)              the maker-movies answer as words: { show, title, sub, ready, files, pct }
 //   proRows(maker, { onWatch, onDownload }) -> element | null   the Movies card's PC rows (first in the card)
 //   linkSheet({ onLink, doc }) -> { el, set(state) }            "Link my PC": a box for the code and a button
-import { h, text } from './dom.js?v=153';
-import { icon } from './ui/icons.js?v=153';
+import { h, text } from './dom.js?v=154';
+import { icon } from './ui/icons.js?v=154';
 
 export const DEVICE_KEY = 'nightops-device';
 export const PC_KEY = 'nightops-pc';
@@ -58,6 +58,10 @@ export function proState(maker) {
   if (maker.status === 'ready' && maker.files && maker.files.highlights) {
     const note = typeof maker.note === 'string' && maker.note ? ` · ${maker.note.slice(0, 80)}` : ''; // "Subtitles: ElevenLabs"
     return { show: true, ready: true, title: 'Pro edit', sub: `Made on ${owner(by)}${note}`, files: maker.files, pct: 100 };
+  }
+  if (maker.status === 'making' && maker.files && maker.files.highlights) {
+    // The highlights came first: watchable now, the rest still on the way.
+    return { show: true, ready: true, title: 'Pro edit', sub: `Made on ${owner(by)} · the rest is still being made (${pct}%)`, files: maker.files, pct };
   }
   if (maker.status === 'making') {
     const note = typeof maker.note === 'string' && maker.note ? `${maker.note}, ` : '';

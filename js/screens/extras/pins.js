@@ -1,9 +1,9 @@
 // Night Ops: the lobby's "Team pins" row (v1.4, PAGE-PLAY).
 //   extraRow(ctx) -> { el, update(view) }   ctx = { app, host, setSetting(key, value), cmd(cmd) }
 // The host: the switch (on by default). Not the host: the setting in words.
-import { h, text } from '../../dom.js?v=153';
-import { icon } from '../../ui/icons.js?v=153';
-import { EXTRAS_UI } from '../../../shared/rules.js?v=153';
+import { h, text } from '../../dom.js?v=154';
+import { icon } from '../../ui/icons.js?v=154';
+import { EXTRAS_UI } from '../../../shared/rules.js?v=154';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'pins') || {
   key: 'pins', label: 'Team pins', hint: 'Hunters and the driver can drop pins only their team sees.',
