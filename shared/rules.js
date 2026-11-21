@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=154';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=155';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -14,7 +14,7 @@ export const LIMITS = {
   radioGameBytes: 12000000, // all of a round's clips together
   // v1.2: the highlight cam
   camClipBytes: 60000000,   // one clip's file at most (a free Supabase bucket stops at 50 MB a file anyway)
-  camPlayerBytes: Object.freeze({ highlights: 150000000, everything: 400000000 }), // one player's clips in one round
+  camPlayerBytes: Object.freeze({ highlights: 2000000000, everything: 3000000000 }), // one player's clips in one round (Pro plan: room for every clip)
   camGameBytes: 900000000,  // a round's clips from everyone (the handler's default; createHandler can lower it)
   camMoments: 1000,         // moments kept in one round (newest)
   camClipsEach: 200,        // clips one player may upload in one round

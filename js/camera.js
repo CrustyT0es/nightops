@@ -17,8 +17,8 @@
 // whole file (a recorder's first chunk holds the file's header, so chunks are never stitched across recorders).
 // Everything: pieces of CAM_PIECE_MS, each next one started CAM_PIECE_OVERLAP_MS before the last ends.
 // v1.4.7 (Highlights): talking near the phone is a moment too ('talk', talkStep below), with a cooldown and a cap.
-import { TIMING, LIMITS } from '../shared/rules.js?v=154';
-import { openCamStore, heldOf } from './camstore.js?v=154';
+import { TIMING, LIMITS } from '../shared/rules.js?v=155';
+import { openCamStore, heldOf } from './camstore.js?v=155';
 
 export const CAM_TYPES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
 export const VIDEO_BITS = 700000;
@@ -306,7 +306,7 @@ export const TALK_NEED_MS = 1500;
 export const TALK_WINDOW_MS = 4000;
 export const TALK_COOLDOWN_MS = 90000;
 export const TALK_MOST = 10;
-export const TALK_BUDGET = Math.round(((LIMITS.camPlayerBytes && LIMITS.camPlayerBytes.highlights) || 150000000) * 0.5);
+export const TALK_BUDGET = 75000000; // (fixed: the per-player cap went up to 2 GB on the Pro plan, but filming stays as it was)
 
 export function newTalk() {
   return { loud: [], last: null, count: 0 };

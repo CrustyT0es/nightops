@@ -2,12 +2,12 @@
 //   ctx = { app, host, setSetting(key, value), cmd(cmd) -> Promise }
 // The host: the switch. When on (everyone sees this): the watch link with Copy, Share and a QR code, and
 // "N watching"; the host also gets each spectator with Remove. Not the host: the setting in words.
-import { h, fill, text } from '../../dom.js?v=154';
-import { icon } from '../../ui/icons.js?v=154';
-import { openSheet } from '../../ui/sheet.js?v=154';
-import { banner } from '../../ui/banner.js?v=154';
-import { qrSvg } from '../../qr.js?v=154';
-import { EXTRAS_UI } from '../../../shared/rules.js?v=154';
+import { h, fill, text } from '../../dom.js?v=155';
+import { icon } from '../../ui/icons.js?v=155';
+import { openSheet } from '../../ui/sheet.js?v=155';
+import { banner } from '../../ui/banner.js?v=155';
+import { qrSvg } from '../../qr.js?v=155';
+import { EXTRAS_UI } from '../../../shared/rules.js?v=155';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'spectators') || {
   key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game 2 minutes behind. They never see chats.',

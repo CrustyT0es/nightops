@@ -2,8 +2,8 @@
 //   openPhoto({ src, title, line, actions }) -> sheet ({ el, body, close() })
 //     The picture fills the sheet's width (at most 70% of the screen's height), its alt text the title; `line` a
 //     sentence under it; `actions` as openSheet's (the host's "Don't count", for one). No src: "No photo yet."
-import { h } from '../dom.js?v=154';
-import { openSheet } from './sheet.js?v=154';
+import { h } from '../dom.js?v=155';
+import { openSheet } from './sheet.js?v=155';
 
 export function openPhoto({ src = '', title = 'Photo', line = '', actions = [] } = {}) {
   const ok = typeof src === 'string' && /^(data:image\/|blob:)/.test(src);
