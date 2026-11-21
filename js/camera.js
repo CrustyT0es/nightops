@@ -17,8 +17,8 @@
 // whole file (a recorder's first chunk holds the file's header, so chunks are never stitched across recorders).
 // Everything: pieces of CAM_PIECE_MS, each next one started CAM_PIECE_OVERLAP_MS before the last ends.
 // v1.4.7 (Highlights): talking near the phone is a moment too ('talk', talkStep below), with a cooldown and a cap.
-import { TIMING, LIMITS } from '../shared/rules.js?v=155';
-import { openCamStore, heldOf } from './camstore.js?v=155';
+import { TIMING, LIMITS } from '../shared/rules.js?v=156';
+import { openCamStore, heldOf, PRUNE_MS } from './camstore.js?v=156';
 
 export const CAM_TYPES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
 export const VIDEO_BITS = 700000;
@@ -885,7 +885,7 @@ export function createCamera({
         countHeld();
         if (!S.pruned && code) {
           S.pruned = true;
-          getStore().prune({ keep: [code, round], olderThan: wall() - 2 * 24 * 3600 * 1000 }).catch(() => {});
+          getStore().prune({ keep: [code, round], olderThan: wall() - PRUNE_MS }).catch(() => {});
         }
       }
       S.pid = view && view.me ? view.me.id : S.pid;

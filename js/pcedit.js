@@ -8,8 +8,8 @@
 //   proState(maker)              the maker-movies answer as words: { show, title, sub, ready, files, pct }
 //   proRows(maker, { onWatch, onDownload }) -> element | null   the Movies card's PC rows (first in the card)
 //   linkSheet({ onLink, doc }) -> { el, set(state) }            "Link my PC": a box for the code and a button
-import { h, text } from './dom.js?v=155';
-import { icon } from './ui/icons.js?v=155';
+import { h, text } from './dom.js?v=156';
+import { icon } from './ui/icons.js?v=156';
 
 export const DEVICE_KEY = 'nightops-device';
 export const PC_KEY = 'nightops-pc';

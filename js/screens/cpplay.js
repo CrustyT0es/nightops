@@ -11,13 +11,13 @@
 //   photoThumb(app, id, { title, size, line }) -> a button that shows the photo small and opens it big on a tap.
 //
 // The server decides everything (inside, safe time, who sees what): this only shows what view.cp says.
-import { h, fill, text, cls } from '../dom.js?v=155';
-import { icon } from '../ui/icons.js?v=155';
-import { banner } from '../ui/banner.js?v=155';
-import { openPhoto } from '../ui/photo.js?v=155';
-import { takePhoto } from '../snap.js?v=155';
-import { TIMING, fmtClock, fmtDistance } from '../../shared/rules.js?v=155';
-import { directionWords, isPoint } from '../../shared/geo.js?v=155';
+import { h, fill, text, cls } from '../dom.js?v=156';
+import { icon } from '../ui/icons.js?v=156';
+import { banner } from '../ui/banner.js?v=156';
+import { openPhoto } from '../ui/photo.js?v=156';
+import { takePhoto } from '../snap.js?v=156';
+import { TIMING, fmtClock, fmtDistance } from '../../shared/rules.js?v=156';
+import { directionWords, isPoint } from '../../shared/geo.js?v=156';
 
 export const SAFE_WARN_MS = 30000;   // "Safe here" turns amber under this
 const STAY_MS = TIMING.CP_STAY_MS || 20000;

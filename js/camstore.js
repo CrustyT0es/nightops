@@ -17,7 +17,7 @@
 
 export const DB_NAME = 'nightops-cam';
 export const DB_STORE = 'clips';
-export const PRUNE_MS = 2 * 24 * 3600 * 1000;
+export const PRUNE_MS = 7 * 24 * 3600 * 1000; // (a week: time to get to wifi or past a parental block)
 export const MEMORY_MOST = 100 * 1000 * 1000;
 
 // The error put rejects with when there's no room (what IndexedDB says when the phone is full).
