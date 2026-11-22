@@ -5,14 +5,14 @@
 // run on it, so an SOS pause stops every timer at once.
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal,
-} from './geo.js?v=156';
+} from './geo.js?v=157';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=156';
+} from './rules.js?v=157';
 
 export const ENGINE_V = 1;
 
@@ -970,7 +970,8 @@ function nextDue(s, sch, ctx, clockNow) {
       const show = p.outsideSince + TIMING.OUTSIDE_SHOW_MS;
       const catchAt = p.outsideSince + TIMING.OUTSIDE_CATCH_MS;
       if (!p.outsideShown && show < sch.endMs) offer(show, 6, { type: 'outsideShow', id: p.id });
-      if (catchAt < sch.endMs) offer(catchAt, 7, { type: 'outsideCatch', id: p.id });
+      // (v1.5.1: the ring no longer catches anyone: outside, you stay live on the hunters' map until you're back in)
+      if (TIMING.OUTSIDE_CATCH_MS > 0 && catchAt < sch.endMs) offer(catchAt, 7, { type: 'outsideCatch', id: p.id });
     }
     // A phone that sends no location: the hunters are told, once until it sends one again. No position at
     // all: a few minutes into the hunt; an old one: when its spot shows up on the hunters' map.
@@ -1045,8 +1046,7 @@ function runDue(s, item, ctx) {
     case 'outsideShow': {
       p.outsideShown = true;
       emit(s, t, 'outside', 'hunters', `${p.name} is outside the ring: live on your map.`, { id: p.id });
-      const ms = TIMING.OUTSIDE_CATCH_MS - TIMING.OUTSIDE_SHOW_MS;
-      emit(s, t, 'outside', p.id, `The hunters can see you now. Get back in within ${fmtClock(ms)} or you're caught.`, { ms, seen: true });
+      emit(s, t, 'outside', p.id, "The hunters can see you live until you're back inside the ring.", { seen: true });
       break;
     }
     case 'outsideCatch': {

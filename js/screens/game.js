@@ -11,25 +11,27 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=156';
-import { icon } from '../ui/icons.js?v=156';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=156';
-import { banner, clearBanners } from '../ui/banner.js?v=156';
-import { moment } from '../ui/moment.js?v=156';
-import { startPocket } from '../ui/pocket.js?v=156';
-import { createMap, fmtAgo } from '../map.js?v=156';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=156';
-import { distanceM, isPoint } from '../../shared/geo.js?v=156';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=156';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=156'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=156'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=156'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=156'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=156'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=156'; // v1.3 PAGE-PLAY
+import { h, fill, text, cls, face, listen } from '../dom.js?v=157';
+import { icon } from '../ui/icons.js?v=157';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=157';
+import { banner, clearBanners } from '../ui/banner.js?v=157';
+import { moment } from '../ui/moment.js?v=157';
+import { startPocket } from '../ui/pocket.js?v=157';
+import { createMap, fmtAgo } from '../map.js?v=157';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=157';
+import { distanceM, isPoint } from '../../shared/geo.js?v=157';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=157';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=157'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=157'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=157'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=157'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=157'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=157'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=157'; // v1.5.1: the beam of light on your dot
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
+export const RING_NAG_MS = 5000;       // v1.5.1: outside the ring, a buzz this often
 export const STALE_ALERT_MS = 120000;   // ...and so are banners and buzzes (a phone waking up after a long sleep)
 export const CLOSING_SOON_MS = 5 * 60000;
 export const MOST_FACES = 7;
@@ -265,7 +267,7 @@ export function hiderStatus(view, c, cd = countdowns(view, c), { stale = [] } = 
     if (of < TIMING.OUTSIDE_SHOW_MS) {
       return { key: 'outside', title: 'Outside the ring', line: 'Get back inside the blue line now.', tone: 'danger', icon: 'warn' };
     }
-    return { key: 'outside', title: 'Hunters can see you', line: `You're outside the ring. Back in within ${fmtClock(TIMING.OUTSIDE_CATCH_MS - of)} or you're caught.`, tone: 'danger', icon: 'warn' };
+    return { key: 'outside', title: 'Hunters can see you', line: "You're outside the ring: live on their map until you're back in.", tone: 'danger', icon: 'warn' };
   }
   const radar = view && view.radar;
   if (radar && cd.radar !== null) {
@@ -440,7 +442,7 @@ export function linesFor(view, c, cd, { connection = 'ok', location = 'ok', mode
     const of = cd.outsideFor;
     out.push(of < TIMING.OUTSIDE_SHOW_MS
       ? { key: 'outside', tone: 'danger', icon: 'warn', text: `Outside the ring! Back in within ${fmtClock(TIMING.OUTSIDE_SHOW_MS - of)} or they see you` }
-      : { key: 'outside', tone: 'danger', icon: 'warn', text: `They can see you! Back in within ${fmtClock(TIMING.OUTSIDE_CATCH_MS - of)} or you're caught` });
+      : { key: 'outside', tone: 'danger', icon: 'warn', text: "They can see you live! Get back inside the ring" });
   }
   if (connection === 'offline') out.push({ key: 'net', tone: 'warn', icon: 'warn', text: "Offline. Reconnecting when you're back online." });
   else if (connection && connection !== 'ok') out.push({ key: 'net', tone: 'warn', icon: 'clock', text: 'Reconnecting...' });
@@ -878,6 +880,11 @@ export function mount(root, app) {
   } catch (e) {
     console.error(e);
     map = null;
+  }
+  // v1.5.1: the way the phone faces, as a beam of light from your dot
+  if (map && typeof map.setHeading === 'function') {
+    const stopHeading = watchHeading((deg) => { if (!S.dead) map.setHeading(deg); });
+    offs.push(stopHeading);
   }
   // v1.2 PAGE-MAP: + and - only on the plain map (the street map pinches).
   function paintZoom() {
@@ -2170,6 +2177,21 @@ export function mount(root, app) {
     // (iOS can close a page without a visibilitychange first.)
     offs.push(listen(window, 'pagehide', () => goingAway()));
   }
+  // v1.5.1: outside the ring the phone keeps buzzing (and beeping, with sound on), so nobody misses it
+  let ringBuzzAt = 0;
+  const ringNag = setInterval(() => {
+    if (S.dead) return;
+    const v = app.view;
+    const me = (v && v.me) || {};
+    const out = !!v && v.phase === 'live' && Number.isFinite(me.outsideFor); // (the same timer the outside card counts)
+    if (!out) { ringBuzzAt = 0; return; }
+    const t = Date.now();
+    if (t - ringBuzzAt < RING_NAG_MS) return;
+    ringBuzzAt = t;
+    buzz('ring');
+    try { if (al.beep) al.beep('warn'); } catch { /* ignore */ }
+  }, 1000);
+  offs.push(() => clearInterval(ringNag));
   const timer = setInterval(tick, TICK_MS);
   try { if (al.keepAwake) al.keepAwake(true, 'game'); } catch { /* ignore */ }
   // Away when the page was closed or reloaded (iPhones do that to a page left in the background): the first view

@@ -21,6 +21,7 @@ export const PATTERNS = {
   tap: 15,
   ping: [70, 60, 70],
   warn: [180, 90, 180],
+  ring: [400, 150, 400, 150, 400], // v1.5.1: outside the ring (every few seconds)
   power: [40, 40, 120],
   radar: [250, 120, 250, 120, 250],
   tag: [120, 60, 120, 60, 400],

@@ -31,13 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=156';
-import { icon } from './ui/icons.js?v=156';
+import { h, face as makeFace, text, listen } from './dom.js?v=157';
+import { icon } from './ui/icons.js?v=157';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=156';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=156';
+} from '../shared/geo.js?v=157';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=157';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -1314,7 +1314,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=156');
+      lib = await import('../vendor/maplibre-gl.mjs?v=157');
     } catch {
       cancel(deadline);
       giveUp();
@@ -1324,7 +1324,7 @@ export function createMap(container, { interactive = true } = {}) {
     try {
       gl = new GlMap(lib, root, {
         interactive,
-        onMove: () => { if (active === gl) drawOverlay(performance.now()); },
+        onMove: () => { if (active === gl) { drawOverlay(performance.now()); if (Number.isFinite(S.heading)) for (const rec of recs.values()) beamOf(rec); } },
         onUserMove: () => { if (active === gl) { S.cameraSet = true; userMoved(); } }, // v1.4 PAGE-REEL: userMoved
         onTap: (ll) => { if (active === gl) tapped(ll); },
       });
@@ -1904,6 +1904,9 @@ export function createMap(container, { interactive = true } = {}) {
     if (desc.driver && !rec.carEl) { rec.carEl = h('span.nmark-car', icon('car', 14)); rec.faceBox.after(rec.carEl); }
     if (rec.carEl) rec.carEl.hidden = !desc.driver;
     // v1.1 end PAGE-DRIVER
+    // v1.5.1: the beam of light on your own dot, the way your phone faces (setHeading)
+    if (desc.me && !desc.driver && !rec.beamEl) { rec.beamEl = h('span.nmark-beam'); rec.beamEl.setAttribute('aria-hidden', 'true'); rec.faceBox.before(rec.beamEl); }
+    if (rec.beamEl) { rec.beamOn = !!desc.me && !desc.driver; beamOf(rec); }
     rec.baseTag = desc.tag;
     writeTag(rec); // v1.2: "Ava +3" for a merged group
     text(rec.chipEl, desc.chip);
@@ -1988,6 +1991,21 @@ export function createMap(container, { interactive = true } = {}) {
     }
     rebuild({ shapes: true });
     if (main) autoPlace({ type: 'fit', bounds: ringBounds(main), padding: 32 }, 2);
+  }
+
+  // v1.5.1: the beam on your dot turns with the phone, less the map's own turn (the driver's nav view turns it)
+  function beamOf(rec) {
+    if (!rec.beamEl) return;
+    const on = rec.beamOn && Number.isFinite(S.heading);
+    if (rec.beamEl.hidden === on) rec.beamEl.hidden = !on;
+    if (!on) return;
+    let b = 0;
+    try { b = Number(navView().bearing) || 0; } catch { /* north up */ }
+    rec.beamEl.style.setProperty('--hd', `${Math.round((((S.heading - b) % 360) + 360) % 360)}deg`);
+  }
+  function setHeading(deg) {
+    S.heading = Number.isFinite(deg) ? deg : null;
+    for (const rec of recs.values()) beamOf(rec);
   }
 
   function setMarks(marks, opts = {}) {
@@ -2566,6 +2584,7 @@ export function createMap(container, { interactive = true } = {}) {
     setPins, onPinTap, // v1.4 PAGE-PLAY
     setNavRoute, navCamera, flatView, navView, // v1.4.8
     setInsets,
+    setHeading, // v1.5.1: the beam of light on your dot (deg, 0 = north; null hides it)
     fitAll,
     zoomBy,
     onMode,

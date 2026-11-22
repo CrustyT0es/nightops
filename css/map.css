@@ -217,6 +217,23 @@ button.nmark-hit:active .face { transform: scale(0.94); }
   z-index: -1;
 }
 
+/* v1.5.1: the beam of light from your dot, the way your phone faces (like Google Maps). */
+.nmark-beam {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 180px;
+  height: 180px;
+  pointer-events: none;
+  z-index: -2;
+  transform: translate(-50%, -50%) rotate(var(--hd, 0deg)); /* (centred on your face, wherever its box sits) */
+  background: conic-gradient(from -28deg, var(--mc, #5ab0ff) 0deg 56deg, transparent 56deg 360deg);
+  -webkit-mask: radial-gradient(circle, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.5) 32%, transparent 70%);
+  mask: radial-gradient(circle, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.5) 32%, transparent 70%);
+  opacity: 0.8;
+}
+.nmark-beam[hidden] { display: none; }
+
 /* Radar: a ring pulsing out of the face. */
 .nmark.pulse .nmark-face::after {
   content: '';

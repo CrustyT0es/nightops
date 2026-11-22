@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=156';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=157';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -10,8 +10,8 @@ export const LIMITS = {
   // v1.1
   watchers: 20,             // spectators in one game (not counted in players)
   radioClips: 400,          // walkie-talkie clips in one round
-  radioBytes: 48000,        // one clip's audio, decoded (15 s at 24 kbps = 45 KB)
-  radioGameBytes: 12000000, // all of a round's clips together
+  radioBytes: 480000,       // one clip's audio, decoded: 15 s even from phones that ignore the 24 kbps asked for (most Androids record ~150-250 kbps; at 48 KB they were cut at 2 s)
+  radioGameBytes: 120000000, // all of a round's clips together
   // v1.2: the highlight cam
   camClipBytes: 60000000,   // one clip's file at most (a free Supabase bucket stops at 50 MB a file anyway)
   camPlayerBytes: Object.freeze({ highlights: 2000000000, everything: 3000000000 }), // one player's clips in one round (Pro plan: room for every clip)
@@ -48,7 +48,7 @@ export const TIMING = {
   DECOY_MIN_M: 200,
   DECOY_MAX_M: 400,
   OUTSIDE_SHOW_MS: 15000,      // outside the ring this long: hunters see you live (15 s since 1.5.1)
-  OUTSIDE_CATCH_MS: 120000,    // outside the ring this long: you're caught
+  OUTSIDE_CATCH_MS: 0,         // v1.5.1: 0 = the ring never catches (was 120000: outside 2 min, caught); you stay live instead
   OFFLINE_MS: 60000,           // no location for this long: "offline"
   OFFLINE_SHOW_MS: 180000,     // offline this long (a hider): hunters see the last known spot
   TAG_AUTO_MS: 60000,          // a tag nobody answers counts this long after the hider's phone got it

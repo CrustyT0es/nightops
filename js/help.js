@@ -38,7 +38,7 @@ export function deviceKind(nav = globalThis.navigator, win = globalThis.window) 
   return 'other';
 }
 
-import { silentSwitchMutes } from './alerts.js?v=156';
+import { silentSwitchMutes } from './alerts.js?v=157';
 
 const TRY = 'Tap **Try again**.';
 export const RELOAD = 'If **Try again** still says no, tap **Reload Night Ops** (Safari only takes the new setting after a reload).';

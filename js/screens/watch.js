@@ -7,15 +7,15 @@
 //   live   the map (every mark in the view), a "2 MIN BEHIND" tag, the time left as of then, the play-by-play,
 //          N watching, Stop watching
 // The end screen is the normal over screen (app.js sends a spectator there).
-import { h, fill, face, text, cls, listen } from '../dom.js?v=156';
-import { icon } from '../ui/icons.js?v=156';
-import { createMap } from '../map.js?v=156';
-import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=156'; // v1.2 PAGE-MAP
-import { openSheet } from '../ui/sheet.js?v=156'; // v1.2 PAGE-MAP: the menu
-import { MODES, fmtClock } from '../../shared/rules.js?v=156';
-import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=156'; // v1.3 PAGE-AFTER
-import { createMapCam } from '../mapcam.js?v=156'; // v1.4 PAGE-REEL
-import { followRow } from './reelparts.js?v=156'; // v1.4 PAGE-REEL
+import { h, fill, face, text, cls, listen } from '../dom.js?v=157';
+import { icon } from '../ui/icons.js?v=157';
+import { createMap } from '../map.js?v=157';
+import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=157'; // v1.2 PAGE-MAP
+import { openSheet } from '../ui/sheet.js?v=157'; // v1.2 PAGE-MAP: the menu
+import { MODES, fmtClock } from '../../shared/rules.js?v=157';
+import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=157'; // v1.3 PAGE-AFTER
+import { createMapCam } from '../mapcam.js?v=157'; // v1.4 PAGE-REEL
+import { followRow } from './reelparts.js?v=157'; // v1.4 PAGE-REEL
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
