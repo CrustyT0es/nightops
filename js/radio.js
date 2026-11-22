@@ -34,15 +34,16 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=157';
-import { icon } from './ui/icons.js?v=157';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=157';
+import { h, text, cls } from './dom.js?v=158';
+import { icon } from './ui/icons.js?v=158';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=158';
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
 export const SEND_TIMEOUT_MS = 20000;
 export const LINE_MS = 5000;          // a passing line ("Sent.", "Didn't send...") shows this long
 export const BEEP_GAP_MS = 320;       // the beep, then the clip
+export const RELEASE_TAIL_MS = 700;   // v1.5.1: recording goes on this long after the button is let go
 export const PLAY_SLACK_MS = 5000;    // a clip that never says it ended moves on after its length + this
 export const LATE_S = 10;             // replay: a waiting clip more than this late (replay clock) is skipped
 export const FETCH_WAIT_MS = 8000;    // replay: a clip still not here after this is passed over
@@ -282,6 +283,7 @@ function unlocker(win, makeAudio) {
 
 export function createRadio({
   app,
+  releaseTail = RELEASE_TAIL_MS, // v1.5.1: ms of recording after letting go (tests pass 0)
   alerts = null,
   doc = globalThis.document ?? null,
   win = globalThis.window ?? null,
@@ -463,7 +465,12 @@ export function createRadio({
     if (!R.holding) return;
     if (R.byClick && by !== 'click') return;
     R.holding = false;
-    if (R.state === 'recording') finish();
+    // v1.5.1: a little more after letting go (people let go on their last word, and it was cut off)
+    if (R.state === 'recording' && !(releaseTail > 0)) finish();
+    else if (R.state === 'recording') {
+      clearTimer(R.tailTimer);
+      R.tailTimer = setTimer(() => { R.tailTimer = null; if (R.state === 'recording' && !R.holding) finish(); }, releaseTail);
+    }
   }
 
   function ask() {

@@ -10,12 +10,12 @@
 //   sendChat(app, text) -> Promise<boolean>       QUICK, quickFor(view), sideKey(view), chatTitle(view) ...
 //
 // Never innerHTML: names and messages only ever go in as text.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=157';
-import { icon } from '../ui/icons.js?v=157';
-import { openSheet } from '../ui/sheet.js?v=157';
-import { banner } from '../ui/banner.js?v=157';
-import { LIMITS } from '../../shared/rules.js?v=157';
-import { photoThumb, strikeActions } from './cpplay.js?v=157'; // v1.3 PAGE-PLAY
+import { h, fill, text, cls, face, listen } from '../dom.js?v=158';
+import { icon } from '../ui/icons.js?v=158';
+import { openSheet } from '../ui/sheet.js?v=158';
+import { banner } from '../ui/banner.js?v=158';
+import { LIMITS } from '../../shared/rules.js?v=158';
+import { photoThumb, strikeActions } from './cpplay.js?v=158'; // v1.3 PAGE-PLAY
 
 export const QUICK = Object.freeze({
   hunter: Object.freeze(['On my way', 'I see someone', 'Need backup']),

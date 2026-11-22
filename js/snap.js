@@ -11,7 +11,7 @@
 //   fitPhoto(source, w, h, { doc }) -> { dataUrl, bytes, w, h }   the size and quality steps above (tests use it)
 //
 // (With the highlight camera on, an iPhone mutes its stream while its own camera is open; camera.js picks up again.)
-import { LIMITS } from '../shared/rules.js?v=157';
+import { LIMITS } from '../shared/rules.js?v=158';
 
 export const PHOTO_WORDS = {
   failed: "That photo didn't work. Try again.",

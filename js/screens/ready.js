@@ -5,11 +5,11 @@
 // Each phone sees its own rows (Location, Camera when filmed, Microphone, Alarm sound for a hider with Hacker on), each
 // with a green dot and "Ready", or an amber dot and "Fix it" (the help screen for that part). "Test my location"
 // takes one fix that never leaves the phone. The host's card adds "Everyone".
-import { h, fill, text } from '../dom.js?v=157';
-import { icon } from '../ui/icons.js?v=157';
-import { openHelp } from '../ui/fixit.js?v=157';
-import { deviceKind } from '../help.js?v=157';
-import { soundFor } from '../hack.js?v=157';
+import { h, fill, text } from '../dom.js?v=158';
+import { icon } from '../ui/icons.js?v=158';
+import { openHelp } from '../ui/fixit.js?v=158';
+import { deviceKind } from '../help.js?v=158';
+import { soundFor } from '../hack.js?v=158';
 
 export const AWAY_MS = 120000;     // "hasn't opened the game for 2 min"
 export const GOOD_ACC_M = 30;

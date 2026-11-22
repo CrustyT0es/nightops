@@ -31,13 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=157';
-import { icon } from './ui/icons.js?v=157';
+import { h, face as makeFace, text, listen } from './dom.js?v=158';
+import { icon } from './ui/icons.js?v=158';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=157';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=157';
+} from '../shared/geo.js?v=158';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=158';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -1314,7 +1314,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=157');
+      lib = await import('../vendor/maplibre-gl.mjs?v=158');
     } catch {
       cancel(deadline);
       giveUp();
