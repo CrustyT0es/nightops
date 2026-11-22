@@ -5,7 +5,7 @@
 // Hunters grab boxes too (the owner: a box is something both teams race for): theirs hold a hunter power for the
 // whole team. What's inside has a rarity (common, rare, legendary), shown when it bursts open.
 // Pure functions over the game state; the engine calls them (lootDue, lootPickup, lootOpen, lootView).
-import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=161';
+import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=162';
 
 export const LOOT_FIRST_MS = 60000;     // the first drop, this long after the head start
 export const LOOT_EVERY_MS = 240000;    // then one every 4 minutes
@@ -70,32 +70,55 @@ export function lootNear(s, point, clock) {
   return best ? best.box : null;
 }
 
-// What a box holds, by its rarity (the owner's pick: common 60%, rare 30%, legendary 10%), for the side that opens it.
-// The most powerful power is the legendary one (the owner: "have the most OP ones be legendary"):
-//   hunters: Exposure (every hider's exact spot, no warning) > Radar (live for a minute, after a warning) > Hacker
-//            (an alarm on one phone, no spot)
-//   hiders:  Jammer (skips a whole ping and blocks Radar) > Decoy (one ping in the wrong place) > Sprint (pings show
-//            where you started: still close by)
-export const RARITY = [['common', 0.6], ['rare', 0.3], ['legendary', 0.1]];
+// What a box holds, by its rarity, for the side that opens it (the owner's tables, Nov 2026). The classic powers
+// (Sprint, Decoy, Jammer, Hacker, Radar, Exposure) charge the usual power; the loot-only ones (LOOT_POWERS) go into
+// the opener's loot stash (a hider's own, the hunters' shared one) and are used with the `lootuse` command.
+// Mythics (5%) block each other: while Blackout or the All-Seeing Eye runs, the other one waits in its stash.
+export const RARITY = [['common', 0.55], ['rare', 0.30], ['legendary', 0.10], ['mythic', 0.05]];
+export const RARITIES = RARITY.map(([k]) => k);
 export const LOOT_TABLE = {
-  hider: { common: 'sprint', rare: 'decoy', legendary: 'jammer' },
-  hunter: { common: 'hacker', rare: 'radar', legendary: 'exposure' },
+  hider: { common: ['sprint', 'smoke'], rare: ['decoy', 'jammer', 'glitch'], legendary: ['ghost', 'storm'], mythic: ['blackout'] },
+  hunter: { common: ['hacker', 'compass'], rare: ['radar', 'double', 'freeze'], legendary: ['exposure', 'tracker'], mythic: ['eye'] },
 };
+// The loot-only powers. ms: how long it lasts; target: picks a hider.
+export const LOOT_POWERS = {
+  smoke: { team: 'hider', name: 'Smoke', emoji: '🌫️', line: 'Your next ping is a big cloud of smoke: they get a direction, never your spot.' },
+  glitch: { team: 'hider', name: 'Glitch', emoji: '👾', ms: 60000, line: "The hunters' phones go buggy for a minute. They won't know it's you." },
+  ghost: { team: 'hider', name: 'Ghost', emoji: '👻', line: "You don't show up on the next 2 pings." },
+  storm: { team: 'hider', name: 'Static Storm', emoji: '📺', ms: 120000, line: "The hunters' map turns to TV static for 2 minutes." },
+  blackout: { team: 'hider', name: 'Blackout', emoji: '🌑', ms: 300000, mythic: true, line: "The hunters' screens go black for 5 minutes. Only their walkie works." },
+  compass: { team: 'hunter', name: 'Compass', emoji: '🧭', ms: 30000, line: 'An arrow points to the nearest hider for 30 seconds.' },
+  double: { team: 'hunter', name: 'Double Double', emoji: '⏩', line: 'The next 2 pings come twice as fast.' },
+  freeze: { team: 'hunter', name: 'Freeze', emoji: '🧊', ms: 180000, line: "The hiders' powers are frozen for 3 minutes." },
+  tracker: { team: 'hunter', name: 'Tracker dart', emoji: '🎯', ms: 120000, target: true, line: "One hider's spot updates every 20 seconds for 2 minutes. They're warned." },
+  eye: { team: 'hunter', name: 'All-Seeing Eye', emoji: '🔮', ms: 120000, mythic: true, line: 'Every hider shows live for 2 minutes. No warning, nothing blocks it.' },
+};
+export const SMOKE_R = 125;           // Smoke's cloud: 250 m across, the hider somewhere inside it
+export const GHOST_PINGS = 2;
+export const TRACKER_EVERY_MS = 20000;
+
 export function rarityOf(r) {
   let acc = 0;
-  for (const [name, p] of RARITY) { acc += p; if (r < acc) return name; }
+  for (const [name, p] of RARITY) { acc = Math.round((acc + p) * 1000) / 1000; if (r < acc) return name; }
   return 'common';
 }
-// -> { power, rarity }. A power switched off in the settings gives the next one down that's on, else the next one up;
-// with none on, still the common one (the box is the point of the mode).
+export function rarityOfPower(side, power) {
+  const table = LOOT_TABLE[side === 'hunter' ? 'hunter' : 'hider'];
+  return RARITIES.find((k) => table[k].includes(power)) || null;
+}
+// -> { power, rarity }. `allowed` (the game's classic powers that are on) never blocks a loot-only power; a rarity
+// with nothing on gives the next one down, else the next one up.
 export function lootPower(side, rand, allowed = null) {
   const table = LOOT_TABLE[side === 'hunter' ? 'hunter' : 'hider'];
-  const order = ['legendary', 'rare', 'common'];
-  const ok = (k) => !allowed || allowed.includes(table[k]);
+  const ok = (k) => LOOT_POWERS[k] || !allowed || allowed.includes(k);
+  const order = ['mythic', 'legendary', 'rare', 'common'];
   const i = order.indexOf(rarityOf(rand()));
   const tries = [...order.slice(i), ...order.slice(0, i).reverse()];
-  const rarity = tries.find(ok) || 'common';
-  return { power: table[rarity], rarity };
+  for (const rarity of tries) {
+    const list = table[rarity].filter(ok);
+    if (list.length) return { power: list[Math.min(list.length - 1, Math.floor(rand() * list.length))], rarity };
+  }
+  return { power: table.common.find((k) => LOOT_POWERS[k]) || table.common[0], rarity: 'common' };
 }
 
 // What a phone sees: the boxes on the ground now, whether it holds one, the next drop's time, its last loot.
@@ -107,6 +130,7 @@ export function lootView(s, me, clock) {
     held: !!(me && me.loot),
     next: Math.max(0, s.loot.next - clock),
     last: me && me.lootLast ? { ...me.lootLast } : null,
+    stash: { ...((me && (me.team === 'hunter' ? s.lootTeam : me.lootHeld)) || {}) },
     grabbed: s.loot.boxes.filter((b) => b.by).length,
   };
 }

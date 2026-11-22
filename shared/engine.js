@@ -4,17 +4,17 @@
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
 import {
-  isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal,
-} from './geo.js?v=161';
+  isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
+} from './geo.js?v=162';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=161';
-import { newVote, stageAt, winner, settingsFor, voteView, QUESTIONS, closed, keepFor, cleanGear } from './vote.js?v=161'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M } from './loot.js?v=161'; // v1.6: Loot drops
+} from './rules.js?v=162';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=162'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=162'; // v1.6: Loot drops
 
 export const ENGINE_V = 1;
 
@@ -327,6 +327,7 @@ function resetForGame(p) {
   p.noFixTold = false;
   p.stats = freshStats(); p.track = null;
   p.driverAt = null;
+  p.loot = null; p.lootHeld = {}; p.lootFx = {}; p.lootLast = null; // v1.6.1: loot
 }
 
 // Fill in internal fields a stored state may lack (older or hand-made states), on a copy we own.
@@ -867,7 +868,12 @@ function takePing(s, n, clock, ctx) {
   let count = 0;
   for (const p of freeHiders(s)) {
     let result;
-    if (p.powers.jammer === 'on') {
+    const lfx = p.lootFx && typeof p.lootFx === 'object' ? p.lootFx : null;
+    if (lfx && lfx.ghost > 0) { // v1.6.1: Ghost (loot): not on this ping
+      spots[p.id] = { skipped: 'ghost' };
+      lfx.ghost -= 1;
+      result = 'ghost';
+    } else if (p.powers.jammer === 'on') {
       spots[p.id] = { skipped: 'jammer' };
       p.powers.jammer = 'used';
       result = 'jammer';
@@ -896,9 +902,17 @@ function takePing(s, n, clock, ctx) {
         }
         // The circle's centre is the spot moved up to r in a random direction (sqrt: even over the area),
         // so the spot is somewhere inside the circle, never always in the middle.
-        const d = Math.sqrt(R()) * r;
+        let rr = r;
+        let smoke = false;
+        if (lfx && lfx.smoke) { // v1.6.1: Smoke (loot): a big cloud, even with exact pings
+          rr = Math.max(r, SMOKE_R);
+          lfx.smoke = false;
+          smoke = true;
+          if (result === 'pinged') result = 'smoke';
+        }
+        const d = Math.sqrt(R()) * rr;
         const b = R() * 360;
-        spots[p.id] = { p: r > 0 ? moveM(spot, d, b) : spot, r };
+        spots[p.id] = { p: rr > 0 ? moveM(spot, d, b) : spot, r: rr, ...(smoke ? { smoke: true } : {}) };
         count++;
       }
     }
@@ -918,6 +932,8 @@ function takePing(s, n, clock, ctx) {
     jammer: 'Jammer worked. They got nothing on you.',
     decoy: 'Decoy worked. They saw a fake spot.',
     sprint: 'Sprint: they only saw where you started.',
+    ghost: 'Ghost: you were invisible on that ping.',
+    smoke: 'Smoke: they only saw a big cloud.',
     nosignal: 'The ping missed you: no location from your phone.',
   };
   for (const [p, result] of results) emit(s, t, 'ping', p.id, words[result], { n, result });
@@ -962,7 +978,9 @@ function nextDue(s, sch, ctx, clockNow) {
     if (from !== null) offer(from + TIMING.TAG_AUTO_MS, 1, { type: 'tag', id: c.id });
   }
   if (s.radar && !s.radar.recorded) offer(s.radar.liveAt, 2, { type: 'radarLive' });
-  if (s.pings.length < sch.pings.length) offer(sch.pings[s.pings.length], 3, { type: 'ping', n: s.pings.length + 1 });
+  const times = pingTimes(s, sch); // v1.6.1: Double Double moves pings
+  if (s.pings.length < times.length) offer(times[s.pings.length], 3, { type: 'ping', n: s.pings.length + 1 });
+  lootFxDue(s, offer); // v1.6.1
   if (s.radar && s.radar.recorded) offer(s.radar.until, 4, { type: 'radarEnd' });
   for (const p of ordered(s)) {
     if (!isFree(p)) continue;
@@ -1037,6 +1055,8 @@ function runDue(s, item, ctx) {
     case 'ping':
       takePing(s, item.n, item.clock, ctx);
       break;
+    case 'trackerTick': lootTrackerTick(s, t, ctx); break; // v1.6.1
+    case 'mythicNext': lootMythicNext(s, t, ctx); break; // v1.6.1
     case 'radarEnd': {
       s.radar = null;
       emit(s, t, 'radar-over', 'hunters', 'Radar is off.');
@@ -1083,7 +1103,7 @@ function runDue(s, item, ctx) {
     case 'closing': {
       s.flags.closing = true;
       const sch = schedule(s.settings);
-      const left = sch.pings.filter((x) => x >= sch.closingStartMs).length;
+      const left = pingTimes(s, sch).filter((x) => x >= sch.closingStartMs).length;
       const parts = [];
       // (The first closing ping comes as closing in starts, just before this line.)
       if (left >= 2) parts.push(`Pings ${minutesWords(s.settings.closingPingEveryMin)}`);
@@ -1107,6 +1127,7 @@ function runDue(s, item, ctx) {
       const made = lootDrop(s, ringAt(s, item.clock), item.clock, ctx.rand, freeHiders(s).length);
       if (made.length) {
         emit(s, t, 'loot', 'all', made.length === 1 ? 'A loot box dropped! Check the map.' : `${made.length} loot boxes dropped! Check the map.`, { n: made.length });
+        note(s, { kind: 'loot-drop', clock: t.clock, boxes: made.map((b) => ({ id: b.id, p: [b.p[0], b.p[1]], until: b.until })) }); // (the pro edit)
         addMoment(s, t, 'loot', [], { data: { n: made.length } });
       }
       break;
@@ -1217,6 +1238,7 @@ export function onPosition(state, playerId, pos, { now } = {}) {
         p.loot = { id: box.id, at: clock };
         const t = { now, clock, at: now };
         emit(s, t, 'loot-got', p.id, 'You grabbed a loot box! Open it from your tray.');
+        note(s, { kind: 'loot-grab', by: p.id, id: box.id, clock }); // (the pro edit)
         emit(s, t, 'loot-taken', p.team === 'hunter' ? 'hiders' : 'hunters', `${p.name} grabbed a loot box!`, { id: p.id });
         addMoment(s, t, 'loot', [p.id]);
         changed = true;
@@ -1442,6 +1464,11 @@ function cmdStart(s, actor, cmd, t) {
   s.pings = [];
   s.team = freshTeam();
   freshV14(s, true);
+  // v1.6.1: Loot drops: nobody starts with a power; every one comes out of a box (the owner, Nov 2026).
+  if (lootGame(s)) {
+    s.team = { lastPowerAt: null };
+    for (const p of hiders) p.powers = {};
+  }
   s.radar = null;
   s.exposure = null;
   s.catches = [];
@@ -1501,6 +1528,7 @@ function cmdPower(s, actor, cmd, t) {
   const name = POWERS[power].name;
   if (POWERS[power].team === 'hider') {
     if (actor.team !== 'hider') return err('not_your_turn', 'Only hiders can use that.');
+    if (fxOn(s, 'freeze', t.clock)) return err('frozen', `Your powers are frozen for ${fmtClock(fxLeft(s, 'freeze', t.clock))}.`); // v1.6.1
     const was = actor.powers[power];
     if (was === 'on') return err('used', `${name} is on already.`);
     if (was !== 'ready') return err('used', `${name} is used up.`);
@@ -1523,6 +1551,7 @@ function cmdPower(s, actor, cmd, t) {
   }
   if (actor.team !== 'hunter') return err('not_your_turn', 'Only hunters can use that.');
   if (isDriver(s, actor)) return err('driver', "The driver can't use powers.");
+  if (fxOn(s, 'blackout', t.clock)) return err('blackout', `Blackout: nothing works for ${fmtClock(fxLeft(s, 'blackout', t.clock))}.`); // v1.6.1
   if (s.team[power] !== 'ready') return err('used', `${name} is used up.`);
   const last = s.team.lastPowerAt;
   if (last !== null && t.clock - last < TIMING.HUNTER_POWER_GAP_MS) {
@@ -1868,10 +1897,13 @@ const COMMANDS = {
   pin: { phases: ['live'], run: cmdPin },
   // v1.6: the lobby vote
   lootopen: { phases: ['live'], run: cmdLootOpen }, // v1.6: Loot drops
+  lootuse: { phases: ['live'], run: cmdLootUse }, // v1.6.1: the loot-only powers
   votestart: { host: true, phases: ['lobby'], run: cmdVoteStart },
   vote: { phases: ['lobby'], run: cmdVote },
   votestop: { host: true, phases: ['lobby'], run: cmdVoteStop },
   gear: { phases: ['lobby'], run: cmdGear },
+  drive: { phases: ['lobby'], run: cmdDrive },
+  voteskip: { host: true, phases: ['lobby'], run: cmdVoteSkip },
 };
 
 // v1.6: Loot drops: open the box you hold for a fresh charge of a hider power (a used-up one first).
@@ -1882,16 +1914,201 @@ function cmdLootOpen(s, actor, cmd, t) {
   const side = actor.team === 'hunter' ? 'hunter' : 'hider';
   const on = Object.entries(s.settings.powers || {}).filter(([, v]) => v).map(([k]) => k);
   const got = lootPower(side, t.rand, on.length ? on : null);
-  if (side === 'hunter') s.team[got.power] = 'ready';
+  if (side === 'hunter' && fxOn(s, 'blackout', t.clock)) return err('blackout', `Blackout: open it when your screen's back (${fmtClock(fxLeft(s, 'blackout', t.clock))}).`);
+  if (LOOT_POWERS[got.power]) { const st = stashOf(s, actor); st[got.power] = (st[got.power] || 0) + 1; } // v1.6.1
+  else if (side === 'hunter') s.team[got.power] = 'ready';
   else actor.powers = { ...(actor.powers || {}), [got.power]: 'ready' };
   actor.loot = null;
   actor.lootLast = { power: got.power, rarity: got.rarity, at: t.clock };
   actor.stats.loot = (actor.stats.loot || 0) + 1;
-  const name = POWERS[got.power] ? POWERS[got.power].name : got.power;
-  const word = got.rarity === 'legendary' ? 'LEGENDARY' : got.rarity === 'rare' ? 'Rare' : 'Common';
+  const name = POWERS[got.power] ? POWERS[got.power].name : LOOT_POWERS[got.power] ? LOOT_POWERS[got.power].name : got.power;
+  const word = { mythic: 'MYTHIC', legendary: 'LEGENDARY', rare: 'Rare', common: 'Common' }[got.rarity] || 'Common';
   emit(s, t, 'loot-open', actor.id, `${word} loot: ${name}!`, { power: got.power, rarity: got.rarity });
+  note(s, { kind: 'loot-open', by: actor.id, power: got.power, rarity: got.rarity, clock: t.clock, text: `${actor.name} opened ${word} loot: ${name}` }); // (the replay and the pro edit)
   if (side === 'hunter') emit(s, t, 'loot-team', 'hunters', `${actor.name} opened loot: ${name} for the team!`, { power: got.power, rarity: got.rarity, by: actor.id });
   return null;
+}
+
+// ---- v1.6.1: the loot-only powers (shared/loot.js LOOT_POWERS). Effects live in s.fx ({ name: { until, by } });
+// a hider's Smoke and Ghost in p.lootFx; the stashes in p.lootHeld (a hider's) and s.lootTeam (the hunters').
+// Mythics (Blackout, the All-Seeing Eye) never run together: one used while a Mythic runs (or waits) is queued
+// (s.fx.queue) and starts by itself when the one before ends. Effects on the hunters never touch the driver.
+const MYTHICS = ['blackout', 'eye'];
+function fxOf(s) { if (!s.fx || typeof s.fx !== 'object') s.fx = {}; return s.fx; }
+function fxOn(s, k, clock) { const f = s.fx && s.fx[k]; return !!f && Number.isFinite(f.until) && clock < f.until; }
+function fxLeft(s, k, clock) { return fxOn(s, k, clock) ? s.fx[k].until - clock : 0; }
+function stashOf(s, p) {
+  if (p.team === 'hunter') { if (!s.lootTeam || typeof s.lootTeam !== 'object') s.lootTeam = {}; return s.lootTeam; }
+  if (!p.lootHeld || typeof p.lootHeld !== 'object') p.lootHeld = {};
+  return p.lootHeld;
+}
+function mythicEnds(s, clock) {
+  let end = null;
+  for (const k of MYTHICS) if (fxOn(s, k, clock)) end = Math.max(end || 0, s.fx[k].until);
+  return end;
+}
+
+// The ping times with Double Double's changes (s.pingAdd, s.pingDrop).
+function pingTimes(s, sch) {
+  const add = Array.isArray(s.pingAdd) ? s.pingAdd : [];
+  const drop = Array.isArray(s.pingDrop) ? s.pingDrop : [];
+  if (!add.length && !drop.length) return sch.pings;
+  return [...sch.pings.filter((x) => !drop.includes(x)), ...add.filter((x) => x < sch.endMs)].sort((a, b) => a - b);
+}
+
+function lootFxDue(s, offer) {
+  const f = s.fx;
+  if (!f) return;
+  const tr = f.tracker;
+  if (tr && Number.isFinite(tr.next) && tr.next < tr.until) offer(tr.next, 2.4, { type: 'trackerTick' });
+  if (Array.isArray(f.queue) && f.queue.length) {
+    const end = MYTHICS.map((k) => (f[k] && Number.isFinite(f[k].until) ? f[k].until : 0)).reduce((a, b) => Math.max(a, b), 0);
+    offer(end, 2.2, { type: 'mythicNext' });
+  }
+}
+
+function lootTrackerTick(s, t, ctx) {
+  const tr = s.fx && s.fx.tracker;
+  if (!tr) return;
+  const h = playerOf(s, tr.target);
+  if (!isFree(h)) { tr.until = t.clock; tr.next = null; return; }
+  const pos = posOf(ctx.positions, h.id);
+  if (pos && current(pos, ctx.now)) tr.spot = { p: [pos.p[0], pos.p[1]], clock: t.clock };
+  tr.next = t.clock + TRACKER_EVERY_MS;
+}
+
+function lootMythicNext(s, t, ctx) {
+  const f = fxOf(s);
+  const next = Array.isArray(f.queue) ? f.queue.shift() : null;
+  if (!next) return;
+  const by = playerOf(s, next.by) || { id: next.by, name: next.name || 'Someone', team: next.side, stats: freshStats() };
+  startLootFx(s, t, next.power, by, null, ctx);
+}
+
+function cmdLootUse(s, actor, cmd, t) {
+  if (!lootGame(s)) return err('bad_cmd');
+  const power = cmd.power;
+  const P = typeof power === 'string' && Object.prototype.hasOwnProperty.call(LOOT_POWERS, power) ? LOOT_POWERS[power] : null;
+  if (!P) return err('bad_cmd');
+  const wait = inHunt(s, t, 'Powers work');
+  if (wait) return wait;
+  if (P.team === 'hider' ? !isFree(actor) : !isHunter(actor)) return err('not_your_turn', P.team === 'hider' ? 'Only hiders can use that.' : 'Only hunters can use that.');
+  if (isDriver(s, actor)) return err('driver', "The driver can't use powers.");
+  const stash = stashOf(s, actor);
+  if (!(stash[power] > 0)) return err('used', `You don't have ${P.name}.`);
+  if (P.team === 'hider' && fxOn(s, 'freeze', t.clock)) return err('frozen', `Your powers are frozen for ${fmtClock(fxLeft(s, 'freeze', t.clock))}.`);
+  if (P.team === 'hunter' && fxOn(s, 'blackout', t.clock)) return err('blackout', `Blackout: nothing works for ${fmtClock(fxLeft(s, 'blackout', t.clock))}.`);
+  let target = null;
+  if (P.target) {
+    target = playerOf(s, cmd.target);
+    if (!isFree(target)) return err('bad_target', 'Pick a hider who is still hiding.');
+  }
+  stash[power] -= 1;
+  if (!stash[power]) delete stash[power];
+  const f = fxOf(s);
+  if (P.mythic && (mythicEnds(s, t.clock) !== null || (Array.isArray(f.queue) && f.queue.length))) {
+    if (!Array.isArray(f.queue)) f.queue = [];
+    f.queue.push({ power, by: actor.id, name: actor.name, side: actor.team });
+    const startsAt = mythicEnds(s, t.clock) || t.clock;
+    const running = MYTHICS.find((k) => fxOn(s, k, t.clock));
+    emit(s, t, 'loot-queued', actor.id, `${P.name} is queued: it starts in ${fmtClock(Math.max(0, startsAt - t.clock))}${running ? `, when ${LOOT_POWERS[running].name} ends` : ''}.`, { power });
+    return null;
+  }
+  startLootFx(s, t, power, actor, target);
+  return null;
+}
+
+function startLootFx(s, t, power, actor, target) {
+  const P = LOOT_POWERS[power];
+  const f = fxOf(s);
+  const until = P.ms ? t.clock + P.ms : null;
+  const text = `${actor.name} used ${P.name}.`;
+  if (actor.stats && Array.isArray(actor.stats.powers)) actor.stats.powers.push(P.name);
+  note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text, loot: true });
+  const them = (team) => (team === 'hider' ? freeHiders(s) : ordered(s).filter((p) => isHunter(p) && !isDriver(s, p))).map((p) => p.id);
+  switch (power) {
+    case 'smoke': case 'ghost': {
+      if (!actor.lootFx || typeof actor.lootFx !== 'object') actor.lootFx = {};
+      if (power === 'smoke') actor.lootFx.smoke = true;
+      else actor.lootFx.ghost = (actor.lootFx.ghost || 0) + GHOST_PINGS;
+      emit(s, t, 'lootfx', actor.id, power === 'smoke' ? 'Smoke is ready: your next ping is a big cloud.' : "Ghost: you're invisible on the next 2 pings.", { power, by: actor.id });
+      addMoment(s, t, 'power', [actor.id], { data: { power, loot: true } });
+      return;
+    }
+    case 'double': {
+      const sch = schedule(s.settings);
+      const times = pingTimes(s, sch);
+      const next = times[s.pings.length];
+      const every = (t.clock >= sch.closingStartMs && sch.closingMs > 0 ? s.settings.closingPingEveryMin : s.settings.pingEveryMin) * 60000;
+      const a1 = Math.round(Number.isFinite(next) ? Math.min(next, t.clock + every / 2) : t.clock + every / 2);
+      const a2 = Math.round(a1 + every / 2);
+      if (!Array.isArray(s.pingAdd)) s.pingAdd = [];
+      if (!Array.isArray(s.pingDrop)) s.pingDrop = [];
+      if (Number.isFinite(next)) { if (s.pingAdd.includes(next)) s.pingAdd.splice(s.pingAdd.indexOf(next), 1); else s.pingDrop.push(next); }
+      for (const a of [a1, a2]) if (a < sch.endMs && !pingTimes(s, sch).includes(a)) s.pingAdd.push(a);
+      emit(s, t, 'lootfx', 'hunters', `${actor.name} used Double Double: the next 2 pings come twice as fast!`, { power, by: actor.id });
+      emit(s, t, 'lootfx', 'hiders', 'The hunters used Double Double: the next 2 pings come twice as fast!', { power });
+      addMoment(s, t, 'power', [actor.id, ...them('hider')], { data: { power, loot: true } });
+      return;
+    }
+    case 'tracker': {
+      f.tracker = { target: target.id, by: actor.id, until, next: t.clock, spot: null };
+      emit(s, t, 'lootfx', 'hunters', `${actor.name} hit ${target.name} with a Tracker dart: their spot updates every 20 seconds.`, { power, by: actor.id, target: target.id });
+      emit(s, t, 'lootfx', target.id, "Tracker dart! The hunters see your spot every 20 seconds for 2 minutes. Move!", { power, target: target.id });
+      addMoment(s, t, 'power', [actor.id, target.id], { data: { power, loot: true } });
+      return;
+    }
+    default: {
+      f[power] = { until, by: actor.id };
+      const W = {
+        glitch: [null, `${actor.name} glitched the hunters' phones for a minute!`],
+        storm: ['Static Storm! Your map is static for 2 minutes.', `${actor.name} hit the hunters with a Static Storm!`],
+        blackout: ['BLACKOUT! Your screen is dark for 5 minutes. Your walkie still works.', `${actor.name} blacked out the hunters for 5 minutes!`],
+        compass: [`${actor.name} used Compass: follow the arrow for 30 seconds.`, null],
+        freeze: [`${actor.name} froze the hiders' powers for 3 minutes.`, "Freeze! The hunters froze your powers for 3 minutes."],
+        eye: [`ALL-SEEING EYE! Every hider is live for 2 minutes.`, null],
+      }[power] || [null, null];
+      if (W[0]) emit(s, t, 'lootfx', 'hunters', W[0], { power, by: actor.id });
+      if (W[1]) emit(s, t, 'lootfx', 'hiders', W[1], { power, by: actor.id });
+      if (!W[0] && !W[1]) emit(s, t, 'lootfx', actor.id, text, { power, by: actor.id });
+      const hit = P.team === 'hider' ? them('hunter') : them('hider');
+      addMoment(s, t, 'power', [actor.id, ...hit], { data: { power, loot: true } });
+    }
+  }
+}
+
+// What the loot powers do to this phone's view: { blackout, storm, glitch, eye, freeze (ms left), compass { left,
+// bearing }, tracker { id, left }, tracked (ms: a dart on me), queued [power], smoke, ghost } or null.
+function lootFxView(s, me, clock, positions, now) {
+  if (!me || !lootGame(s) || s.phase !== 'live') return null;
+  const out = {};
+  const left = (k) => fxLeft(s, k, clock);
+  if (isHunter(me) && !isDriver(s, me)) {
+    for (const k of ['blackout', 'storm', 'glitch', 'eye', 'freeze']) if (left(k)) out[k] = left(k);
+    if (left('compass')) {
+      const mine = posOf(positions, me.id);
+      let best = null;
+      for (const h of freeHiders(s)) {
+        const pos = posOf(positions, h.id);
+        if (!mine || !pos || !current(pos, now)) continue;
+        const d = distanceM(mine.p, pos.p);
+        if (!best || d < best.d) best = { d, b: bearingDeg(mine.p, pos.p) };
+      }
+      out.compass = { left: left('compass'), bearing: best ? Math.round(best.b) : null };
+    }
+    const tr = s.fx && s.fx.tracker;
+    if (tr && clock < tr.until) out.tracker = { id: tr.target, left: tr.until - clock };
+  } else if (isFree(me)) {
+    for (const k of ['blackout', 'storm', 'glitch', 'freeze']) if (left(k)) out[k] = left(k);
+    const tr = s.fx && s.fx.tracker;
+    if (tr && tr.target === me.id && clock < tr.until) out.tracked = tr.until - clock;
+    const lf = me.lootFx || {};
+    if (lf.smoke) out.smoke = true;
+    if (lf.ghost > 0) out.ghost = lf.ghost;
+  }
+  const q = s.fx && Array.isArray(s.fx.queue) ? s.fx.queue.filter((x) => x.by === me.id || (x.side === 'hunter' && isHunter(me))) : [];
+  if (q.length) out.queued = q.map((x) => x.power);
+  return Object.keys(out).length ? out : null;
 }
 
 // ---- v1.6: the lobby vote (shared/vote.js). The host starts it; every phone plays the same intro and asks the
@@ -1900,7 +2117,8 @@ function cmdLootOpen(s, actor, cmd, t) {
 function cmdVoteStart(s, actor, cmd, t) {
   const n = Array.isArray(s.checkpoints) ? s.checkpoints.length : 0;
   s.nextVoteId = (Number.isInteger(s.nextVoteId) ? s.nextVoteId : 0) + 1;
-  s.vote = newVote({ now: t.now, id: s.nextVoteId, checkpoints: n, skipIntro: cmd.skipIntro === true });
+  const canDrive = !!s.settings.driver && s.settings.mode !== 'infection' && countIn(s) >= 3;
+  s.vote = newVote({ now: t.now, id: s.nextVoteId, checkpoints: n, skipIntro: cmd.skipIntro === true, driver: canDrive });
   emit(s, { now: t.now, clock: 0, at: t.now }, 'vote', 'all', `${actor.name} started the vote!`);
   return null;
 }
@@ -1932,10 +2150,30 @@ function cmdGear(s, actor, cmd) {
   return null;
 }
 
+// The host skips Static's rules for everyone: the intro ends now (everyone's phone jumps to the gear check).
+function cmdVoteSkip(s, actor, cmd, t) {
+  const v = s.vote;
+  if (!v || v.applied) return err('vote_closed', 'The vote is over.');
+  if (stageAt(v, t.now).stage !== 'intro') return null;
+  v.introMs = Math.max(0, t.now - v.at);
+  return null;
+}
+
+// Who wants to drive: yes or no while the driver question is up.
+function cmdDrive(s, actor, cmd, t) {
+  const v = s.vote;
+  if (!v || v.applied || !v.driverMs) return err('vote_closed', 'The vote is over.');
+  if (stageAt(v, t.now).stage !== 'driver') return err('vote_closed', "That question's closed.");
+  if (!v.drive || typeof v.drive !== 'object') v.drive = {};
+  v.drive[actor.id] = cmd.yes === true;
+  return null;
+}
+
 // Is there a winner or the settings still to write?
 function voteOwed(v, now) {
   const at = stageAt(v, now);
   if (at.stage === 'results' || at.stage === 'done') return true;
+  if (at.stage === 'spin' && v.driverPicked === undefined) return true;
   const result = v.result || {};
   return v.questions.some((q, i) => !result[q.q] && closed(v, i, now));
 }
@@ -1953,6 +2191,14 @@ function voteDue(s, now) {
     changed = true;
   });
   const at = stageAt(v, now);
+  // The driver: the wheel lands on one of the volunteers (none: the host's pick stands).
+  if (v.driverMs && v.driverPicked === undefined && ['spin', 'results', 'done'].includes(at.stage)) {
+    const ids = Object.values(s.players).filter((p) => p.status === 'in').map((p) => p.id);
+    const pick = voteDriverOf(v, ids);
+    v.driverPicked = pick;
+    if (pick) { s.driverPick = pick; s.players[pick].pick = 'hunter'; }
+    changed = true;
+  }
   if (at.stage !== 'results' && at.stage !== 'done') return changed;
   let next = s.settings;
   for (const q of QUESTIONS) {
@@ -2189,8 +2435,9 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
     timing.headStartLeft = T < sch.headStartMs ? sch.headStartMs - T : null;
     timing.left = Math.max(0, sch.endMs - T);
     const k = pingsSoFar.length;
-    if (k < sch.pings.length) {
-      timing.nextPingIn = Math.max(0, sch.pings[k] - T);
+    const times = pingTimes(s, sch);
+    if (k < times.length) {
+      timing.nextPingIn = Math.max(0, times[k] - T);
       timing.pingN = k + 1;
     }
     if (sch.closingMs > 0) {
@@ -2481,7 +2728,7 @@ function hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, expos
   }
   const seen = newestPingSpot(s, h.id);
   if (seen) {
-    return { ...base, kind: 'ping', p: [seen.spot.p[0], seen.spot.p[1]], r: seen.spot.r, age: Math.max(0, clock - seen.ping.clock) };
+    return { ...base, kind: 'ping', p: [seen.spot.p[0], seen.spot.p[1]], r: seen.spot.r, age: Math.max(0, clock - seen.ping.clock), ...(seen.spot.smoke ? { smoke: true } : {}) };
   }
   return null;
 }
@@ -2523,9 +2770,25 @@ function marksFor(s, me, { clock, now, positions, sch }) {
     const blocked = !r ? [] : r.recorded ? (r.blocked || []) : radarSafe(s, r);
     const exposureOn = !!s.exposure && clock >= s.exposure.at && clock < s.exposure.at + TIMING.EXPOSURE_SHOW_MS;
     if (!isDriver(s, me)) {
-      for (const h of freeHiders(s)) {
-        const m = hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn });
-        if (m) marks.push(m);
+      // v1.6.1: loot: Blackout shows nothing; the All-Seeing Eye every hider live; Static Storm no hider;
+      // a Tracker dart its hider's spot every 20 seconds.
+      const eye = fxOn(s, 'eye', clock);
+      const tr = s.fx && s.fx.tracker && clock < s.fx.tracker.until ? s.fx.tracker : null;
+      if (!fxOn(s, 'blackout', clock)) {
+        for (const h of freeHiders(s)) {
+          const pos = posOf(positions, h.id);
+          if (eye && s.pausedAt == null && pos && current(pos, now) && clock >= sch.headStartMs) {
+            marks.push({ id: h.id, label: h.name, kind: 'radar', eye: true, p: [pos.p[0], pos.p[1]], r: 0, age: ageOf(pos, now) });
+            continue;
+          }
+          if (fxOn(s, 'storm', clock)) continue;
+          if (tr && tr.target === h.id && tr.spot) {
+            marks.push({ id: h.id, label: h.name, kind: 'tracked', p: [tr.spot.p[0], tr.spot.p[1]], r: 0, age: Math.max(0, clock - tr.spot.clock) });
+            continue;
+          }
+          const m = hiderMark(s, h, { clock, now, positions, sch, radarLive, blocked, exposureOn });
+          if (m) marks.push(m);
+        }
       }
     }
   } else if (isFree(me)) {
@@ -2533,7 +2796,7 @@ function marksFor(s, me, { clock, now, positions, sch }) {
     if (pos) marks.push({ id: me.id, kind: 'self', p: pos.p, r: 0, age: ageOf(pos, now), label: me.name });
     const seen = newestPingSpot(s, me.id);
     if (seen) {
-      marks.push({ id: me.id, kind: 'seen', p: [seen.spot.p[0], seen.spot.p[1]], r: seen.spot.r, age: Math.max(0, clock - seen.ping.clock), label: me.name });
+      marks.push({ id: me.id, kind: 'seen', p: [seen.spot.p[0], seen.spot.p[1]], r: seen.spot.r, age: Math.max(0, clock - seen.ping.clock), label: me.name, ...(seen.spot.smoke ? { smoke: true } : {}) });
     }
   }
   if (s.sos) {
@@ -2596,8 +2859,9 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     timing.headStartLeft = clock < sch.headStartMs ? sch.headStartMs - clock : null;
     timing.left = Math.max(0, sch.endMs - clock);
     const k = s.pings.length;
-    if (k < sch.pings.length) {
-      timing.nextPingIn = Math.max(0, sch.pings[k] - clock);
+    const times = pingTimes(s, sch);
+    if (k < times.length) {
+      timing.nextPingIn = Math.max(0, times[k] - clock);
       timing.pingN = k + 1;
     }
     if (sch.closingMs > 0) {
@@ -2718,6 +2982,7 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     driverPick: s.phase === 'lobby' && typeof s.driverPick === 'string' ? s.driverPick : null,
     vote: s.phase === 'lobby' && s.vote ? voteView(s.vote, me ? me.id : null) : null, // v1.6
     loot: (live || over) ? lootView(s, me, clock) : null, // v1.6 Loot drops
+    fx: live ? lootFxView(s, me, clock, positions, now) : null, // v1.6.1 the loot powers' effects
     watchers,
     drive,
     radio,

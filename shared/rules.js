@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=161';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=162';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -114,7 +114,7 @@ export const MODES = {
   classic: { label: 'Classic', line: 'A third hunt, the rest hide. Caught hiders join the hunters.' },
   infection: { label: 'Infection', line: 'One hunter to start. Everyone caught joins them.' },
   checkpoints: { label: 'Checkpoints', line: 'Hiders race to checkpoints and take a photo at each. Most checkpoints wins.' },
-  loot: { label: 'Loot drops', line: 'Loot boxes drop around the ring. Grab one first for a bonus power: common, rare or legendary.' }, // v1.6
+  loot: { label: 'Loot drops', line: 'Nobody starts with a power. Loot boxes drop around the ring: race there first for common, rare, legendary or mythic powers.' }, // v1.6
 };
 
 export const POWERS = {

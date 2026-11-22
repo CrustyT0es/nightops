@@ -213,3 +213,128 @@
 .tray-main:has(.btn.lt.held) .g-tag { font-size: 14px !important; gap: 0; padding-inline: 8px; min-width: 0; }
 .tray-main:has(.btn.lt.held) .g-tag > .icon { display: none; }
 .btn.lt.held { min-width: 100px; padding-inline: 12px; }
+
+/* ======================= v1.6.1: loot powers ======================= */
+:root { --loot-mythic: #ff5fd2; }
+.lb[data-rarity="mythic"] { --c: var(--loot-mythic); background: radial-gradient(circle at 50% 46%, rgba(80, 20, 90, .94), rgba(6, 5, 20, .97) 70%); }
+.lb[data-rarity="mythic"] .lb-rays { background: repeating-conic-gradient(from 0deg, #ff5fd2 0 6deg, transparent 6deg 12deg, #5fd0ff 12deg 18deg, transparent 18deg 24deg, #ffd23f 24deg 30deg, transparent 30deg 36deg); opacity: 0; }
+.lb[data-rarity="mythic"][data-stage="burst"] .lb-stage, .lb[data-rarity="mythic"][data-stage="card"] .lb-stage { animation: lb-quake .5s ease-out 3; }
+.lb[data-rarity="mythic"] .lb-word {
+  font-size: 50px; background: linear-gradient(90deg, #ff5fd2, #ffd23f, #5fffa8, #5fd0ff, #b38bff, #ff5fd2) 0 0 / 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lb[data-rarity="mythic"][data-stage="card"] .lb-word { animation: lb-slam .55s cubic-bezier(.2, 1.8, .4, 1) .1s forwards, lb-shine 1.2s linear .7s infinite; }
+.lb[data-rarity="mythic"] .lb-spark:nth-child(3n) { background: #5fd0ff; box-shadow: 0 0 10px 3px #5fd0ff; }
+.lb[data-rarity="mythic"] .lb-spark:nth-child(3n+1) { background: #ffd23f; box-shadow: 0 0 10px 3px #ffd23f; }
+.lb-use {
+  position: absolute; top: calc(50% + 190px); left: 50%; translate: -50% 0; min-height: 52px; padding: 0 26px;
+  background: var(--c); color: #120e2c; border: 4px solid #0a0820; box-shadow: 0 6px 0 #0a0820; font: 400 20px var(--display, "Bowlby One", system-ui);
+  opacity: 0; animation: lb-use-in .4s ease-out 1.2s forwards;
+}
+.lb[data-stage="card"] .lb-use { opacity: 1; }
+@keyframes lb-use-in { to { opacity: 1; } }
+
+/* the stash in the tray */
+.ls { display: grid; gap: 8px; padding: 10px 12px; border: 3px solid #0a0820; border-radius: 18px; background: linear-gradient(160deg, #2b1f5e, #1a1440); box-shadow: 0 4px 0 #0a0820; }
+.ls[hidden] { display: none; }
+.ls-title { margin: 0; font: 400 15px var(--display, "Bowlby One", system-ui); color: var(--loot); }
+.ls-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.ls-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 14px; border: 3px solid #0a0820; border-radius: 14px;
+  background: #fff7e6; color: #120e2c; font: 700 15px var(--font, system-ui); box-shadow: 0 4px 0 #0a0820; cursor: pointer;
+}
+.ls-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #0a0820; }
+.ls-btn:disabled { opacity: .45; filter: grayscale(1); }
+.ls-btn.mythic { background: linear-gradient(90deg, #ff9ae4, #ffe27a, #9affc9, #9ae4ff); animation: ls-mythic 2s ease-in-out infinite; }
+.ls-emoji { font-size: 22px; }
+.ls-n { font: 700 12px var(--mono, monospace); opacity: .7; }
+@keyframes ls-mythic { 50% { filter: brightness(1.15) saturate(1.3); } }
+
+/* the box flies into your phone */
+.lf { position: fixed; inset: 0; z-index: 8000; pointer-events: none; }
+.lf-ring { position: absolute; left: var(--x); top: var(--y); width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 5px solid var(--loot); animation: lf-ring .6s ease-out forwards; }
+.lf-crate { position: absolute; left: var(--x); top: var(--y); width: 0; height: 0; animation: lf-fly 1.1s cubic-bezier(.5, -0.3, .6, 1) .25s forwards; }
+.lf-box { position: absolute; left: -16px; top: -34px; width: 32px; height: 30px; scale: 1.2; filter: drop-shadow(0 3px 0 #0a0820) drop-shadow(0 0 14px rgba(255, 181, 71, .9)); animation: lf-spin 1.3s ease-in-out forwards; }
+.lf-got { position: absolute; left: var(--x); top: var(--y); translate: -50% 0; opacity: 0; font: 400 26px var(--display, "Bowlby One", system-ui); color: var(--loot); -webkit-text-stroke: 3px #0a0820; paint-order: stroke; text-shadow: 0 4px 0 #0a0820; animation: lf-got .7s cubic-bezier(.2, 1.8, .4, 1) 1.05s forwards; }
+@keyframes lf-ring { from { transform: scale(.4); opacity: 1; } to { transform: scale(4); opacity: 0; } }
+@keyframes lf-fly {
+  0% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(calc(var(--dx) * .1), calc(var(--dy) * -.35 - 80px)) scale(2.6); }
+  100% { transform: translate(var(--dx), var(--dy)) scale(.5); opacity: .9; }
+}
+@keyframes lf-spin { 0% { rotate: 0deg; } 30% { rotate: -20deg; } 100% { rotate: 380deg; } }
+@keyframes lf-got { 0% { opacity: 0; scale: 2.4; } 60% { opacity: 1; scale: .9; } 100% { opacity: 1; scale: 1; } }
+.lt.lf-hit { animation: lf-hit .9s cubic-bezier(.2, 1.8, .4, 1); }
+@keyframes lf-hit { 0% { scale: 1; } 25% { scale: 1.35; filter: brightness(1.6); } 100% { scale: 1; } }
+
+/* the nearest box chip over the map */
+.lt-near {
+  position: absolute; left: 50%; top: calc(var(--g-hud-bottom, 120px) + 92px); translate: -50% 0; z-index: 4; display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border: 3px solid #0a0820; border-radius: 999px; background: #fff7e6; color: #120e2c; font: 400 17px var(--display, "Bowlby One", system-ui);
+  box-shadow: 0 4px 0 #0a0820; pointer-events: none;
+}
+.lt-near[hidden] { display: none; }
+.lt-near-arrow { display: inline-block; color: #e0661a; transition: transform .4s ease; }
+.lt-near.hot { background: linear-gradient(#ffcf6b, #ff9a2e); animation: lt-pulse 1s ease-out infinite; }
+
+/* Smoke: a ping that's a big drifting cloud */
+.narea.ping.smoke, .narea.seen.smoke { fill: rgba(200, 205, 225, .35); stroke: rgba(230, 235, 250, .7); stroke-width: 3; stroke-dasharray: 3 9; filter: blur(2px); animation: smoke-drift 4s ease-in-out infinite; }
+@keyframes smoke-drift { 50% { opacity: .7; stroke-dashoffset: 24; } }
+
+/* ---- effects ---- */
+.lx-edge { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+.lx-edge.eye { box-shadow: inset 0 0 0 6px #b38bff, inset 0 0 60px 10px rgba(179, 139, 255, .6); animation: lx-breathe 1.6s ease-in-out infinite; }
+.lx-edge.tracked { box-shadow: inset 0 0 0 6px #ff4d5e, inset 0 0 60px 10px rgba(255, 77, 94, .55); animation: lx-breathe .9s ease-in-out infinite; }
+.lx-edge.freeze { box-shadow: inset 0 0 0 5px #9ae4ff, inset 0 0 50px 8px rgba(154, 228, 255, .45); }
+@keyframes lx-breathe { 50% { opacity: .55; } }
+.lx-chips { position: fixed; left: 50%; top: calc(var(--g-hud-bottom, 120px) + 50px); translate: -50% 0; z-index: 31; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: min(94vw, 420px); pointer-events: none; }
+.lx-chip { padding: 4px 12px; border: 3px solid #0a0820; border-radius: 999px; background: #1a1440; color: #fff; font: 700 13px var(--font, system-ui); box-shadow: 0 3px 0 #0a0820; }
+.lx-chip.eye { background: #b38bff; color: #120e2c; }
+.lx-chip.freeze { background: #9ae4ff; color: #120e2c; }
+.lx-chip.tracked, .lx-chip.tracker { background: #ff4d5e; }
+.lx-chip.queued { background: linear-gradient(90deg, #ff9ae4, #9ae4ff); color: #120e2c; }
+.lx-chip.mine { background: #2c6bff; }
+.g-root.lx-frozen .tile, .g-root.lx-frozen .g-power { position: relative; filter: saturate(.3) brightness(.8); }
+.g-root.lx-frozen .tile::after { content: '🧊'; position: absolute; right: 6px; top: 4px; font-size: 18px; }
+
+.lx-compass { position: fixed; left: 50%; top: 42%; translate: -50% -50%; z-index: 31; display: grid; justify-items: center; gap: 6px; pointer-events: none; }
+.lx-compass[hidden] { display: none; }
+.lx-arrow { display: grid; place-items: center; width: 110px; height: 110px; border: 5px solid #0a0820; border-radius: 50%; background: radial-gradient(circle, #fff7e6, #ffd9a0); color: #ff4d5e; font-size: 64px; box-shadow: 0 6px 0 #0a0820, 0 0 40px rgba(255, 77, 94, .5); transition: transform .5s cubic-bezier(.3, 1.4, .5, 1); }
+.lx-compass.lost .lx-arrow { color: #8890b0; animation: vs-shake .4s ease-in-out infinite; }
+.lx-cword { padding: 3px 12px; border: 3px solid #0a0820; border-radius: 999px; background: #ff4d5e; color: #fff; font: 700 14px var(--font, system-ui); }
+
+.lx-storm { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; image-rendering: pixelated; opacity: .82; mix-blend-mode: normal; pointer-events: none; }
+.lx-storm[hidden], .lx-storm-word[hidden] { display: none; }
+.lx-storm-word { position: absolute; left: 50%; top: 45%; translate: -50% -50%; z-index: 4; display: grid; justify-items: center; gap: 4px; padding: 10px 22px; border: 4px solid #0a0820; border-radius: 16px; background: #0a0820; color: #fff; font: 400 26px var(--display, "Bowlby One", system-ui); pointer-events: none; animation: lx-roll 2.5s steps(1) infinite; }
+.lx-storm-word span { font: 700 15px var(--mono, monospace); color: #ffb547; }
+@keyframes lx-roll { 0%, 92% { transform: none; } 94% { transform: translateY(-6px) skewX(8deg); } 97% { transform: translateY(4px); } }
+
+.lx-blackout { position: fixed; inset: 0; z-index: 9500; display: grid; align-content: center; justify-items: center; gap: 14px; padding: 24px; background: #000; color: #fff; text-align: center; }
+.lx-blackout[hidden] { display: none; }
+.lx-bo-noise { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .03) 0 1px, transparent 1px 3px); animation: lx-scan 6s linear infinite; pointer-events: none; }
+@keyframes lx-scan { to { background-position: 0 300px; } }
+.lx-bo-title { margin: 0; font: 400 52px/1 var(--display, "Bowlby One", system-ui); color: #1a1a1a; -webkit-text-stroke: 2px #333; letter-spacing: .04em; animation: lx-flicker 3s steps(1) infinite; }
+@keyframes lx-flicker { 0%, 88%, 100% { color: #161616; } 90% { color: #3a3a3a; } 93% { color: #111; } }
+.lx-bo-line, .lx-bo-hint { margin: 0; max-width: 30ch; color: #777; font-weight: 700; }
+.lx-bo-clock { font: 400 64px var(--display, "Bowlby One", system-ui); color: #555; }
+.lx-bo-radio { position: relative; z-index: 1; animation: lx-crackle 1.8s steps(1) infinite; }
+@keyframes lx-crackle { 0%, 80%, 100% { transform: none; filter: none; } 82% { transform: translateX(-3px); filter: contrast(2) brightness(1.4); } 86% { transform: translateX(2px); } }
+.lx-bo-sos { position: relative; z-index: 1; min-height: 48px; padding: 0 22px; background: #ff4d5e; color: #fff; border: 3px solid #0a0820; }
+html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
+
+/* Glitch: it must look like a real bug, never like a power */
+.g-root.gx-on .nmap-faces { animation: gx-jitter .35s steps(2) infinite; }
+.g-root.gx-on .g-topbar { animation: gx-skew 4s steps(1) infinite; }
+.g-root.gx-tear { clip-path: polygon(0 0, 100% 0, 100% 38%, 0 38%, 0 41%, 100% 41%, 100% 100%, 0 100%); }
+.g-root.gx-tear .g-mapwrap { transform: translateX(14px); filter: hue-rotate(80deg) contrast(1.4); }
+.g-root.gx-tear .g-hud { transform: translateX(-9px); }
+.gx-vanish { visibility: hidden !important; }
+@keyframes gx-jitter { 50% { transform: translate(2px, -1px); } }
+@keyframes gx-skew { 0%, 90%, 100% { transform: none; } 92% { transform: skewX(12deg) translateX(6px); } 95% { transform: translateX(-4px); } }
+.lx-fake { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-bottom, 0px) + 140px); z-index: 40; padding: 10px 14px; border-radius: 8px; background: #2b2b2b; color: #eee; font: 13px/1.3 system-ui, sans-serif; box-shadow: 0 4px 16px rgba(0, 0, 0, .5); }
+.lx-fake[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lf-crate, .lf-box, .lf-ring, .lx-edge, .lx-storm-word, .lx-bo-title, .lx-bo-radio, .g-root.gx-on .nmap-faces, .g-root.gx-on .g-topbar { animation: none !important; }
+  .lf-got { animation: none; opacity: 1; }
+}

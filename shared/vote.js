@@ -18,18 +18,20 @@
 //
 // Not voted on, the host's own: the ring, checkpoints, the driver, spectators, the camera, who hunts.
 
-export const INTRO_MS = 28500;    // the narrated intro: title + Static says hi, hiders, hunters, the ring, "gear check!"
-export const GEAR_MS = 18000;     // everyone checks location, microphone and camera together
+export const INTRO_MS = 83500;    // Static's rules: teams, pings, tags, the ring, powers, loot, walkie + driver, safety, pocket mode
+export const GEAR_MS = 25000;     // everyone checks location, microphone and camera together
 export const VOTE_MS = 10000;     // each question
 export const EXPLAIN_MS = 9000;   // each winner (a drum roll, then the slam) and how it plays
-export const RESULT_MS = 7000;    // the recap before the lobby comes back
+export const RESULT_MS = 6500;
+export const DRIVER_MS = 10000;   // who wants to drive? (only when the host has the driver on)
+export const SPIN_MS = 6500;      // the wheel picks one of the volunteers    // the recap before the lobby comes back
 export const SKIPPED_INTRO_MS = 3000; // the host skipped the intro: straight to the gear check
 
 export const OPTIONS = {
   mode: {
     classic: { label: 'Classic', line: 'Hunters chase. Hiders hide.', icon: 'target' },
     checkpoints: { label: 'Checkpoints', line: 'Race to stores, snap a photo.', icon: 'flag' },
-    loot: { label: 'Loot drops', line: 'Boxes drop. Grab them for powers.', icon: 'gift' },
+    loot: { label: 'Loot drops', line: 'No powers. Race to the boxes for them.', icon: 'gift' },
   },
   length: {
     quick: { label: 'Quick', line: '20 minutes', icon: 'bolt' },
@@ -60,7 +62,9 @@ export const OPTIONS = {
     both: { label: 'Both teams', line: 'Hiders get one too', icon: 'mics' },
   },
 };
-export const QUESTIONS = ['mode', 'length', 'pings', 'powers', 'caught', 'ring', 'walkies'];
+// The owner, Nov 2026: one vote (the mode); the rest is the host's. (The other questions stay for older votes.)
+export const QUESTIONS = ['mode'];
+export const ALL_QUESTIONS = ['mode', 'length', 'pings', 'powers', 'caught', 'ring', 'walkies'];
 export const PROMPTS = {
   mode: 'Which game?',
   length: 'How long?',
@@ -77,7 +81,7 @@ export const EXPLAIN = {
   mode: {
     classic: { scene: 'classic', title: 'Classic it is!', lines: ['Hunters chase, hiders hide.', 'Last hider standing wins it for the hiders.'] },
     checkpoints: { scene: 'checkpoints', title: 'Checkpoints!', lines: ['One checkpoint opens at a time.', 'Get there, snap the photo. Most checkpoints wins.'] },
-    loot: { scene: 'loot', title: 'Loot drops!', lines: ['Boxes drop around the ring every few minutes.', 'Walk up to one to grab it. Both teams can!', 'Open it: common, rare or LEGENDARY power.'] },
+    loot: { scene: 'loot', title: 'Loot drops!', lines: ['Nobody starts with a power.', 'Race to the boxes: first one there gets it.', 'Common, rare, legendary... or MYTHIC.'] },
   },
   length: {
     quick: { scene: 'clock', title: '20 minutes!', lines: ['Short and sweaty.', 'Pings every 3 minutes.'] },
@@ -135,7 +139,7 @@ export function settingsFor(q, key, { presets, powers } = {}) {
 }
 
 export function totalMs(v) {
-  return v.introMs + (v.gearMs || 0) + v.questions.length * (v.voteMs + (v.explainMs || 0)) + v.resultMs;
+  return v.introMs + (v.gearMs || 0) + v.questions.length * (v.voteMs + (v.explainMs || 0)) + (v.driverMs || 0) + (v.spinMs || 0) + v.resultMs;
 }
 
 // Where the show is at `now`: { stage: 'intro'|'gear'|'question'|'explain'|'results'|'done', i (question index),
@@ -157,6 +161,12 @@ export function stageAt(v, now) {
     return { stage: 'explain', i, left: each - u, ms: u - v.voteMs };
   }
   t -= n * each;
+  const dm = v.driverMs || 0;
+  if (t < dm) return { stage: 'driver', i: n, left: dm - t, ms: t };
+  t -= dm;
+  const sm = dm ? (v.spinMs || 0) : 0;
+  if (t < sm) return { stage: 'spin', i: n, left: sm - t, ms: t };
+  t -= sm;
   if (t < v.resultMs) return { stage: 'results', i: n, left: v.resultMs - t, ms: t };
   return { stage: 'done', i: n, left: 0, ms: t - v.resultMs };
 }
@@ -164,19 +174,20 @@ export function stageAt(v, now) {
 // Has question i's vote closed at `now`?
 export function closed(v, i, now) {
   const at = stageAt(v, now);
-  if (at.stage === 'results' || at.stage === 'done') return true;
+  if (at.stage === 'results' || at.stage === 'done' || at.stage === 'driver' || at.stage === 'spin') return true;
   if (at.stage === 'explain') return at.i >= i;
   if (at.stage === 'question') return at.i > i;
   return false;
 }
 
 // The questions offered: Checkpoints only once the host has placed at least two; `skip` leaves questions out.
-export function newVote({ now, id, checkpoints = 0, skipIntro = false, skip = [] }) {
+export function newVote({ now, id, checkpoints = 0, skipIntro = false, skip = [], driver = false }) {
   const options = (q) => Object.keys(OPTIONS[q]).filter((k) => q !== 'mode' || k !== 'checkpoints' || checkpoints >= 2);
   const qs = QUESTIONS.filter((q) => !skip.includes(q));
   return {
     id, at: now,
     introMs: skipIntro ? SKIPPED_INTRO_MS : INTRO_MS, gearMs: GEAR_MS, voteMs: VOTE_MS, explainMs: EXPLAIN_MS, resultMs: RESULT_MS,
+    driverMs: driver ? DRIVER_MS : 0, spinMs: driver ? SPIN_MS : 0, drive: {},
     questions: qs.map((q) => ({ q, options: options(q) })),
     ballots: Object.fromEntries(qs.map((q) => [q, {}])),
     gear: {},
@@ -202,6 +213,14 @@ export function winner(question, ballots, voteId = 0, keep = null) {
   const top = [...counts].filter(([, n]) => n === most).map(([k]) => k);
   if (top.length === 1) return top[0];
   return top[Math.min(top.length - 1, Math.floor(hashUnit(`${voteId}:${question.q}`) * top.length))];
+}
+
+// The driver: one of the volunteers, picked by hashUnit (every phone works out the same one before the server
+// says). -> player id or null. `ids` the volunteers still in the game.
+export function driverOf(v, ids) {
+  const yes = Object.entries((v && v.drive) || {}).filter(([id, y]) => y === true && (!ids || ids.includes(id))).map(([id]) => id).sort();
+  if (!yes.length) return null;
+  return yes[Math.min(yes.length - 1, Math.floor(hashUnit(`${v.id}:driver:${yes.join(',')}`) * yes.length))];
 }
 
 // What the settings are now, as each question's option (for "no votes keeps what it is").
@@ -230,6 +249,9 @@ export function voteView(v, meId) {
     picks: Object.fromEntries(qs.map((q) => [q, { ...((v.ballots || {})[q] || {}) }])),
     mine: Object.fromEntries(qs.map((q) => [q, ((v.ballots || {})[q] || {})[meId] || null])),
     gear: Object.fromEntries(Object.entries(v.gear || {}).map(([id, g]) => [id, cleanGear(g)])),
+    driverMs: v.driverMs || 0, spinMs: v.spinMs || 0,
+    drive: { ...(v.drive || {}) },
+    driver: v.driverPicked === undefined ? null : v.driverPicked,
     applied: !!v.applied,
     result: v.result ? { ...v.result } : {},
   };

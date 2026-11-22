@@ -8,17 +8,17 @@
 //   confirmAgain(app, view) -> Promise<boolean>   Play again's warning when this round has clips
 //
 // Pure helpers (tested in Node): fmtMB, progressWords, clipLabel, keptWords, camOf, stillComing, mineOf.
-import { h, fill, text, cls, face } from '../dom.js?v=161';
-import { icon } from '../ui/icons.js?v=161';
-import { openSheet } from '../ui/sheet.js?v=161';
-import { fmtClock } from '../../shared/rules.js?v=161';
-import { direct, fileTimeAt } from '../director.js?v=161';
-import { canMakeMovie, talkOf } from '../movie.js?v=161';
-import { scenes as reelScenes } from '../scenes.js?v=161';
-import { renderReel } from '../render.js?v=161';
-import { createUploader } from '../upload.js?v=161';
-import { heldOf } from '../camstore.js?v=161';
-import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=161'; // v1.4.7
+import { h, fill, text, cls, face } from '../dom.js?v=162';
+import { icon } from '../ui/icons.js?v=162';
+import { openSheet } from '../ui/sheet.js?v=162';
+import { fmtClock } from '../../shared/rules.js?v=162';
+import { direct, fileTimeAt } from '../director.js?v=162';
+import { canMakeMovie, talkOf } from '../movie.js?v=162';
+import { scenes as reelScenes } from '../scenes.js?v=162';
+import { renderReel } from '../render.js?v=162';
+import { createUploader } from '../upload.js?v=162';
+import { heldOf } from '../camstore.js?v=162';
+import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=162'; // v1.4.7
 
 export const POLL_MS = 10000;
 export const URL_KEEP_MS = 13 * 60 * 1000;   // signed links last 15 min; asked again a little before
@@ -885,7 +885,7 @@ export function gameCamParts({ app }) {
     const st = media.state;
     const part = st.cam === 'denied' ? 'camera' : st.mic === 'denied' ? 'mic' : null;
     if (part) {
-      import('../ui/fixit.js?v=161').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
+      import('../ui/fixit.js?v=162').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
     } else media.restore();
   });
   // v1.4 end PAGE-DEVICES

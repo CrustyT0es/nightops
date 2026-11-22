@@ -504,7 +504,12 @@ function withLoot(view, params) {
   view.loot = {
     boxes: [{ id: 'L1', p: offsetM(SPOTS.leo, 120, 60), left: 150000 }, { id: 'L2', p: offsetM(SPOTS.sam, -90, -110), left: 20000 }],
     held: params.loot === 'held', next: 130000, last: null, grabbed: 1,
+    stash: view.me && view.me.team === 'hunter' ? { compass: 1, tracker: 1, eye: 1 } : { smoke: 2, ghost: 1, blackout: 1 },
   };
+  // &fx=blackout|storm|glitch|compass|eye|freeze|tracked|smoke: what a loot power does to this phone
+  const fx = { blackout: { blackout: 287000 }, storm: { storm: 104000 }, glitch: { glitch: 52000 }, compass: { compass: { left: 24000, bearing: 40 } },
+    eye: { eye: 98000 }, freeze: { freeze: 150000 }, tracked: { tracked: 95000 }, smoke: { smoke: true, ghost: 2, queued: ['blackout'] } }[params.fx];
+  if (fx) view.fx = fx;
 }
 
 // v1.1 PAGE-RADIO: the walkie-talkie. A live hunter who is in gets view.radio (radio=1: with a clip from Mia a few

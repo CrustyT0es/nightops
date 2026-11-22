@@ -31,13 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=161';
-import { icon } from './ui/icons.js?v=161';
+import { h, face as makeFace, text, listen } from './dom.js?v=162';
+import { icon } from './ui/icons.js?v=162';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=161';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=161';
+} from '../shared/geo.js?v=162';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=162';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -416,9 +416,10 @@ const KINDS = {
   sos: { team: 'hunter', sos: true },
   near: { team: 'hider', pulse: true, chip: 'Near car', chipKind: 'live' }, // v1.1 PAGE-DRIVER: the parked driver's
   overstay: { team: 'hider', exact: true, chip: 'Checkpoint', chipKind: 'cp' }, // v1.3 PAGE-PLAY: live at a checkpoint
+  tracked: { team: 'hider', exact: true, chip: 'Dart', chipKind: 'warn', age: true }, // v1.6.1: a Tracker dart's spot
   other: { team: null },
 };
-const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping', 'near']); // v1.1 PAGE-DRIVER: + near
+const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping', 'near', 'tracked']); // v1.1 PAGE-DRIVER: + near
 TAPPABLE.add('overstay'); // v1.3 PAGE-PLAY
 
 export function validRing(r) {
@@ -1363,7 +1364,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=161');
+      lib = await import('../vendor/maplibre-gl.mjs?v=162');
     } catch {
       cancel(deadline);
       giveUp();
@@ -1841,6 +1842,7 @@ export function createMap(container, { interactive = true } = {}) {
     else if (kind === 'radar') what = 'live on Radar';
     else if (kind === 'near') what = 'live, near the car'; // v1.1 PAGE-DRIVER
     else if (kind === 'exposure') what = 'exact spot from Exposure';
+    else if (kind === 'tracked') what = `Tracker dart, ${fmtAgo(age)}`; // v1.6.1
     else if (kind === 'outside') what = 'outside the ring, live';
     else if (kind === 'overstay') what = 'live, stayed at the checkpoint too long'; // v1.3 PAGE-PLAY
     else if (kind === 'offline') what = `offline, last seen ${fmtAgo(age)}`;
@@ -1861,7 +1863,7 @@ export function createMap(container, { interactive = true } = {}) {
       stale,
       size: kind === 'sos' ? MARK_SIZE.sos : me ? MARK_SIZE.me : MARK_SIZE.other,
       rank: markRank(kind, { me, age }),
-      area: K.area || null,
+      area: K.area ? `${K.area}${mark.smoke ? ' smoke' : ''}` : null, // v1.6.1: Smoke's cloud
       exact: !!K.exact,
       pulse: !!K.pulse,
       tappable,

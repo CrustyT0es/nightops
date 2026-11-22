@@ -11,24 +11,24 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=161';
-import { icon } from '../ui/icons.js?v=161';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=161';
-import { banner, clearBanners } from '../ui/banner.js?v=161';
-import { moment } from '../ui/moment.js?v=161';
-import { startPocket } from '../ui/pocket.js?v=161';
-import { createMap, fmtAgo } from '../map.js?v=161';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=161';
-import { distanceM, isPoint } from '../../shared/geo.js?v=161';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=161';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=161'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=161'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=161'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=161'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=161'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=161'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=161'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton } from './lootplay.js?v=161'; // v1.6: Loot drops
+import { h, fill, text, cls, face, listen } from '../dom.js?v=162';
+import { icon } from '../ui/icons.js?v=162';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=162';
+import { banner, clearBanners } from '../ui/banner.js?v=162';
+import { moment } from '../ui/moment.js?v=162';
+import { startPocket } from '../ui/pocket.js?v=162';
+import { createMap, fmtAgo } from '../map.js?v=162';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=162';
+import { distanceM, isPoint } from '../../shared/geo.js?v=162';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=162';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=162'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=162'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=162'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=162'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=162'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=162'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=162'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox } from './lootplay.js?v=162'; // v1.6: Loot drops
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -735,7 +735,27 @@ export function mount(root, app) {
   S.hudSlot.appendChild(camParts.hud);
   // v1.2 end PAGE-CAM
   const cpp = cpParts({ app }); // v1.3 PAGE-PLAY: the Checkpoints card and "Take the photo"
-  const lootBtn = createLootButton({ app }); // v1.6: Loot drops' Open button
+  // v1.6.1: the loot stash (powers from boxes) and the Tracker dart's hider picker
+  const lootStash = createLootStash({
+    app,
+    pickHider: (view, P) => new Promise((resolve) => {
+      let sheet = null;
+      let picked = null;
+      const rows = freeHiders(view).map((p) => pickRow({
+        id: p.id, name: p.name, team: 'hider',
+        onClick: () => { picked = p.id; if (sheet && sheet.close) sheet.close(); else closeSheets(); },
+      }).btn);
+      sheet = openSheet({
+        title: `${P.name}: pick a hider`,
+        body: rows.length ? [h('div.g-pick-list', ...rows)] : [h('p', 'No hider is free right now.')],
+        className: 'g-sheet g-target',
+        actions: [{ label: 'Cancel', kind: 'ghost' }],
+        onClose: () => resolve(picked),
+      });
+    }),
+  });
+  const lootBtn = createLootButton({ app, useIt: (k) => lootStash.use(k) }); // v1.6: Loot drops' Open button
+  const nearChip = h('div.lt-near', { hidden: true, 'aria-live': 'polite' }, h('span.lt-near-gift', { 'aria-hidden': 'true' }, '🎁'), h('span.lt-near-d'), h('span.lt-near-arrow', { 'aria-hidden': 'true' }, '➤'));
   const topBar = h('div.g-topbar', teamPill, leftBox, pingBox, S.hudSlot, sosBtn, moreBtn);
   const hidersLabel = h('span.g-hiders-label');
   const hidersFaces = h('div.g-hfaces');
@@ -823,6 +843,8 @@ export function mount(root, app) {
   // v1.1 PAGE-RADIO: the walkie-talkie readies its sound from every real tap itself (alerts.onTap: a touch's
   // pointerdown isn't a tap to an iPhone).
   fill(root, mapWrap, hud, panel, sosLayer); // v1.2 PAGE-MAP: the map under everything, edge to edge
+  mapWrap.append(nearChip); // v1.6.1: the nearest loot box
+  const lootFx = createLootFx({ app, root, mapEl: mapWrap, sos: () => askSos() }); // v1.6.1: what loot powers do here
   hud.after(fixIt.tapBtn); // v1.4 PAGE-DEVICES
   linesBox.prepend(fixIt.bar); // v1.4 PAGE-DEVICES: the red bar leads the lines over the map
 
@@ -1004,7 +1026,10 @@ export function mount(root, app) {
     }
     // v1.3 end PAGE-PLAY
     // v1.6: Loot drops: a free hider's or a hunter's Open button (never the driver, who can't grab boxes)
-    if (lootOf(view) && role !== 'driver' && role !== 'out') parts.push({ el: lootBtn.el, main: true, order: 15 });
+    if (lootOf(view) && role !== 'driver' && role !== 'out') {
+      parts.push({ el: lootBtn.el, main: true, order: 15 });
+      parts.push({ el: lootStash.el, main: false, order: 3 }); // v1.6.1
+    }
     parts.push({ el: P.chatBtn, main: true, order: 90 });
     // The last chat lines and the quick buttons.
     parts.push({ el: P.talk, main: false, order: 80 });
@@ -1188,6 +1213,7 @@ export function mount(root, app) {
     const live = view.phase === 'live';
     cpSwap(view, c); // v1.3 PAGE-PLAY
     try { lootBtn.update(view, c); } catch (e) { console.error(e); } // v1.6
+    try { lootStash.update(view); lootFx.update(view, c); paintNear(view); } catch (e) { console.error(e); } // v1.6.1
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
@@ -1372,6 +1398,27 @@ export function mount(root, app) {
     // v1.6: Loot drops' boxes on the ground
     if (typeof map.setLoot === 'function' && (lootOf(view) || S.lootKey)) {
       const boxes = lootOf(view) ? lootOf(view).boxes : [];
+      // v1.6.1: I just grabbed one: it flies from its spot on the map into the Open button
+      const held = !!(lootOf(view) && lootOf(view).held);
+      if (held && S.lootHeld === false && Array.isArray(S.lootBoxes)) {
+        const me = myPoint();
+        const gone = S.lootBoxes.filter((b) => !boxes.some((x) => x.id === b.id));
+        let from = null;
+        let best = Infinity;
+        for (const b of gone) {
+          const d = me ? Math.hypot(b.p[0] - me[0], b.p[1] - me[1]) : 0;
+          if (d < best) { best = d; from = b.p; }
+        }
+        let xy = null;
+        try {
+          const pt = from && map.project(from);
+          const r = mapBox.getBoundingClientRect();
+          if (pt) xy = [r.left + pt[0], r.top + pt[1]];
+        } catch { xy = null; }
+        flyIn({ from: xy, to: lootBtn.el }).catch(() => {});
+      }
+      S.lootHeld = held;
+      S.lootBoxes = boxes.map((b) => ({ id: b.id, p: b.p }));
       const key = JSON.stringify(boxes.map((b) => [b.id, b.p, b.left < 30000]));
       if (key !== S.lootKey) {
         S.lootKey = key;
@@ -1388,6 +1435,17 @@ export function mount(root, app) {
       }
     }
     // v1.3 end PAGE-PLAY
+  }
+
+  // v1.6.1: the nearest loot box within 250 m: "🎁 45 m" with an arrow (north up, as the map)
+  function paintNear(view) {
+    const n = view && view.phase === 'live' && S.mode !== 'out' && !(view.me && view.me.driver) ? nearestBox(view, myPoint()) : null;
+    const show = !!n && n.d <= 250;
+    nearChip.hidden = !show;
+    if (!show) return;
+    text(nearChip.children[1], n.d < 20 ? 'Right here!' : `${Math.round(n.d / 5) * 5} m`);
+    nearChip.children[2].style.transform = `rotate(${Math.round(n.b) - 90}deg)`;
+    nearChip.classList.toggle('hot', n.d < 60);
   }
 
   function myPoint() {
@@ -2238,6 +2296,7 @@ export function mount(root, app) {
     try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ } // v1.4 PAGE-PLAY
     try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
     try { lootBtn.destroy(); } catch { /* ignore */ } // v1.6
+    try { lootFx.destroy(); } catch { /* ignore */ } // v1.6.1
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER
