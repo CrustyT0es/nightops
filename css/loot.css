@@ -338,3 +338,96 @@ html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
   .lf-crate, .lf-box, .lf-ring, .lx-edge, .lx-storm-word, .lx-bo-title, .lx-bo-radio, .g-root.gx-on .nmap-faces, .g-root.gx-on .g-topbar { animation: none !important; }
   .lf-got { animation: none; opacity: 1; }
 }
+
+/* ======================= v1.6.1 round 2 ======================= */
+/* Everything over the map stacks under the lines (in the flow): nothing covers anything, nor the map's middle. */
+.lx-stack { display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.lx-chips { position: static; translate: none; width: auto; max-width: 100%; }
+.lx-chips[hidden] { display: none; }
+.lx-compass { position: static; translate: none; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border: 3px solid var(--ink, #0a0820); border-radius: 999px; background: #fff7e6; box-shadow: 0 3px 0 var(--ink, #0a0820); }
+.lx-compass .lx-arrow { width: 34px; height: 34px; border-width: 3px; font-size: 20px; box-shadow: none; }
+.lx-compass .lx-cword { padding: 0; border: 0; background: none; color: #120e2c; font: 800 14px var(--font, system-ui); }
+.lt-near { position: static; translate: none; }
+
+/* Glitch's pocket mode that won't wake, and its "Leave the game?" that never leaves */
+.lx-fp { position: fixed; inset: 0; z-index: 9450; display: grid; place-items: center; align-content: center; gap: 14px; background: #000; color: #333; text-align: center; }
+.lx-fp[hidden] { display: none; }
+.lx-fp-moon { font-size: 54px; opacity: .25; }
+.lx-fp-word { margin: 0; font: 600 15px var(--font, system-ui); color: #444; }
+.lx-fp.shake .lx-fp-word { animation: vs-shake .3s ease-in-out 2; color: #666; }
+.lx-fp-ask { width: min(86vw, 320px); padding: 18px; border-radius: 16px; background: #1e1e24; color: #eee; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); font: 15px/1.35 system-ui, sans-serif; }
+.lx-fp-ask[hidden] { display: none; }
+.lx-fp-ask strong { display: block; margin-bottom: 4px; font-size: 18px; }
+.lx-fp-ask p { margin: 0 0 14px; color: #aaa; }
+.lx-fp-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lx-fp-btns .btn { min-height: 46px; border-radius: 10px; font: 600 15px system-ui, sans-serif; box-shadow: none; border: 0; }
+.lx-fp-leave { background: #d33; color: #fff; }
+.lx-fp-stay { background: #333; color: #fff; }
+
+/* The opening: a thick 3D card that turns slowly, a shine across it, and it waits for OK */
+.lb-card-in { transform-style: preserve-3d; }
+.lb-card-edge { position: absolute; inset: 0; border: 4px solid #0a0820; border-radius: 22px; background: color-mix(in srgb, var(--c) 55%, #0a0820); transform: translateZ(var(--z)); }
+.lb[data-stage="card"] .lb-card-in { animation: lb-flip .7s cubic-bezier(.3, 1.4, .5, 1) forwards, lb-turn 5s ease-in-out .7s infinite alternate; }
+@keyframes lb-turn { from { transform: rotateY(-16deg) rotateX(6deg); } to { transform: rotateY(16deg) rotateX(-4deg); } }
+.lb-card-shine { position: absolute; inset: 0; border-radius: 18px; background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .45) 45%, transparent 60%) -150% 0 / 250% 100% no-repeat; animation: lb-shine-sweep 2.6s ease-in-out 1.2s infinite; pointer-events: none; }
+@keyframes lb-shine-sweep { to { background-position: 150% 0; } }
+.lb-foot { position: absolute; left: 0; right: 0; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: center; gap: 12px; opacity: 0; pointer-events: none; }
+.lb[data-stage="card"] .lb-foot { opacity: 1; pointer-events: auto; transition: opacity .3s ease .5s; }
+.lb-foot .lb-use { position: static; translate: none; opacity: 1; animation: none; }
+.lb-ok { min-height: 56px; min-width: 120px; padding: 0 28px; background: #fff7e6; color: #120e2c; border: 4px solid #0a0820; box-shadow: 0 6px 0 #0a0820; font: 400 22px var(--display, "Bowlby One", system-ui); }
+.lb-hint { bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---- your cards ---- */
+.cd-btn { font-size: 26px; }
+.cd-btn .cd-n { position: absolute; top: -7px; right: -7px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; border: 2px solid #0a0820; background: var(--loot); color: #1a0f00; font: 800 12px/18px var(--font, system-ui); }
+.cd-btn .cd-n[hidden] { display: none; }
+.cd-btn.some .cd-ico { animation: lt-wiggle 3s ease-in-out infinite; }
+.cd-btn.new { animation: lf-hit .9s cubic-bezier(.2, 1.8, .4, 1); }
+.cd { --fx: 50vw; --fy: 100vh; position: fixed; inset: 0; z-index: 8500; display: grid; grid-template-rows: auto 1fr auto auto; justify-items: center; padding: max(18px, env(safe-area-inset-top, 0px)) 12px max(18px, env(safe-area-inset-bottom, 0px)); perspective: 1000px; animation: lb-in .25s ease-out both; }
+.cd.out { animation: lb-out .28s ease-in forwards; }
+.cd-back { position: absolute; inset: 0; z-index: -1; background: radial-gradient(circle at 50% 45%, rgba(48, 30, 110, .94), rgba(6, 5, 20, .97) 70%); backdrop-filter: blur(6px); }
+.cd-title { margin: 6px 0 0; font: 400 24px var(--display, "Bowlby One", system-ui); color: var(--loot); -webkit-text-stroke: 2px #0a0820; paint-order: stroke; text-shadow: 0 4px 0 #0a0820; }
+.cd-fan { position: relative; width: 100%; height: 100%; min-height: 360px; transform-style: preserve-3d; touch-action: pan-y; }
+.cd-card {
+  --x: 0%; --ry: 0deg; --tz: 0px; --s: 1;
+  position: absolute; left: 50%; top: 50%; width: min(64vw, 250px); aspect-ratio: 5 / 7; margin: calc(min(64vw, 250px) * -0.7) 0 0 calc(min(64vw, 250px) / -2);
+  transform-style: preserve-3d; transform: translateX(var(--x)) translateZ(var(--tz)) rotateY(var(--ry)) scale(var(--s));
+  transition: transform .55s cubic-bezier(.25, 1.3, .4, 1), filter .3s; cursor: pointer;
+  animation: cd-deal .7s cubic-bezier(.2, 1.3, .4, 1) var(--d, 0s) both;
+}
+.cd-card:not(.front) { filter: brightness(.65) saturate(.8); }
+@keyframes cd-deal { from { opacity: 0; transform: translate(calc(var(--fx) - 50vw), calc(var(--fy) - 50vh)) scale(.15) rotateZ(-30deg); } }
+.cd-card-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
+.cd-card.front .cd-card-in { animation: cd-float 3.4s ease-in-out infinite; }
+@keyframes cd-float { 0%, 100% { transform: translateY(0) rotateX(5deg) rotateY(-6deg); } 50% { transform: translateY(-10px) rotateX(-3deg) rotateY(6deg); } }
+.cd-edge { position: absolute; inset: 0; border-radius: 22px; background: color-mix(in srgb, var(--rc) 45%, #0a0820); border: 4px solid #0a0820; transform: translateZ(var(--z)); }
+.cd-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px 14px; border: 4px solid #0a0820; border-radius: 22px; text-align: center; overflow: hidden;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 35%, #1c1640), #120e2c 72%); box-shadow: 0 0 0 3px var(--rc) inset, 0 10px 0 #0a0820, 0 0 40px color-mix(in srgb, var(--rc) 55%, transparent); }
+.cd-card.r-common { --rc: var(--loot-common); }
+.cd-card.r-rare { --rc: var(--loot-rare); }
+.cd-card.r-legendary { --rc: var(--loot-legendary); }
+.cd-card.r-mythic { --rc: var(--loot-mythic); }
+.cd-card.r-mythic .cd-face { background: linear-gradient(160deg, rgba(255, 95, 210, .45), rgba(95, 208, 255, .35) 40%, #120e2c 75%); }
+.cd-shine { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .35) 45%, transparent 60%) -150% 0 / 250% 100% no-repeat; animation: lb-shine-sweep 3s ease-in-out infinite; }
+.cd-rarity { position: absolute; top: 12px; padding: 2px 10px; border: 2px solid #0a0820; border-radius: 999px; background: var(--rc); color: #120e2c; font: 400 12px var(--display, "Bowlby One", system-ui); letter-spacing: .06em; }
+.cd-emoji { font-size: 74px; line-height: 1; filter: drop-shadow(0 5px 0 #0a0820); }
+.cd-name { font: 400 28px/1.05 var(--display, "Bowlby One", system-ui); color: #fff; -webkit-text-stroke: 2.5px #0a0820; paint-order: stroke; text-shadow: 0 4px 0 #0a0820; }
+.cd-desc { margin: 0; font-size: 14px; line-height: 1.35; color: #e6e2ff; }
+.cd-count { position: absolute; bottom: 12px; right: 14px; font: 800 16px var(--font, system-ui); color: var(--rc); }
+.cd-card.played { transition: transform .5s cubic-bezier(.5, -0.4, .7, 1), opacity .5s; transform: translateY(-70vh) translateZ(200px) rotateX(40deg) scale(1.2) !important; opacity: 0; }
+.cd-dots { display: flex; gap: 6px; margin: 6px 0; }
+.cd-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, .3); transition: background .2s, transform .2s; }
+.cd-dots i.on { background: var(--loot); transform: scale(1.3); }
+.cd-foot { display: flex; gap: 12px; padding-top: 8px; }
+.cd-use { min-height: 56px; padding: 0 26px; background: linear-gradient(#ffcf6b, #ff9a2e); color: #1a0f00; border: 4px solid #0a0820; box-shadow: 0 6px 0 #0a0820; font: 400 20px var(--display, "Bowlby One", system-ui); }
+.cd-close { min-height: 56px; padding: 0 22px; background: #fff7e6; color: #120e2c; border: 4px solid #0a0820; box-shadow: 0 6px 0 #0a0820; font: 800 17px var(--font, system-ui); }
+.cd-empty { align-self: center; display: grid; justify-items: center; gap: 8px; max-width: 28ch; text-align: center; color: #e6e2ff; }
+.cd-empty span { font-size: 64px; }
+.cd-empty strong { font: 400 26px var(--display, "Bowlby One", system-ui); color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .cd-card, .cd-card-in, .lb-card-in, .lb-card-shine, .cd-shine { animation: none !important; transition: none !important; }
+}
+/* With the gift and the cards in the main row, the tag button's words get smaller rather than spilling over */
+.tray-main:has(.cd-btn) .g-tag { font-size: 14px !important; gap: 0; padding-inline: 8px; min-width: 0; }
+.tray-main:has(.cd-btn) .g-tag > .icon { display: none; }
+.tray-main:has(.cd-btn) .tray-sq { width: 52px; }

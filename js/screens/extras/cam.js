@@ -3,10 +3,10 @@
 // The host: the switch, and when it's on, Highlights or Everything. Everyone else: the setting in words.
 // When it's on, every player has "I'm OK being recorded" (a switch; its first tap also asks for the camera and
 // microphone once and shows a small mirror for 3 s). The host sees how many said OK and who isn't filmed.
-import { h, text, cls, fill } from '../../dom.js?v=162';
-import { icon } from '../../ui/icons.js?v=162';
-import { EXTRAS_UI, CAM_MODES_UI } from '../../../shared/rules.js?v=162';
-import { CONSTRAINTS } from '../../camera.js?v=162';
+import { h, text, cls, fill } from '../../dom.js?v=163';
+import { icon } from '../../ui/icons.js?v=163';
+import { EXTRAS_UI, CAM_MODES_UI } from '../../../shared/rules.js?v=163';
+import { CONSTRAINTS } from '../../camera.js?v=163';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'cam') || {
   key: 'cam', label: 'Camera', hint: 'Phones film clips with the selfie camera for the replay. Only people who say OK are filmed.',

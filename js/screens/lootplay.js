@@ -11,10 +11,10 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=162';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=162';
-import { LOOT_POWERS } from '../../shared/loot.js?v=162';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=162';
+import { h, text } from '../dom.js?v=163';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=163';
+import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=163';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=163';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -92,12 +92,14 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
   const emoji = h('div.lb-emoji', { 'aria-hidden': 'true' });
   const name = h('div.lb-name');
   const desc = h('p.lb-desc');
-  const card = h('div.lb-card', h('div.lb-card-in', h('div.lb-card-back', { 'aria-hidden': 'true' }, '?'), h('div.lb-card-front', emoji, name, desc)));
+  const edges = Array.from({ length: 6 }, (_, i) => { const e = h('i.lb-card-edge'); e.style.setProperty('--z', `${-(i + 1) * 1.6}px`); return e; });
+  const card = h('div.lb-card', h('div.lb-card-in', ...edges, h('div.lb-card-back', { 'aria-hidden': 'true' }, '?'), h('div.lb-card-front', h('span.lb-card-shine', { 'aria-hidden': 'true' }), emoji, name, desc)));
+  const foot = h('div.lb-foot');
   const hint = h('p.lb-hint', 'Opening…');
   const live = h('p.sr-only', { 'aria-live': 'assertive' });
   const layer = h('div.lb', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Loot box', 'data-stage': 'shake' },
     h('div.lb-rays', { 'aria-hidden': 'true' }), h('div.lb-flash', { 'aria-hidden': 'true' }),
-    h('div.lb-stage', crate, shards, sparks, word, card), hint, live);
+    h('div.lb-stage', crate, shards, sparks, word, card), foot, hint, live);
   if (still) layer.classList.add('still');
   doc.body.appendChild(layer);
   const born = Date.now();
@@ -112,7 +114,7 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
     layer.classList.add('out');
     setTimeout(() => { layer.remove(); finish(); }, still ? 0 : 280);
   };
-  const keys = (e) => { if (e.key === 'Escape' && layer.dataset.stage !== 'shake') close(); };
+  const keys = (e) => { if (e.key === 'Escape' && (layer.dataset.stage === 'card' || layer.dataset.stage === 'fail')) close(); };
   doc.addEventListener('keydown', keys);
   done.then(() => doc.removeEventListener('keydown', keys));
 
@@ -124,21 +126,22 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
       const p = powerInfo(power);
       layer.dataset.rarity = r;
       text(word, r === 'mythic' ? 'MYTHIC!!' : r === 'legendary' ? 'LEGENDARY!' : RARITY_WORD[r].toUpperCase());
+      // It stays until OK (the owner: never gone before you've read it); a loot-only power can be used right away.
+      const ok = h('button.btn.lb-ok', { type: 'button' }, 'OK');
+      ok.addEventListener('click', (e) => { e.stopPropagation(); close(); });
       if (LOOT_POWERS[power] && useIt) {
         const use = h('button.btn.lb-use', { type: 'button' }, 'Use it now');
         use.addEventListener('click', (e) => { e.stopPropagation(); close(); try { useIt(power); } catch (err) { console.error(err); } });
-        card.after(use);
-      }
+        foot.append(use, ok);
+      } else foot.append(ok);
       text(emoji, POWER_EMOJI[power] || '⭐');
       text(name, p.name);
       text(desc, p.desc || '');
-      text(hint, 'Tap to keep it');
+      text(hint, 'It goes in your cards 🃏');
       text(live, `${RARITY_WORD[r]} loot: ${p.name}. ${p.desc || ''}`);
       layer.dataset.stage = 'burst';
       // The card flips over a beat after the burst; the layer can be tapped away once it's showing.
-      setTimeout(() => { if (!closed) layer.dataset.stage = 'card'; }, still ? 0 : (r === 'mythic' ? 1700 : r === 'legendary' ? 1150 : 800));
-      layer.addEventListener('click', () => { if (layer.dataset.stage === 'card') close(); });
-      autoClose = setTimeout(close, SHOW_MS + (r === 'mythic' ? 2500 : r === 'legendary' ? 1000 : 0));
+      setTimeout(() => { if (!closed) { layer.dataset.stage = 'card'; try { ok.focus({ preventScroll: true }); } catch { /* fine */ } } }, still ? 0 : (r === 'mythic' ? 1700 : r === 'legendary' ? 1150 : 800));
     }, wait);
   }
   function fail(msg = "Couldn't open it. Try again.") {
@@ -167,7 +170,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=162').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=163').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Walk right up to one to grab it.${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -297,16 +300,23 @@ export function nearestBox(view, me) {
 }
 
 // ---- v1.6.1: what the loot powers do to this screen --------------------------------------------------------
-// createLootFx({ app, root, mapEl, sos }) -> { update(view, clock), destroy() }
+// createLootFx({ app, root, slot, sos, annoy }) -> { update(view, clock), destroy() }
+//   slot     the lines over the map (game.js's .g-lines): the chips and the compass go there, in the flow, so they
+//            never cover each other or the middle of the map
+//   annoy    what Glitch may do by itself: { zoom(), pan(), tray(), chat(), menu() } (never SOS, tags or powers)
 //   Blackout   the whole screen black: a countdown, a big walkie (it crackles) and SOS; nothing else works
 //   Storm      TV static over the map (your own dot and the ring faintly through it)
-//   Glitch     looks like a real bug for a minute: taps make things vanish, the screen tears, a fake error
-//   Compass    an arrow to the nearest hider; Eye a purple edge; Freeze frost on the hider's powers;
+//   Glitch     a minute of an app that won't behave: it zooms and pans the map, opens the tray and the chat by
+//              itself, drops into a pocket mode that won't wake for 10 seconds, then asks "Leave the game?" (it
+//              never leaves). It looks like the phone acting up, never like a power.
+//   Compass    a chip with an arrow to the nearest hider; Eye a purple edge; Freeze frost on the hider's powers;
 //   Tracked    a red edge on the hider a dart hit; Smoke / Ghost chips for the hider who has them on
-export function createLootFx({ app, root, mapEl = null, sos = null, doc = globalThis.document } = {}) {
-  const S = { view: null, at: 0, glitchOn: false, crackle: null, dead: false, storm: null, raf: 0 };
+export const POCKET_LOCK_MS = 10000;
+export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, doc = globalThis.document } = {}) {
+  const S = { view: null, glitchOn: false, crackle: null, dead: false, raf: 0, timer: null, pocketDone: false, started: 0 };
   const strip = h('div.lx-chips', { 'aria-live': 'polite' });
-  const compass = h('div.lx-compass', { hidden: true, role: 'img' }, h('span.lx-arrow', '➤'), h('span.lx-cword'));
+  const compass = h('div.lx-compass', { hidden: true, role: 'img' }, h('span.lx-arrow', { 'aria-hidden': 'true' }, '➤'), h('span.lx-cword'));
+  const stack = h('div.lx-stack', strip, compass);
   const clockTxt = h('span.lx-bo-clock');
   const radioBtn = app && app.radio && typeof app.radio.button === 'function' ? (() => { try { return app.radio.button({ big: true }); } catch { return null; } })() : null;
   const sosBtn = h('button.btn.lx-bo-sos', { type: 'button' }, 'SOS');
@@ -322,12 +332,16 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
   const storm = h('canvas.lx-storm', { hidden: true, width: 96, height: 160, 'aria-hidden': 'true' });
   const stormTxt = h('div.lx-storm-word', { hidden: true }, h('strong', 'NO SIGNAL'), h('span'));
   const edge = h('div.lx-edge', { 'aria-hidden': 'true' });
-  const fake = h('div.lx-fake', { hidden: true, role: 'status' });
-  root.append(edge, strip, compass, fake, blackout);
+  // Glitch's pocket mode and its "Leave the game?" (neither leaves anything)
+  const fpWord = h('p.lx-fp-word', 'Tap twice to wake');
+  const fpBox = h('div.lx-fp-ask', { hidden: true, role: 'dialog', 'aria-label': 'Leave the game?' });
+  const fakePocket = h('div.lx-fp', { hidden: true, 'aria-label': 'Pocket mode' }, h('span.lx-fp-moon', { 'aria-hidden': 'true' }, '🌙'), fpWord, fpBox);
+  root.append(edge, fakePocket, blackout);
+  (slot || root).append(stack);
+  const mapEl = root.querySelector('.g-mapwrap');
   if (mapEl) mapEl.append(storm, stormTxt);
   else root.append(storm, stormTxt);
 
-  // Static: random grey pixels on a tiny canvas, scaled up (cheap), about 15 times a second.
   function drawStatic() {
     if (S.dead || storm.hidden) { S.raf = 0; return; }
     const ctx = storm.getContext && storm.getContext('2d');
@@ -340,7 +354,6 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
     S.raf = setTimeout(drawStatic, 66);
   }
 
-  // The walkie's crackle during Blackout: a short burst of noise now and then (WebAudio, quiet).
   let actx = null;
   function crackle() {
     try {
@@ -363,49 +376,56 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
     } catch { /* no sound: the screen shows it */ }
   }
 
-  // Glitch: a tap on a control makes it vanish for a moment (and does nothing); the screen tears now and then.
-  const SAFE = '.g-sos, .lx-bo-sos, .radio-btn, .sos-screen, .sheet';
-  const onTap = (e) => {
-    if (!S.glitchOn) return;
-    const b = e.target && e.target.closest ? e.target.closest('button, .tile, .nmark, .tray-sq') : null;
-    if (!b || b.closest(SAFE) || Math.random() < 0.35) return;
-    e.preventDefault();
-    e.stopPropagation();
-    b.classList.add('gx-vanish');
-    setTimeout(() => b.classList.remove('gx-vanish'), 1600 + Math.random() * 1400);
-  };
-  doc.addEventListener('click', onTap, true);
-  const FAKES = [
-    'Error 0x80070057: map tiles failed to load',
-    'Location service not responding (code 12)',
-    'Sync failed: retrying…',
-    'NetworkError: request timed out',
-    'Uncaught TypeError: cannot read properties of undefined',
-  ];
-  let fakeTimer = null;
-  let tearTimer = null;
-  function glitchTick() {
-    if (!S.glitchOn) return;
-    root.classList.add('gx-tear');
-    setTimeout(() => root.classList.remove('gx-tear'), 180 + Math.random() * 300);
-    if (Math.random() < 0.4) {
-      text(fake, FAKES[Math.floor(Math.random() * FAKES.length)]);
-      fake.hidden = false;
-      clearTimeout(fakeTimer);
-      fakeTimer = setTimeout(() => { fake.hidden = true; }, 2200);
+  // ---- Glitch: the app acts on its own
+  const call = (k) => { try { if (typeof annoy[k] === 'function') annoy[k](); } catch (e) { console.error(e); } };
+  function pocketTrap() {
+    const until = Date.now() + POCKET_LOCK_MS;
+    S.pocketDone = true;
+    fakePocket.hidden = false;
+    fpBox.hidden = true;
+    text(fpWord, 'Tap twice to wake');
+    const tap = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!fpBox.hidden) return;
+      if (Date.now() < until) {
+        text(fpWord, ['Waking…', 'Still waking…', 'Hold on…', 'Tap twice to wake'][Math.floor(Math.random() * 4)]);
+        fakePocket.classList.remove('shake'); void fakePocket.offsetWidth; fakePocket.classList.add('shake');
+        return;
+      }
+      ask(0);
+    };
+    fakePocket.onclick = tap;
+    function ask(n) {
+      fpBox.hidden = false;
+      const leave = h('button.btn.lx-fp-leave', { type: 'button' }, 'Leave game');
+      const stay = h('button.btn.lx-fp-stay', { type: 'button' }, 'Stay');
+      const words = n === 0 ? ['Leave the game?', "You'll lose your spot in this round."] : ["Couldn't leave right now.", 'Try again?'];
+      fpBox.replaceChildren(h('strong', words[0]), h('p', words[1]), h('div.lx-fp-btns', leave, stay));
+      leave.onclick = (e) => { e.stopPropagation(); if (n < 1) ask(n + 1); else done(); };
+      stay.onclick = (e) => { e.stopPropagation(); done(); };
     }
-    tearTimer = setTimeout(glitchTick, 1500 + Math.random() * 3500);
+    function done() { fakePocket.hidden = true; fpBox.hidden = true; fakePocket.onclick = null; }
+  }
+  function glitchTick() {
+    if (!S.glitchOn || S.dead) return;
+    const t = Date.now() - S.started;
+    if (!S.pocketDone && t > 14000 && fakePocket.hidden) pocketTrap();
+    else if (fakePocket.hidden) {
+      const acts = ['zoom', 'zoom', 'pan', 'pan', 'tray', 'chat', 'menu'];
+      call(acts[Math.floor(Math.random() * acts.length)]);
+    }
+    S.timer = setTimeout(glitchTick, 1400 + Math.random() * 1800);
   }
 
   function chip(cls, words) { return h(`span.lx-chip.${cls}`, words); }
 
   function update(view, clock) {
     if (S.dead) return;
-    if (view !== S.view) { S.view = view; S.at = Number.isFinite(clock) ? clock : 0; }
+    S.view = view;
     const fx = (view && view.phase === 'live' && view.fx) || {};
     const gone = Number.isFinite(clock) && Number.isFinite(view && view.clock) ? Math.max(0, clock - view.clock) : 0;
     const left = (k) => (Number.isFinite(fx[k]) ? Math.max(0, fx[k] - gone) : 0);
-    // Blackout
     const bo = left('blackout');
     blackout.hidden = !bo;
     doc.documentElement.classList.toggle('lx-dark', !!bo);
@@ -413,17 +433,14 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
       text(clockTxt, fmtClock(bo));
       if (!S.crackle) { crackle(); S.crackle = setInterval(() => { if (Math.random() < 0.6) crackle(); }, 1800); }
     } else if (S.crackle) { clearInterval(S.crackle); S.crackle = null; }
-    // Static Storm
     const st = left('storm');
     const stormWas = !storm.hidden;
     storm.hidden = !st;
     stormTxt.hidden = !st;
     if (st) { text(stormTxt.lastChild, fmtClock(st)); if (!stormWas) drawStatic(); }
-    // Glitch
     const gl = left('glitch') > 0;
-    if (gl && !S.glitchOn) { S.glitchOn = true; root.classList.add('gx-on'); glitchTick(); }
-    if (!gl && S.glitchOn) { S.glitchOn = false; root.classList.remove('gx-on', 'gx-tear'); clearTimeout(tearTimer); fake.hidden = true; }
-    // Compass
+    if (gl && !S.glitchOn) { S.glitchOn = true; S.started = Date.now(); S.pocketDone = false; S.timer = setTimeout(glitchTick, 1200); }
+    if (!gl && S.glitchOn) { S.glitchOn = false; clearTimeout(S.timer); fakePocket.hidden = true; }
     const c = fx.compass && Math.max(0, fx.compass.left - gone) > 0 ? fx.compass : null;
     compass.hidden = !c;
     if (c) {
@@ -433,7 +450,6 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
       text(compass.lastChild, has ? `Nearest hider · ${fmtClock(Math.max(0, c.left - gone))}` : 'No hider signal');
       compass.setAttribute('aria-label', has ? `Compass: the nearest hider is ${Math.round(c.bearing)} degrees from north` : 'Compass: no hider signal');
     }
-    // Edges and chips
     edge.className = `lx-edge${left('eye') ? ' eye' : ''}${left('tracked') ? ' tracked' : ''}${left('freeze') ? ' freeze' : ''}`;
     const chips = [];
     if (left('eye')) chips.push(chip('eye', `🔮 All-Seeing Eye ${fmtClock(left('eye'))}`));
@@ -446,9 +462,11 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
     if (view && view.me && view.me.team === 'hider') {
       if (left('blackout')) chips.push(chip('mine', `🌑 Hunters blacked out ${fmtClock(left('blackout'))}`));
       if (left('storm')) chips.push(chip('mine', `📺 Hunters in a storm ${fmtClock(left('storm'))}`));
+      if (left('glitch')) chips.push(chip('mine', `👾 Hunters glitched ${fmtClock(left('glitch'))}`));
     }
     const sig = chips.map((x) => x.textContent).join('|');
     if (strip.dataset.sig !== sig) { strip.dataset.sig = sig; strip.replaceChildren(...chips); }
+    strip.hidden = !chips.length;
     root.classList.toggle('lx-frozen', !!left('freeze') && view && view.me && view.me.team === 'hider');
   }
   return {
@@ -457,12 +475,152 @@ export function createLootFx({ app, root, mapEl = null, sos = null, doc = global
       S.dead = true;
       clearInterval(S.crackle);
       clearTimeout(S.raf);
-      clearTimeout(tearTimer);
-      clearTimeout(fakeTimer);
-      doc.removeEventListener('click', onTap, true);
+      clearTimeout(S.timer);
       doc.documentElement.classList.remove('lx-dark');
-      for (const el of [edge, strip, compass, fake, blackout, storm, stormTxt]) el.remove();
+      for (const el of [edge, stack, fakePocket, blackout, storm, stormTxt]) el.remove();
       try { if (actx) actx.close(); } catch { /* fine */ }
     },
   };
+}
+
+// ---- v1.6.1: your cards (every power you hold, from boxes) --------------------------------------------------
+// createCardDeck({ app, onClassic, useLoot, doc }) -> { button, update(view), open(), close() }
+// The tray's 🃏 button (with how many cards); a tap fans them out big in 3D: swipe or tap a side card to bring it
+// forward, Use plays it (a classic power through the game's own onClassic, with its usual checks; a loot-only one
+// through useLoot), Close puts them back.
+export function cardsOf(view) {
+  const out = [];
+  if (!view || !view.me) return out;
+  const hunter = view.me.team === 'hunter';
+  const side = hunter ? 'hunter' : 'hider';
+  if (hunter) {
+    for (const k of ['radar', 'exposure', 'hacker', 'wiretap']) if (view.team && view.team[k] === 'ready') out.push({ key: k, n: 1, classic: true });
+  } else {
+    for (const [k, v] of Object.entries(view.me.powers || {})) if (v === 'ready' && POWERS[k]) out.push({ key: k, n: 1, classic: true });
+  }
+  const l = lootOf(view);
+  for (const [k, n] of Object.entries((l && l.stash) || {})) if (LOOT_POWERS[k] && n > 0) out.push({ key: k, n, classic: false });
+  const order = { mythic: 0, legendary: 1, rare: 2, common: 3 };
+  for (const c of out) c.rarity = rarityOfPower(side, c.key) || 'common';
+  return out.sort((a, b) => order[a.rarity] - order[b.rarity] || a.key.localeCompare(b.key));
+}
+
+export function createCardDeck({ app, onClassic = null, useLoot = null, doc = globalThis.document } = {}) {
+  const count = h('span.cd-n', { 'aria-hidden': 'true' });
+  const button = h('button.tray-sq.cd-btn', { type: 'button', 'aria-label': 'Your cards' }, h('span.cd-ico', { 'aria-hidden': 'true' }, '🃏'), count);
+  const S = { view: null, cards: [], at: 0, layer: null, sig: '' };
+  button.addEventListener('click', () => open());
+
+  function cardEl(c, i) {
+    const info = powerInfo(c.key);
+    const el = h(`div.cd-card.r-${c.rarity}`, { 'data-i': String(i), role: 'button', tabindex: '-1', 'aria-label': `${info.name}, ${RARITY_WORD[c.rarity]}${c.n > 1 ? `, ${c.n} of them` : ''}: ${info.desc}` },
+      h('div.cd-card-in',
+        ...Array.from({ length: 5 }, (_, k) => { const e = h('i.cd-edge'); e.style.setProperty('--z', `${-(k + 1) * 1.5}px`); return e; }),
+        h('div.cd-face',
+          h('span.cd-shine', { 'aria-hidden': 'true' }),
+          h('span.cd-rarity', RARITY_WORD[c.rarity].toUpperCase()),
+          h('span.cd-emoji', { 'aria-hidden': 'true' }, POWER_EMOJI[c.key] || '⭐'),
+          h('strong.cd-name', info.name),
+          h('p.cd-desc', info.desc || ''),
+          c.n > 1 ? h('span.cd-count', `×${c.n}`) : null)));
+    el.addEventListener('click', () => { if (S.at !== i) { S.at = i; place(); } });
+    return el;
+  }
+  // Each card's spot on the arc from the one in front: further ones turn away, sink back and shrink.
+  function place() {
+    if (!S.layer) return;
+    const cards = [...S.layer.querySelectorAll('.cd-card')];
+    cards.forEach((el, i) => {
+      const d = i - S.at;
+      const a = Math.max(-3, Math.min(3, d));
+      el.style.setProperty('--x', `${a * 62 + Math.sign(d) * (Math.abs(d) > 0 ? 40 : 0)}%`);
+      el.style.setProperty('--ry', `${-a * 28}deg`);
+      el.style.setProperty('--tz', `${-Math.abs(a) * 120}px`);
+      el.style.setProperty('--s', Math.abs(d) > 3 ? '0' : '1');
+      el.style.zIndex = String(10 - Math.abs(d));
+      el.classList.toggle('front', d === 0);
+      el.tabIndex = d === 0 ? 0 : -1;
+    });
+    const c = S.cards[S.at];
+    const use = S.layer.querySelector('.cd-use');
+    if (use) { use.disabled = !c; text(use, 'Use it'); use.setAttribute('aria-label', c ? `Use ${powerInfo(c.key).name}` : 'Use'); }
+    const dots = S.layer.querySelector('.cd-dots');
+    if (dots) [...dots.children].forEach((d, i) => d.classList.toggle('on', i === S.at));
+  }
+  function close() {
+    const L = S.layer;
+    if (!L) return;
+    S.layer = null;
+    L.classList.add('out');
+    doc.removeEventListener('keydown', keys);
+    setTimeout(() => L.remove(), 300);
+  }
+  function keys(e) {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowRight') { S.at = Math.min(S.cards.length - 1, S.at + 1); place(); }
+    else if (e.key === 'ArrowLeft') { S.at = Math.max(0, S.at - 1); place(); }
+  }
+  async function useFront() {
+    const c = S.cards[S.at];
+    if (!c || !S.layer) return;
+    const front = S.layer.querySelector('.cd-card.front');
+    if (front) front.classList.add('played');
+    await new Promise((r) => setTimeout(r, 550));
+    close();
+    try {
+      if (c.classic) { if (onClassic) onClassic(c.key); } else if (useLoot) await useLoot(c.key);
+    } catch (e) { console.error(e); }
+  }
+  function open() {
+    if (S.layer) return;
+    S.cards = cardsOf(S.view);
+    S.at = 0;
+    const r = button.getBoundingClientRect ? button.getBoundingClientRect() : null;
+    const fan = h('div.cd-fan');
+    const dots = h('div.cd-dots', { 'aria-hidden': 'true' }, ...S.cards.map(() => h('i')));
+    const use = h('button.btn.cd-use', { type: 'button' }, 'Use');
+    const shut = h('button.btn.cd-close', { type: 'button' }, 'Close');
+    use.addEventListener('click', () => useFront());
+    shut.addEventListener('click', () => close());
+    const empty = h('div.cd-empty', h('span', { 'aria-hidden': 'true' }, '📦'), h('strong', 'No cards yet'), h('p', 'Race to a loot box on the map. Every power comes out of one.'));
+    const L = h('div.cd', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your cards' },
+      h('div.cd-back', { 'aria-hidden': 'true' }),
+      h('p.cd-title', `🃏 Your cards · ${S.cards.reduce((n, c) => n + c.n, 0)}`),
+      S.cards.length ? fan : empty,
+      S.cards.length > 1 ? dots : null,
+      h('div.cd-foot', S.cards.length ? use : null, shut));
+    if (r) { L.style.setProperty('--fx', `${Math.round(r.left + r.width / 2)}px`); L.style.setProperty('--fy', `${Math.round(r.top + r.height / 2)}px`); }
+    S.cards.forEach((c, i) => { const el = cardEl(c, i); el.style.setProperty('--d', `${i * 0.07}s`); fan.appendChild(el); });
+    // Swipe between cards
+    let sx = null;
+    fan.addEventListener('pointerdown', (e) => { sx = e.clientX; });
+    fan.addEventListener('pointerup', (e) => {
+      if (sx === null) return;
+      const dx = e.clientX - sx;
+      sx = null;
+      if (Math.abs(dx) > 40) { S.at = Math.max(0, Math.min(S.cards.length - 1, S.at + (dx < 0 ? 1 : -1))); place(); }
+    });
+    L.querySelector('.cd-back').addEventListener('click', () => close());
+    doc.body.appendChild(L);
+    S.layer = L;
+    doc.addEventListener('keydown', keys);
+    place();
+    try { (S.cards.length ? use : shut).focus({ preventScroll: true }); } catch { /* fine */ }
+  }
+  function update(view) {
+    S.view = view;
+    const cards = cardsOf(view);
+    const n = cards.reduce((a, c) => a + c.n, 0);
+    const sig = cards.map((c) => `${c.key}${c.n}`).join(',');
+    text(count, String(n));
+    count.hidden = !n;
+    button.classList.toggle('some', n > 0);
+    button.hidden = !lootOf(view);
+    button.setAttribute('aria-label', n ? `Your cards: ${n}` : 'Your cards: none yet');
+    if (sig !== S.sig) {
+      if (S.sig && n > cards.length - 1) { button.classList.remove('new'); void button.offsetWidth; button.classList.add('new'); }
+      S.sig = sig;
+    }
+  }
+  return { button, update, open, close };
 }

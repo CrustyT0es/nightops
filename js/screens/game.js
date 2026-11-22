@@ -11,24 +11,24 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=162';
-import { icon } from '../ui/icons.js?v=162';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=162';
-import { banner, clearBanners } from '../ui/banner.js?v=162';
-import { moment } from '../ui/moment.js?v=162';
-import { startPocket } from '../ui/pocket.js?v=162';
-import { createMap, fmtAgo } from '../map.js?v=162';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=162';
-import { distanceM, isPoint } from '../../shared/geo.js?v=162';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=162';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=162'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=162'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=162'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=162'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=162'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=162'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=162'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox } from './lootplay.js?v=162'; // v1.6: Loot drops
+import { h, fill, text, cls, face, listen } from '../dom.js?v=163';
+import { icon } from '../ui/icons.js?v=163';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=163';
+import { banner, clearBanners } from '../ui/banner.js?v=163';
+import { moment } from '../ui/moment.js?v=163';
+import { startPocket } from '../ui/pocket.js?v=163';
+import { createMap, fmtAgo } from '../map.js?v=163';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=163';
+import { distanceM, isPoint } from '../../shared/geo.js?v=163';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=163';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=163'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=163'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=163'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=163'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=163'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=163'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=163'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, createCardDeck } from './lootplay.js?v=163'; // v1.6: Loot drops
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -755,6 +755,7 @@ export function mount(root, app) {
     }),
   });
   const lootBtn = createLootButton({ app, useIt: (k) => lootStash.use(k) }); // v1.6: Loot drops' Open button
+  const deck = createCardDeck({ app, onClassic: (k) => onPower(k), useLoot: (k) => lootStash.use(k) }); // v1.6.1: your cards
   const nearChip = h('div.lt-near', { hidden: true, 'aria-live': 'polite' }, h('span.lt-near-gift', { 'aria-hidden': 'true' }, '🎁'), h('span.lt-near-d'), h('span.lt-near-arrow', { 'aria-hidden': 'true' }, '➤'));
   const topBar = h('div.g-topbar', teamPill, leftBox, pingBox, S.hudSlot, sosBtn, moreBtn);
   const hidersLabel = h('span.g-hiders-label');
@@ -843,8 +844,18 @@ export function mount(root, app) {
   // v1.1 PAGE-RADIO: the walkie-talkie readies its sound from every real tap itself (alerts.onTap: a touch's
   // pointerdown isn't a tap to an iPhone).
   fill(root, mapWrap, hud, panel, sosLayer); // v1.2 PAGE-MAP: the map under everything, edge to edge
-  mapWrap.append(nearChip); // v1.6.1: the nearest loot box
-  const lootFx = createLootFx({ app, root, mapEl: mapWrap, sos: () => askSos() }); // v1.6.1: what loot powers do here
+  // v1.6.1: what loot powers do here; their chips, the compass and the nearest box stack under the lines over the map
+  const lootFx = createLootFx({
+    app, root, slot: linesBox, sos: () => askSos(),
+    annoy: { // Glitch: the app does things by itself (never SOS, tags, powers or leaving)
+      zoom: () => { if (map) map.zoomBy(Math.random() < 0.5 ? 1.5 : -1.5); },
+      pan: () => { if (Math.random() < 0.5) fitEveryone(); else centerOnMe(); },
+      tray: () => tray.set(tray.state === 'open' ? 'tucked' : 'open'),
+      chat: () => { openChatSheet(); setTimeout(() => closeSheets(), 2200); },
+      menu: () => { openMenu(); setTimeout(() => closeSheets(), 1800); },
+    },
+  });
+  linesBox.append(nearChip);
   hud.after(fixIt.tapBtn); // v1.4 PAGE-DEVICES
   linesBox.prepend(fixIt.bar); // v1.4 PAGE-DEVICES: the red bar leads the lines over the map
 
@@ -977,14 +988,14 @@ export function mount(root, app) {
     if (role === 'hunter') {
       parts.push({ el: P.tagBtn, main: true, grow: true, order: 10 });
       parts.push({ el: P.drive.el, main: false, order: 10 });
-      parts.push({ el: P.powers, main: false, order: 20 });
+      if (!lootOf(view)) parts.push({ el: P.powers, main: false, order: 20 }); // (v1.6.1: Loot drops' powers are cards)
     } else if (role === 'driver') {
       parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
       parts.push({ el: P.drive.el, main: false, order: 10 });
     } else if (role === 'hider') {
       parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
       parts.push({ el: P.status, main: false, order: 5 });
-      parts.push({ el: P.powers, main: false, order: 20 });
+      if (!lootOf(view)) parts.push({ el: P.powers, main: false, order: 20 });
     } else {
       parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
       parts.push({ el: P.out, main: false, order: 5 });
@@ -1028,7 +1039,7 @@ export function mount(root, app) {
     // v1.6: Loot drops: a free hider's or a hunter's Open button (never the driver, who can't grab boxes)
     if (lootOf(view) && role !== 'driver' && role !== 'out') {
       parts.push({ el: lootBtn.el, main: true, order: 15 });
-      parts.push({ el: lootStash.el, main: false, order: 3 }); // v1.6.1
+      parts.push({ el: deck.button, main: true, order: 16 }); // v1.6.1: your cards
     }
     parts.push({ el: P.chatBtn, main: true, order: 90 });
     // The last chat lines and the quick buttons.
@@ -1213,7 +1224,7 @@ export function mount(root, app) {
     const live = view.phase === 'live';
     cpSwap(view, c); // v1.3 PAGE-PLAY
     try { lootBtn.update(view, c); } catch (e) { console.error(e); } // v1.6
-    try { lootStash.update(view); lootFx.update(view, c); paintNear(view); } catch (e) { console.error(e); } // v1.6.1
+    try { lootStash.update(view); deck.update(view); lootFx.update(view, c); paintNear(view); } catch (e) { console.error(e); } // v1.6.1
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
@@ -2296,7 +2307,7 @@ export function mount(root, app) {
     try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ } // v1.4 PAGE-PLAY
     try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
     try { lootBtn.destroy(); } catch { /* ignore */ } // v1.6
-    try { lootFx.destroy(); } catch { /* ignore */ } // v1.6.1
+    try { lootFx.destroy(); deck.close(); } catch { /* ignore */ } // v1.6.1
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER
