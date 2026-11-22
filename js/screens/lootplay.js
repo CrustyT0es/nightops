@@ -11,10 +11,10 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=164';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=164';
-import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=164';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=164';
+import { h, text } from '../dom.js?v=165';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=165';
+import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=165';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=165';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -85,16 +85,22 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
     s.style.setProperty('--t', `${(i % 5) * 0.06}s`);
     sparks.appendChild(s);
   }
-  // v1.6.2: a mystery box, a real 3D cube (six faces with a "?", a gold ribbon round it) that spins in, spins faster
-  // and faster while it shakes, then blows apart face by face (Clash Royale style).
-  const faces = ['front', 'back', 'left', 'right', 'top', 'bottom'].map((k) => h(`span.mb-face.mb-${k}`, h('i.mb-rib'), h('i.mb-rib.h'), k === 'top' || k === 'bottom' ? null : h('b.mb-q', '?')));
-  const crate = h('div.lb-crate.mb', { 'aria-hidden': 'true' }, h('div.mb-glow'), h('div.mb-spin', h('div.mb-cube', ...faces)), h('div.mb-shadow'));
+  // v1.6.2: a mystery chest in 3D: a base and a hinged lid (each a box of six shaded faces: lit front, darker
+  // sides, gold trim), a "?" lock on the front. It spins in, hops and spins faster while it shakes, then the lid
+  // swings open with light pouring out (Clash Royale style).
+  const prism = (cls, kids = {}) => h(`div.mc-${cls}`, ...['front', 'back', 'left', 'right', 'top', 'bottom']
+    .map((k) => h(`span.mc-f.mc-${k}`, h('i.mc-trim'), kids[k] || null)));
+  const crate = h('div.lb-crate.mc', { 'aria-hidden': 'true' }, h('div.mc-glow'), h('div.mc-spin',
+    prism('base', { front: h('b.mc-lock', '?') }),
+    h('div.mc-hinge', prism('lid', { top: h('i.mc-band') })),
+    h('div.mc-light')), h('div.mc-shadow'));
   const word = h('div.lb-word');
   const emoji = h('div.lb-emoji', { 'aria-hidden': 'true' });
   const name = h('div.lb-name');
   const desc = h('p.lb-desc');
   const edges = Array.from({ length: 6 }, (_, i) => { const e = h('i.lb-card-edge'); e.style.setProperty('--z', `${-(i + 1) * 1.6}px`); return e; });
-  const card = h('div.lb-card', h('div.lb-card-in', ...edges, h('div.lb-card-back', { 'aria-hidden': 'true' }, '?'), h('div.lb-card-front', h('span.lb-card-shine', { 'aria-hidden': 'true' }), emoji, name, desc)));
+  const card = h('div.lb-card', h('div.lb-card-in', ...edges, h('div.lb-card-back', { 'aria-hidden': 'true' }, h('span.card-moon'), h('b.card-logo', 'NIGHT', h('br'), 'OPS')), h('div.lb-card-front', h('span.lb-card-shine', { 'aria-hidden': 'true' }), emoji, name, desc)));
+  card.addEventListener('click', (e) => { e.stopPropagation(); if (layer.dataset.stage === 'card') card.classList.toggle('flipped'); });
   const foot = h('div.lb-foot');
   const hint = h('p.lb-hint', 'Opening…');
   const live = h('p.sr-only', { 'aria-live': 'assertive' });
@@ -171,7 +177,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=164').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=165').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Walk right up to one to grab it.${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -517,6 +523,7 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     const el = h(`div.cd-card.r-${c.rarity}`, { 'data-i': String(i), role: 'button', tabindex: '-1', 'aria-label': `${info.name}, ${RARITY_WORD[c.rarity]}${c.n > 1 ? `, ${c.n} of them` : ''}: ${info.desc}` },
       h('div.cd-card-in',
         ...Array.from({ length: 5 }, (_, k) => { const e = h('i.cd-edge'); e.style.setProperty('--z', `${-(k + 1) * 1.5}px`); return e; }),
+        h('div.cd-cback', { 'aria-hidden': 'true' }, h('span.card-moon'), h('b.card-logo', 'NIGHT', h('br'), 'OPS'), h('span.cd-back-r', RARITY_WORD[c.rarity].toUpperCase())),
         h('div.cd-face',
           h('span.cd-shine', { 'aria-hidden': 'true' }),
           h('span.cd-rarity', RARITY_WORD[c.rarity].toUpperCase()),
@@ -524,7 +531,7 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
           h('strong.cd-name', info.name),
           h('p.cd-desc', info.desc || ''),
           c.n > 1 ? h('span.cd-count', `×${c.n}`) : null)));
-    el.addEventListener('click', () => { if (S.at !== i) { S.at = i; place(); } });
+    el.addEventListener('click', () => { if (S.at !== i) { S.at = i; place(); } else el.classList.toggle('flipped'); });
     return el;
   }
   // Each card's spot on the arc from the one in front: further ones turn away, sink back and shrink.

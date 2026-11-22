@@ -1,8 +1,8 @@
 // Night Ops: the lobby's Wiretap row (v1.4, PAGE-PLAY). Shown only while the host has the Wiretap power on.
 //   extraRow(ctx) -> { el, update(view) }   ctx = { app, host, setSetting(key, value), cmd(cmd) }
 // Everyone: "I'm OK with Wiretap" (asks for the microphone once), and who has said OK.
-import { h, text } from '../../dom.js?v=164';
-import { icon } from '../../ui/icons.js?v=164';
+import { h, text } from '../../dom.js?v=165';
+import { icon } from '../../ui/icons.js?v=165';
 
 export const TAP_LINE = "Hunters can hear 15 seconds of your microphone, once a game. You'll see a red dot while it listens.";
 export const OK_LABEL = "I'm OK with Wiretap";

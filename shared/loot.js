@@ -5,7 +5,7 @@
 // Hunters grab boxes too (the owner: a box is something both teams race for): theirs hold a hunter power for the
 // whole team. What's inside has a rarity (common, rare, legendary), shown when it bursts open.
 // Pure functions over the game state; the engine calls them (lootDue, lootPickup, lootOpen, lootView).
-import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=164';
+import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=165';
 
 export const LOOT_FIRST_MS = 60000;     // the first drop, this long after the head start
 export const LOOT_EVERY_MS = 240000;    // then one every 4 minutes

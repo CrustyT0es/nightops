@@ -10,10 +10,10 @@
 // Rules (CONTRACT.md v1.4 D and H): a walkie message is always played whole; a scene ends at a pause; highlights
 // come from the whole game (the beginning, middle and end), never "the first minutes of a long window"; "The whole
 // game" covers every clock from 0 to endClock exactly once, in order.
-import { TIMING } from '../shared/rules.js?v=164';
-import { distanceM, toLocal } from '../shared/geo.js?v=164';
-import { direct, fileTimeAt } from './director.js?v=164';
-import { planTour } from './tour.js?v=164';
+import { TIMING } from '../shared/rules.js?v=165';
+import { distanceM, toLocal } from '../shared/geo.js?v=165';
+import { direct, fileTimeAt } from './director.js?v=165';
+import { planTour } from './tour.js?v=165';
 
 export const REEL = Object.freeze({ W: 720, H: 1280, FPS: 30 });
 export const HIGHLIGHTS_MOST_MS = 480000;
