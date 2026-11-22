@@ -18,14 +18,14 @@
 //
 // The pure parts are exported for tests (tests/page-nav.test.mjs). Never anything about a hider: the places come
 // from the driver's own view (web/shared/nav.js navTarget), which the server keeps free of them (CONTRACT v1.4 G).
-import { h, text, cls, fill } from '../dom.js?v=163';
-import { icon } from '../ui/icons.js?v=163';
-import { openSheet } from '../ui/sheet.js?v=163';
-import { fmtDistance } from '../../shared/rules.js?v=163';
-import { isPoint, distanceM, bearingDeg, directionWords } from '../../shared/geo.js?v=163';
+import { h, text, cls, fill } from '../dom.js?v=164';
+import { icon } from '../ui/icons.js?v=164';
+import { openSheet } from '../ui/sheet.js?v=164';
+import { fmtDistance } from '../../shared/rules.js?v=164';
+import { isPoint, distanceM, bearingDeg, directionWords } from '../../shared/geo.js?v=164';
 import {
   NAV, navTarget, cleanRoute, progress, splitAt, alongAt, turnWords,
-} from '../../shared/nav.js?v=163';
+} from '../../shared/nav.js?v=164';
 
 export const SAFETY = 'Driver: eyes on the road. A passenger can use this phone.';
 export const NO_ROUTE = 'No route right now';

@@ -2,9 +2,9 @@
 //   extraRow(ctx) -> { el, update(view) }   ctx = { app, host, setSetting(key, value), cmd(cmd) }
 // The host: the switch. Everyone, when it's on: "The hunters' walkie-talkie is saved for the end-of-game replay."
 // Not the host: the setting in words.
-import { h, text } from '../../dom.js?v=163';
-import { icon } from '../../ui/icons.js?v=163';
-import { EXTRAS_UI } from '../../../shared/rules.js?v=163';
+import { h, text } from '../../dom.js?v=164';
+import { icon } from '../../ui/icons.js?v=164';
+import { EXTRAS_UI } from '../../../shared/rules.js?v=164';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'radioSave') || {
   key: 'radioSave', label: 'Save the walkie-talkie for the replay', hint: "The hunters' walkie-talkie is saved for the end-of-game replay.",

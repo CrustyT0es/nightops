@@ -2,9 +2,9 @@
 //   extraRow(ctx) -> { el, update(view) }   ctx = { app, host, setSetting(key, value), cmd(cmd) }
 // The host: the switch (off by default). Everyone, when it's on: "Hiders have their own walkie-talkie. Hunters
 // never hear it." Not the host: the setting in words.
-import { h, text } from '../../dom.js?v=163';
-import { icon } from '../../ui/icons.js?v=163';
-import { EXTRAS_UI } from '../../../shared/rules.js?v=163';
+import { h, text } from '../../dom.js?v=164';
+import { icon } from '../../ui/icons.js?v=164';
+import { EXTRAS_UI } from '../../../shared/rules.js?v=164';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'radioHiders') || {
   key: 'radioHiders', label: 'Walkie-talkie for hiders too', hint: 'Hiders get their own walkie-talkie. Each team only hears its own.',
