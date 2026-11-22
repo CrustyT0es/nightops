@@ -30,20 +30,20 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=158';
-import { h, fill } from './dom.js?v=158';
-import { icon } from './ui/icons.js?v=158';
-import { banner as defaultBanner } from './ui/banner.js?v=158';
-import { closeSheets } from './ui/sheet.js?v=158';
-import { backButton } from './ui/back.js?v=158';
-import { ApiError, toApiError, WORDS } from './api.js?v=158';
-import { cleanName, cleanFace } from './identity.js?v=158';
-import { createRadio, fromBase64 } from './radio.js?v=158'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=158'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=158'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=158'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=158'; // v1.4 PAGE-DEVICES
-import { deviceSecret, rememberPc } from './pcedit.js?v=158'; // v1.5: the PC edit
+import { TIMING, LIMITS } from '../shared/rules.js?v=159';
+import { h, fill } from './dom.js?v=159';
+import { icon } from './ui/icons.js?v=159';
+import { banner as defaultBanner } from './ui/banner.js?v=159';
+import { closeSheets } from './ui/sheet.js?v=159';
+import { backButton } from './ui/back.js?v=159';
+import { ApiError, toApiError, WORDS } from './api.js?v=159';
+import { cleanName, cleanFace } from './identity.js?v=159';
+import { createRadio, fromBase64 } from './radio.js?v=159'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=159'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=159'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=159'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=159'; // v1.4 PAGE-DEVICES
+import { deviceSecret, rememberPc } from './pcedit.js?v=159'; // v1.5: the PC edit
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)
@@ -1260,10 +1260,25 @@ export class App {
   }
 
   // A cam-* action with this phone's player (or spectator) details. -> Promise<answer> (rejects with an ApiError)
+  _pastVideo(action, body) {
+    const cred = this._roundCred();
+    if (!cred || !cred.player) return Promise.reject(new ApiError({ code: 'not_in_game', message: "You're not in a game right now." }));
+    const base = { code: cred.code, round: cred.round, player: cred.player };
+    let call;
+    if (action === 'cam-upload') call = this.api.post('past-cam', { ...base, what: 'upload', clip: body.clip }, { timeoutMs: 20000 });
+    else if (action === 'cam-done') call = this.api.post('past-cam', { ...base, what: 'done', id: body.id }, { timeoutMs: 20000 });
+    else if (action === 'cam-list') call = this.api.post('past-media', { ...base, what: 'cam-list' }, { timeoutMs: 20000 });
+    else if (action === 'cam-urls') call = this.api.post('past-media', { ...base, what: 'cam-urls', ids: body.ids }, { timeoutMs: 20000 });
+    else return Promise.resolve({}); // (cam-have / cam-keep / cam-forget: the live game's, nothing to do here)
+    return call.catch((e) => { throw toApiError(e); });
+  }
+
   video(action, body = {}) {
     if (!/^cam-(upload|done|have|list|urls|keep|forget)$/.test(String(action))) {
       return Promise.reject(new ApiError({ code: 'bad_request', message: "That didn't work. Try again." }));
     }
+    // v1.5.1: a round opened from Your games: its own videos go to it (past-cam / past-media), never the live game's
+    if (this.pastGame && !this.watching) return this._pastVideo(action, body && typeof body === 'object' ? body : {});
     if (!this.game && !this.watching) {
       return Promise.reject(new ApiError({ code: 'not_in_game', message: "You're not in a game right now." }));
     }
