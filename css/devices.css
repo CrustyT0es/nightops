@@ -22,7 +22,7 @@
 .rd-words { min-width: 0; color: var(--muted); font-size: 14px; line-height: 1.25; overflow-wrap: anywhere; }
 .rd-row[data-ok='1'] .rd-words { color: var(--ok); }
 .rd-do { min-height: 40px; padding: 0 12px; }
-.rd-fix { border-color: rgba(255, 176, 32, 0.55); color: var(--warn); }
+.rd-fix { border-color: rgba(255, 143, 58, 0.55); color: var(--warn); }
 .rd-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
 .rd-dot[data-k='ok'] { background: var(--ok); box-shadow: 0 0 0 3px rgba(126, 224, 176, 0.18); }
 .rd-dot[data-k='weak'], .rd-dot[data-k='wait'] { background: var(--warn); }
@@ -158,3 +158,9 @@
 .fx-locword[data-k='bad'] { color: var(--hunter); }
 @media (max-width: 419px) { .fx-chip { width: 44px; padding: 0; justify-content: center; } .fx-chip-word { display: none; } }
 @media (max-width: 400px) { .fx-locword { font-size: 10px; } .fx-locword[data-k="ok"] { display: none; } }
+
+/* v1.6: the ready check folds to its head once all is set */
+.rd-head { cursor: pointer; }
+.rd-card.rd-folded > :not(.rd-head) { display: none !important; }
+.rd-card[data-ok='1'] .rd-sum { color: var(--ok); }
+.rd-card[data-ok='0'] .rd-sum { color: var(--warn); }

@@ -16,6 +16,7 @@ const PATHS = {
   send: [['path', { d: 'M3 11 21 3l-8 18-2-8-8-2z' }]],
   close: [['path', { d: 'M6 6l12 12M18 6 6 18' }]],
   back: [['path', { d: 'M15 5l-7 7 7 7' }]],
+  chevron: [['path', { d: 'M6 9l6 6 6-6' }]], // v1.5.1: a folded card
   menu: [['circle', { cx: 5, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }], ['circle', { cx: 12, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }], ['circle', { cx: 19, cy: 12, r: 1.4, fill: 'currentColor', stroke: 'none' }]],
   fit: [['path', { d: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5' }], ['circle', { cx: 12, cy: 12, r: 2.5 }]], // v1.2 PAGE-MAP: Fit everyone
   qr: [['path', { d: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z' }], ['path', { d: 'M14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2' }]],

@@ -342,7 +342,7 @@ button.lobby-mode { min-height: 88px; }
   height: 12px;
   border-radius: 50%;
   background: var(--warn);
-  box-shadow: 0 0 0 0 rgba(255, 176, 32, 0.6);
+  box-shadow: 0 0 0 0 rgba(255, 143, 58, 0.6);
   animation: lobby-wait 1.8s ease-out infinite;
 }
 .lobby-wait-text { font-weight: 700; font-size: 16px; line-height: 1.3; }
@@ -350,9 +350,9 @@ button.lobby-mode { min-height: 88px; }
 .lobby-wait-sum span { white-space: nowrap; }
 
 @keyframes lobby-wait {
-  0% { box-shadow: 0 0 0 0 rgba(255, 176, 32, 0.55); }
-  70% { box-shadow: 0 0 0 10px rgba(255, 176, 32, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 176, 32, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(255, 143, 58, 0.55); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 143, 58, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 143, 58, 0); }
 }
 
 /* ---- sheets the lobby opens ---- */
@@ -604,3 +604,66 @@ button.lobby-mode { min-height: 88px; }
   .lobby-wait-dot { animation: none; }
   .reveal-scope .reveal-turn { animation: none; }
 }
+
+/* v1.5.1 (the clean-up): Players / Game tabs, and long cards folded to a line */
+.lobby-tabs {
+  position: sticky; top: 0; z-index: 5;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  margin: 0 16px 12px; padding: 5px;
+  background: rgba(14, 19, 32, 0.92); backdrop-filter: blur(10px);
+  border: 1px solid var(--line, #243047); border-radius: 14px;
+}
+.lobby-tab {
+  min-height: 44px; border: 0; border-radius: 10px; background: none;
+  color: var(--muted); font: inherit; font-weight: 600; font-size: 15px; cursor: pointer;
+}
+.lobby-tab[aria-selected="true"] { background: var(--text, #e8ecf4); color: #0b0f1a; }
+.lobby-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lobby-panel[hidden] { display: none; }
+.lobby-card.foldable { cursor: default; }
+.lobby-fold {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px;
+  margin: 6px 0 0; padding: 0; border: 0; background: none; color: var(--text);
+  font: inherit; font-size: 15px; text-align: left; cursor: pointer;
+}
+.lobby-fold-sum { flex: 1; color: var(--text); }
+.lobby-fold-chev { color: var(--muted); transition: transform 160ms ease; display: inline-flex; }
+.lobby-card.foldable:not(.folded) .lobby-fold-chev { transform: rotate(180deg); }
+.lobby-card.foldable:not(.folded) .lobby-fold-sum { color: var(--muted); font-size: 13px; }
+.lobby-card.folded > :not(.lobby-card-title):not(.lobby-fold) { display: none !important; }
+.lobby-fold:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) { .lobby-fold-chev { transition: none; } }
+
+
+/* =====================================================================================================
+   v1.6: the night-sticker lobby. The code as six letter stickers, each its own colour and tilt, popping in
+   one by one; chunky tabs; players as little badges.
+   ===================================================================================================== */
+.lobby-title { font-family: var(--display); font-weight: 400; font-size: 34px; color: var(--gold); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); transform: rotate(-2deg); transform-origin: left; }
+.lobby-tabs { border: 3px solid var(--ink); background: rgba(13, 16, 48, .94); box-shadow: var(--sticker-sm); border-radius: 16px; }
+.lobby-tab { font-family: var(--display); font-weight: 400; font-size: 16px; letter-spacing: .02em; color: var(--text-2); }
+.lobby-tab[aria-selected="true"] { background: var(--gold); color: var(--on-gold); box-shadow: inset 0 -3px 0 rgba(0,0,0,.18); }
+.lobby-card { padding-top: 16px; }
+.lobby-card::before { display: none; }
+.lobby-card-title { color: var(--gold); }
+
+.lobby-code { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 11vw, 46px); gap: clamp(5px, 1.8vw, 9px); padding: 6px 0 4px; }
+.lobby-code > .lobby-code-letter {
+  width: 1.05em; height: 1.25em; border: 3px solid var(--ink); border-radius: 12px; box-shadow: 3px 4px 0 var(--ink);
+  color: var(--ink); background: var(--gold); animation: lobby-pop .5s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+.lobby-code > .lobby-code-letter:nth-child(6n+1) { background: var(--gold); rotate: -6deg; animation-delay: 0s; }
+.lobby-code > .lobby-code-letter:nth-child(6n+2) { background: #fff; rotate: 4deg; animation-delay: .06s; }
+.lobby-code > .lobby-code-letter:nth-child(6n+3) { background: var(--hunter); color: #fff; rotate: -3deg; animation-delay: .12s; }
+.lobby-code > .lobby-code-letter:nth-child(6n+4) { background: var(--hider); color: #fff; rotate: 5deg; animation-delay: .18s; }
+.lobby-code > .lobby-code-letter:nth-child(6n+5) { background: var(--ok); rotate: -4deg; animation-delay: .24s; }
+.lobby-code > .lobby-code-letter:nth-child(6n+6) { background: #c792ff; rotate: 3deg; animation-delay: .3s; }
+.lobby-code-actions .btn { border-radius: 14px; }
+
+.lobby-player { padding-top: 10px; padding-bottom: 10px; }
+.lobby-player .face { box-shadow: 2px 2px 0 var(--ink); }
+.lobby-foot { border-top: 3px solid var(--ink); background: rgba(10, 12, 36, .96); backdrop-filter: blur(10px); }
+.lobby-foot .btn.primary { min-height: 58px; font-size: 20px; }
+
+@keyframes lobby-pop { 0% { opacity: 0; scale: .2; } 70% { opacity: 1; scale: 1.15; } 100% { scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .lobby-code > .lobby-code-letter { animation: none; } }

@@ -10,7 +10,7 @@
 // starts open, unless its screen is shorter than TUCK_BELOW_PX: there the open tray would leave little map.
 // The handle is a 28px row with a bar; its button's hit area is 44px (16px reaching up over the map, see map.css).
 // Swiping it down tucks the tray, up opens it; a tap toggles. With nothing in the more rows there's no handle.
-import { h, fill } from '../dom.js?v=159';
+import { h, fill } from '../dom.js?v=160';
 
 export const TRAY_KEY = 'nightops-tray';
 export const TRAY_STATES = ['open', 'tucked'];
@@ -21,7 +21,10 @@ let trayCount = 0;
 // 'open' | 'tucked' from whatever was saved; nothing (or nonsense) saved: open, or tucked on a short screen.
 export function trayStateFrom(raw, height = null) {
   if (raw === 'tucked' || raw === 'open') return raw;
-  return Number.isFinite(height) && height > 0 && height < TUCK_BELOW_PX ? 'tucked' : 'open';
+  try { if (globalThis.localStorage && localStorage.getItem('nightops-show-all') === '1') return 'open'; } catch { /* fine */ } // (lobby.js SHOW_ALL)
+  // v1.6 (the clean-up): a phone that never chose starts tucked, so the map gets the screen; the handle says
+  // what's under it
+  return 'tucked';
 }
 
 function screenHeight() {
@@ -92,7 +95,8 @@ export function mapButtonInsets(at, height, trayTop, { size = 44, edge = 12, ove
 export function createTray({ label = 'Your moves', onState = null, store } = {}) {
   const id = `tray-more-${++trayCount}`;
   const bar = h('span.tray-bar', { 'aria-hidden': 'true' });
-  const handle = h('button.tray-handle', { type: 'button', 'aria-controls': id, 'aria-expanded': 'true', 'aria-label': 'Show less' }, bar);
+  const hint = h('span.tray-hint', { 'aria-hidden': 'true' }, 'Powers & chat'); // v1.6: shown while tucked
+  const handle = h('button.tray-handle', { type: 'button', 'aria-controls': id, 'aria-expanded': 'true', 'aria-label': 'Show less' }, bar, hint);
   const main = h('div.tray-main');
   const more = h('div.tray-more', { id });
   const el = h('section.tray', { 'aria-label': label, 'data-state': 'open' }, handle, main, more);

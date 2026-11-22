@@ -86,7 +86,7 @@
   pointer-events: none;
 }
 .ring-inner-path {
-  fill: rgba(255, 176, 32, 0.06);
+  fill: rgba(255, 143, 58, 0.06);
   stroke: var(--warn);
   stroke-width: 2;
   stroke-dasharray: 7 6;

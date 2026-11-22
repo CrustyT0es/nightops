@@ -5,11 +5,11 @@
 // Each phone sees its own rows (Location, Camera when filmed, Microphone, Alarm sound for a hider with Hacker on), each
 // with a green dot and "Ready", or an amber dot and "Fix it" (the help screen for that part). "Test my location"
 // takes one fix that never leaves the phone. The host's card adds "Everyone".
-import { h, fill, text } from '../dom.js?v=159';
-import { icon } from '../ui/icons.js?v=159';
-import { openHelp } from '../ui/fixit.js?v=159';
-import { deviceKind } from '../help.js?v=159';
-import { soundFor } from '../hack.js?v=159';
+import { h, fill, text } from '../dom.js?v=160';
+import { icon } from '../ui/icons.js?v=160';
+import { openHelp } from '../ui/fixit.js?v=160';
+import { deviceKind } from '../help.js?v=160';
+import { soundFor } from '../hack.js?v=160';
 
 export const AWAY_MS = 120000;     // "hasn't opened the game for 2 min"
 export const GOOD_ACC_M = 30;
@@ -109,6 +109,13 @@ export function readyCard({ app, host = false } = {}) {
   const el = h('section.lobby-card.rd-card', { 'aria-labelledby': 'rd-title', 'data-anchor': 'ready' },
     h('div.rd-head', h('h2#rd-title.rd-title', 'Ready check'), h('span.rd-sum')),
     list, h('div.rd-testrow', testBtn), testLine, everyone);
+  // v1.6: the head opens and folds the card
+  const headEl = el.querySelector('.rd-head');
+  headEl.setAttribute('role', 'button');
+  headEl.tabIndex = 0;
+  const flip = () => { S.userFold = !el.classList.contains('rd-folded'); el.classList.toggle('rd-folded', S.userFold); };
+  headEl.addEventListener('click', flip);
+  headEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
 
   function setLoc(w) {
     S.locWord = w;
@@ -183,8 +190,11 @@ export function readyCard({ app, host = false } = {}) {
         dot, icon(ICON[r.part], 18), h('span.rd-label', LABEL[r.part]), h('span.rd-words', r.ok && !r.weak ? 'Ready' : r.words), action);
     }));
     const good = rows.every((r) => r.ok);
-    text(el.querySelector('.rd-sum'), good ? 'All set' : 'Check these');
+    const left = rows.filter((r) => !r.ok).length;
+    text(el.querySelector('.rd-sum'), good ? 'All set' : left === 1 ? '1 to check' : `${left} to check`);
     el.dataset.ok = good ? '1' : '0';
+    // v1.6: folded to its head once everything's ready (a tap opens it again); open while something needs doing
+    if (S.userFold === undefined) el.classList.toggle('rd-folded', good);
     // The host: everyone's rows.
     const all = host && Array.isArray(S.view.ready) ? S.view.ready : null;
     everyone.hidden = !all || all.length < 1;

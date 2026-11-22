@@ -31,13 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=159';
-import { icon } from './ui/icons.js?v=159';
+import { h, face as makeFace, text, listen } from './dom.js?v=160';
+import { icon } from './ui/icons.js?v=160';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=159';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=159';
+} from '../shared/geo.js?v=160';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=160';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -971,6 +971,7 @@ class GlMap {
     this.el = h('div.nmap-gl', { inert: true, 'aria-hidden': 'true' });
     host.prepend(this.el);
     const MapClass = lib.Map || (lib.default && lib.default.Map);
+    this.moonlit = () => moonlit(this.map); // v1.6
     if (typeof MapClass !== 'function') throw new Error('MapLibre has no Map');
     this.map = new MapClass({
       container: this.el,
@@ -996,6 +997,7 @@ class GlMap {
       try { map.touchZoomRotate.disableRotation(); } catch { /* older MapLibre */ }
       try { if (map.keyboard.disableRotation) map.keyboard.disableRotation(); } catch { /* older MapLibre */ }
     }
+    try { map.on('style.load', () => this.moonlit()); } catch { /* an old MapLibre: the dark style as it comes */ }
     map.on('move', () => onMove());
     map.on('resize', () => onMove());
     map.on('movestart', (e) => { if (e && e.originalEvent) onUserMove(); });
@@ -1108,6 +1110,50 @@ class GlMap {
 }
 
 // ---- the map controller -----------------------------------------------------------------------------------
+
+// v1.6: the night-sticker street map: OpenFreeMap's dark style recoloured to a moonlit indigo night (roads glow a
+// little, water deep blue, parks dark teal), so the ring, the faces and the routes still stand out. A layer that
+// isn't there (the style changed) is skipped.
+export const MOONLIT = {
+  background: { 'background-color': '#0b0e2c' },
+  water: { 'fill-color': '#15206a' },
+  waterway: { 'line-color': '#15206a' },
+  landuse_residential: { 'fill-color': '#0f1238' },
+  landcover_wood: { 'fill-color': '#0f2a3a' },
+  landuse_park: { 'fill-color': '#0f2a3a' },
+  building: { 'fill-color': '#151a48', 'fill-outline-color': '#232a6a' },
+  highway_path: { 'line-color': '#262d6e' },
+  highway_minor: { 'line-color': '#252c6a' },
+  highway_major_casing: { 'line-color': 'rgba(92, 100, 210, 0.75)' },
+  highway_major_inner: { 'line-color': '#2a3280' },
+  highway_major_subtle: { 'line-color': '#2e3684' },
+  highway_motorway_casing: { 'line-color': 'rgba(120, 110, 230, 0.8)' },
+  highway_motorway_subtle: { 'line-color': '#2e3684' },
+  highway_motorway_inner: { 'line-color': '#3a3f9e' },
+  railway: { 'line-color': '#2a2f66' },
+  railway_minor: { 'line-color': '#2a2f66' },
+  railway_transit: { 'line-color': '#2a2f66' },
+  highway_name_other: { 'text-color': '#8e94d8', 'text-halo-color': '#0b0e2c' },
+  highway_name_motorway: { 'text-color': '#a2a8ea' },
+  place_other: { 'text-color': '#b3b8f2', 'text-halo-color': '#0b0e2c' },
+  place_suburb: { 'text-color': '#b3b8f2', 'text-halo-color': '#0b0e2c' },
+  place_village: { 'text-color': '#b3b8f2', 'text-halo-color': '#0b0e2c' },
+  place_town: { 'text-color': '#c3c7f7', 'text-halo-color': '#0b0e2c' },
+  place_city: { 'text-color': '#d0d3fa', 'text-halo-color': '#0b0e2c' },
+};
+
+export function moonlit(map) {
+  if (!map || typeof map.setPaintProperty !== 'function') return 0;
+  let n = 0;
+  for (const [layer, paint] of Object.entries(MOONLIT)) {
+    try {
+      if (typeof map.getLayer === 'function' && !map.getLayer(layer)) continue;
+      for (const [k, v] of Object.entries(paint)) map.setPaintProperty(layer, k, v);
+      n += 1;
+    } catch { /* a layer or property the style doesn't have */ }
+  }
+  return n;
+}
 
 export function createMap(container, { interactive = true } = {}) {
   if (!container || typeof container.appendChild !== 'function') throw new Error('createMap needs a container element');
@@ -1314,7 +1360,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=159');
+      lib = await import('../vendor/maplibre-gl.mjs?v=160');
     } catch {
       cancel(deadline);
       giveUp();

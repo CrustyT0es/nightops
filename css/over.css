@@ -478,7 +478,7 @@ html.over-full-on, html.over-full-on body { overflow: hidden; }
   background: rgba(7, 9, 13, 0.5);
   transition: border-color 160ms ease, background-color 160ms ease;
 }
-.over-call.watching { border-color: rgba(255, 176, 32, 0.6); background: rgba(255, 176, 32, 0.06); }
+.over-call.watching { border-color: rgba(255, 143, 58, 0.6); background: rgba(255, 143, 58, 0.06); }
 .over-call-icon {
   display: grid;
   place-items: center;
@@ -486,7 +486,7 @@ html.over-full-on, html.over-full-on body { overflow: hidden; }
   height: 36px;
   align-self: start;
   border-radius: 10px;
-  background: rgba(255, 176, 32, 0.12);
+  background: rgba(255, 143, 58, 0.12);
   color: var(--warn);
 }
 .over-call-text { min-width: 0; display: grid; gap: 3px; }
@@ -657,3 +657,48 @@ html.over-full-on.sheet-open .banners { top: calc(max(8px, var(--safe-top)) + 6p
 .over-skip { position: relative; flex: none; width: 44px; min-height: 44px; border-radius: 50%; padding: 0; }
 .over-skip .icon { margin: 0; }
 .over-skip-n { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; font-weight: 700; pointer-events: none; padding-top: 1px; }
+
+/* =====================================================================================================
+   v1.6: the night-sticker end screen. Three chunky tabs; the result as a celebration: slow light rays and
+   falling confetti behind a big gold winner line in the display face.
+   ===================================================================================================== */
+.over-tabs {
+  position: sticky; top: max(8px, var(--safe-top)); z-index: 6;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 5px; margin-bottom: 4px;
+  border: 3px solid var(--ink); border-radius: 16px; background: rgba(13, 16, 48, .95); box-shadow: var(--sticker-sm);
+  backdrop-filter: blur(10px);
+}
+.over-tab { min-height: 44px; border: 0; border-radius: 11px; background: none; color: var(--text-2); font-family: var(--display); font-size: 16px; letter-spacing: .02em; cursor: pointer; }
+.over-tab[aria-selected="true"] { background: var(--gold); color: var(--on-gold); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18); }
+.over-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.over-panel { display: grid; gap: 16px; }
+.over-panel[hidden] { display: none; }
+
+.over-hero { position: relative; overflow: hidden; border: 3px solid var(--ink) !important; box-shadow: 5px 6px 0 var(--ink); background: radial-gradient(120% 90% at 50% 0%, #2a2f86 0%, #141846 55%, #0c0f30 100%) !important; }
+.over-hero-bg {
+  position: absolute; inset: -60%; z-index: 0; pointer-events: none;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 210, 63, .10) 0 9deg, transparent 9deg 18deg);
+  animation: over-rays 26s linear infinite;
+}
+.over-hero::after {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    radial-gradient(5px 9px at 10% 0, var(--gold) 50%, transparent 52%),
+    radial-gradient(5px 9px at 28% 0, var(--hunter) 50%, transparent 52%),
+    radial-gradient(5px 9px at 47% 0, var(--hider) 50%, transparent 52%),
+    radial-gradient(5px 9px at 66% 0, var(--ok) 50%, transparent 52%),
+    radial-gradient(5px 9px at 84% 0, #c792ff 50%, transparent 52%);
+  background-size: 100% 220px; background-repeat: repeat-y;
+  animation: over-confetti 3.2s linear 3 both;
+  opacity: .9;
+}
+.over-hero > :not(.over-hero-bg) { position: relative; z-index: 1; }
+#over-title, .over-title {
+  font-family: var(--display) !important; font-weight: 400 !important; color: var(--gold);
+  -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--ink);
+  transform: rotate(-2deg); animation: over-stamp .6s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+@keyframes over-rays { to { rotate: 360deg; } }
+@keyframes over-confetti { from { background-position-y: -220px; opacity: 1; } 85% { opacity: 1; } to { background-position-y: 220px; opacity: 0; } }
+@keyframes over-stamp { 0% { opacity: 0; scale: 2.2; } 60% { opacity: 1; scale: .92; } 100% { scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .over-hero-bg, .over-hero::after, #over-title { animation: none !important; } .over-hero::after { display: none; } }

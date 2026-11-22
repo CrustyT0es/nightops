@@ -3,19 +3,23 @@
 // others see the same information read-only while they wait.
 // Everything is built once and then changed in place on each view, so a sync never moves the page or loses
 // focus. A setting the host just changed shows the new value at once (kept until the server answers).
-import { h, fill, add, face, text, cls, listen } from '../dom.js?v=159';
-import { icon } from '../ui/icons.js?v=159';
-import { openSheet } from '../ui/sheet.js?v=159';
-import { banner } from '../ui/banner.js?v=159';
-import { qrSvg } from '../qr.js?v=159';
-import { createMap } from '../map.js?v=159';
-import { ringProblem } from '../../shared/geo.js?v=159';
-import { cpCard } from './extras/cpcard.js?v=159'; // v1.3 PAGE-SETUP
-import { readyCard, notReady } from './ready.js?v=159'; // v1.4 PAGE-DEVICES
+import { h, fill, add, face, text, cls, listen } from '../dom.js?v=160';
+import { icon } from '../ui/icons.js?v=160';
+import { openSheet } from '../ui/sheet.js?v=160';
+import { banner } from '../ui/banner.js?v=160';
+import { qrSvg } from '../qr.js?v=160';
+import { createMap } from '../map.js?v=160';
+import { ringProblem } from '../../shared/geo.js?v=160';
+import { cpCard } from './extras/cpcard.js?v=160'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js?v=160'; // v1.4 PAGE-DEVICES
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
-} from '../../shared/rules.js?v=159';
+} from '../../shared/rules.js?v=160';
+
+// v1.6: the browser checks written before the tabs and folds set localStorage 'nightops-show-all' = '1': every
+// tab's content shows at once and the folded cards start open (never set on a real phone).
+const SHOW_ALL = (() => { try { return globalThis.localStorage && localStorage.getItem('nightops-show-all') === '1'; } catch { return false; } })();
 
 // v1.1 PAGE-WATCH: the Extras card's three rows (each its builder's module), loaded so that one that's missing
 // or broken only leaves its row out, never the lobby.
@@ -252,6 +256,8 @@ function copyByHand(title, words) {
 export function mount(root, app) {
   const S = {
     destroyed: false,
+    tab: 'players',          // v1.5.1: the lobby tab showing
+    open: new Set(),         // v1.5.1: the folded cards opened
     view: null,
     host: null,              // the role the page was built for
     pending: new Map(),      // setting key -> value the host just picked, until the server answers
@@ -349,7 +355,7 @@ export function mount(root, app) {
     leave.addEventListener('click', () => confirmLeave());
     const how = h('button.btn.small.ghost.icon-only.lobby-how', { type: 'button', 'aria-label': 'How to play' }, icon('info', 20));
     how.addEventListener('click', () => {
-      import('./home.js?v=159').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
+      import('./home.js?v=160').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
     });
     return h('header.lobby-top',
       h('div.lobby-top-text', h('span.label', 'Lobby'), h('h1.lobby-title', 'Get ready')),
@@ -376,7 +382,7 @@ export function mount(root, app) {
       h('h2#lobby-code-title.label.lobby-card-title', 'Game code'),
       code,
       h('div.lobby-code-actions', copy, qr, share),
-      h('p.lobby-hint', 'Friends type the code in Night Ops, scan the QR code or open the link.'));
+      h('p.sr-only', 'Friends type the code in Night Ops, scan the QR code or open the link.')); // v1.6: said, not shown
     return {
       el,
       update(v) {
@@ -1050,10 +1056,29 @@ export function mount(root, app) {
     };
     S.w = w;
     S.host = host;
+    // v1.5.1 (the clean-up): two tabs, Players (the code, who's in, the ready check) and Game (every setting), and
+    // the long cards folded to a line until tapped. Everything is still there; only less of it at once.
+    const panels = {
+      players: h('div.lobby-panel', { 'data-tab': 'players', role: 'tabpanel', id: 'lobby-panel-players' }, w.code.el, w.players.el),
+      game: h('div.lobby-panel', { 'data-tab': 'game', role: 'tabpanel', id: 'lobby-panel-game' }, w.mode.el, w.ring.el, w.time.el, w.powers.el, w.extras.el),
+    };
+    const tabBtn = (key, label) => {
+      const b = h('button.lobby-tab', { type: 'button', role: 'tab', 'data-tab': key, 'aria-controls': `lobby-panel-${key}` }, label);
+      b.addEventListener('click', () => showTab(key));
+      return b;
+    };
+    const tabs = h('div.lobby-tabs', { role: 'tablist', 'aria-label': 'Lobby' }, tabBtn('players', 'Players'), tabBtn('game', host ? 'Game settings' : 'Game'));
+    S.panels = panels;
+    S.tabs = tabs;
     fill(root, h('div.lobby', { 'data-role': host ? 'host' : 'guest' },
       buildTop(),
-      h('div.lobby-body', w.code.el, w.players.el, w.mode.el, w.ring.el, w.time.el, w.powers.el, w.extras.el), // v1.1 PAGE-WATCH: extras
+      tabs,
+      h('div.lobby-body', panels.players, panels.game), // v1.1 PAGE-WATCH: extras
       w.foot.el));
+    fold(w.time.el, 'time');
+    fold(w.powers.el, 'powers');
+    fold(w.extras.el, 'extras');
+    showTab(S.tab || 'players');
     // v1.3 PAGE-SETUP: the Checkpoints card, right after the ring card (it shows itself in Checkpoints mode)
     if (S.cpCard) { try { S.cpCard.destroy(); } catch { /* ignore */ } }
     S.cpCard = null;
@@ -1068,10 +1093,60 @@ export function mount(root, app) {
     try {
       S.ready = readyCard({ app, host });
       const slot = h('div.lobby-ready-slot', S.ready.el);
-      const body = root.querySelector('.lobby-body');
+      const body = S.panels && S.panels.players;
       if (body) body.prepend(slot);
     } catch (e) { console.error(e); S.ready = null; }
     // v1.4 end PAGE-DEVICES
+  }
+
+  // v1.5.1: the lobby's tabs
+  function showTab(key) {
+    if (!S.panels || !S.panels[key]) key = 'players';
+    S.tab = key;
+    for (const [k, el] of Object.entries(S.panels)) el.hidden = !SHOW_ALL && k !== key;
+    for (const b of S.tabs.querySelectorAll('.lobby-tab')) {
+      const on = b.dataset.tab === key;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    }
+  }
+
+  // v1.5.1: a long card folded to its title and a one-line summary; a tap opens it (kept open across rebuilds)
+  function fold(el, key) {
+    const title = el.querySelector('.lobby-card-title');
+    if (!title) return;
+    const sum = h('span.lobby-fold-sum');
+    const btn = h('button.lobby-fold', { type: 'button', 'aria-expanded': 'false' }, sum, h('span.lobby-fold-chev', icon('chevron', 18)));
+    title.after(btn);
+    el.classList.add('foldable');
+    el.dataset.fold = key;
+    const set = (open) => {
+      cls(el, 'folded', !open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.setAttribute('aria-label', `${open ? 'Close' : 'Open'} ${title.textContent}`);
+    };
+    btn.addEventListener('click', () => {
+      const open = el.classList.contains('folded');
+      if (open) S.open.add(key); else S.open.delete(key);
+      set(open);
+    });
+    set(SHOW_ALL || S.open.has(key));
+  }
+
+  function foldSummaries() {
+    const s = settingsNow();
+    const put = (key, words) => {
+      const el = root.querySelector(`.lobby-card[data-fold="${key}"] .lobby-fold-sum`);
+      if (el) text(el, words);
+    };
+    const preset = Object.values(PRESETS).find((p) => Object.entries(p.settings).every(([k, v]) => s[k] === v));
+    put('time', `${preset ? `${preset.label}: ` : ''}${s.durationMin} min, pings every ${s.pingEveryMin}`);
+    const keys = [...HIDER_POWERS, ...HUNTER_POWERS];
+    const on = keys.filter((k) => !!val(`powers.${k}`));
+    put('powers', on.length === keys.length ? 'All on' : on.length ? `${on.map((k) => POWERS[k].name).join(', ')}` : 'All off');
+    const names = { driver: 'Driver', spectators: 'Spectators', radioSave: 'Walkie saved', radioHiders: 'Hider walkie', cam: 'Camera', pins: 'Pins' };
+    const ex = Object.keys(names).filter((k) => !!s[k]).map((k) => names[k]);
+    put('extras', ex.length ? ex.join(', ') : 'None');
   }
 
   // Keep what's on screen in place while things above it change (a row appears, a setting shows).
@@ -1120,6 +1195,7 @@ export function mount(root, app) {
       if (S.cpCard) { try { S.cpCard.update({ ...v, settings: settingsNow() }); } catch (e) { console.error(e); } }
       // v1.3 end PAGE-SETUP
       if (S.ready) { try { S.ready.update({ ...v, settings: settingsNow() }); } catch (e) { console.error(e); } } // v1.4 PAGE-DEVICES
+      try { foldSummaries(); } catch (e) { console.error(e); } // v1.5.1
     });
   }
 

@@ -1,14 +1,14 @@
 // Night Ops: the home screen. Who you are (name + optional selfie), then Create a game or Join one with a
 // 6-letter code (typed, pasted, or from an invite link). A "How to play" sheet, and a note about location.
 // There's no game yet, so this screen renders from the App (app.me, app.args, app.savedGame), not a view.
-import { h, fill, face, text, listen } from '../dom.js?v=159';
-import { icon } from '../ui/icons.js?v=159';
-import { openSheet } from '../ui/sheet.js?v=159';
-import { linkSheet, linkedPc } from '../pcedit.js?v=159'; // v1.5: the PC edit
-import { pickFace } from '../face.js?v=159';
-import { cleanName } from '../identity.js?v=159';
-import { normalizeCode } from '../app.js?v=159';
-import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=159';
+import { h, fill, face, text, listen } from '../dom.js?v=160';
+import { icon } from '../ui/icons.js?v=160';
+import { openSheet } from '../ui/sheet.js?v=160';
+import { linkSheet, linkedPc } from '../pcedit.js?v=160'; // v1.5: the PC edit
+import { pickFace } from '../face.js?v=160';
+import { cleanName } from '../identity.js?v=160';
+import { normalizeCode } from '../app.js?v=160';
+import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=160';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -101,6 +101,17 @@ export function pastLines(g, fmt = dayOf, when = fmt === dayOf ? dayTimeOf : fmt
   else if (Number.isFinite(g.until)) keep = `Deleted after ${when(g.until)}`;
   return { title, line, keep };
 }
+
+// v1.6: the home screen's tagline sticker, a different one each time
+export const TAGLINES = [
+  'hide and seek, but your phone snitches',
+  'cardio, but make it sneaky',
+  'touch grass. run from friends.',
+  'the bushes are your best friend now',
+  'your mom thinks you\'re at a sleepover',
+  'trust nobody. especially Sergio.',
+  'they can see you. probably.',
+];
 
 export function mount(root, app, args = {}) {
   const S = {
@@ -487,12 +498,11 @@ export function mount(root, app, args = {}) {
   const joinBox = h('section.home-card.home-join', { 'aria-labelledby': 'home-code-label' },
     h('label#home-code-label.home-field-label', { for: 'home-code' }, fromLink ? 'Join this game' : 'Join a game'),
     h('div.home-join-row', codeInput, joinBtn),
-    h('p#home-code-hint.home-hint', 'The 6-letter code from the host. A pasted invite link works too.'),
+    h('p#home-code-hint.sr-only', 'The 6-letter code from the host. A pasted invite link works too.'), // v1.6: said, not shown
     joinError);
 
   const createBox = h('section.home-card.home-make', { 'aria-label': 'Create a game' },
     createBtn,
-    h('p.home-hint', "You'll be the host: you draw the ring and pick the rules."),
     createError);
 
   // ---- a game this phone is still in (someone opened an invite to another game) ----
@@ -564,8 +574,9 @@ export function mount(root, app, args = {}) {
   fill(root,
     h('div.home',
       h('header.home-head',
-        emblem(60),
-        h('h1.home-title', 'Night Ops'),
+        h('div.home-sky', { 'aria-hidden': 'true' }, h('span.home-moon'), h('span.home-twinkle.t1'), h('span.home-twinkle.t2'), h('span.home-twinkle.t3')),
+        h('h1.home-title', h('span.home-t1', 'Night'), ' ', h('span.home-t2', 'Ops')),
+        h('p.home-tag', TAGLINES[Math.floor(Math.random() * TAGLINES.length)]),
         h('p.home-line', 'Manhunt in the dark with your friends. Hiders hide, hunters follow the pings on the map.')),
       savedCard,
       youCard,

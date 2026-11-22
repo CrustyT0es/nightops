@@ -13,6 +13,14 @@
    Sheets, banners, moments and pocket mode come from js/ui/*.js. */
 
 @font-face {
+  font-family: 'Bowlby One';
+  src: url('../fonts/bowlby-one-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'Space Grotesk';
   src: url('../fonts/space-grotesk-latin-500-normal.woff2') format('woff2');
   font-weight: 500;
@@ -57,7 +65,7 @@
   --on-hider: #04121f;
   --driver: #ffc24a;
   --on-driver: #1a1200;
-  --warn: #ffb020;
+  --warn: #ff8f3a;
   --ok: #7ee0b0;
   /* v1.3 PAGE-SETUP: checkpoint violet (zones, chips, moments) */
   --cp: #c792ff;
@@ -256,7 +264,7 @@ button.chip:active { background: var(--raised); }
 .chip.hunter { color: var(--hunter); border-color: rgba(255, 90, 90, 0.45); }
 .chip.hider { color: var(--hider); border-color: rgba(78, 168, 255, 0.45); }
 .chip.driver { color: var(--driver); border-color: rgba(255, 194, 74, 0.45); }
-.chip.warn { color: var(--warn); border-color: rgba(255, 176, 32, 0.45); }
+.chip.warn { color: var(--warn); border-color: rgba(255, 143, 58, 0.45); }
 .chip.ok { color: var(--ok); border-color: rgba(126, 224, 176, 0.45); }
 
 /* ---- tiles ---- */
@@ -586,7 +594,7 @@ textarea.field { padding: 12px 14px; min-height: 96px; resize: vertical; line-he
   transform: translateX(-50%);
   max-width: calc(100% - 24px);
   padding: 5px 12px;
-  border: 1px solid rgba(255, 176, 32, 0.5);
+  border: 1px solid rgba(255, 143, 58, 0.5);
   border-radius: 999px;
   background: var(--panel);
   color: var(--warn);
@@ -623,7 +631,7 @@ textarea.field { padding: 12px 14px; min-height: 96px; resize: vertical; line-he
 .moment-glow {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 44%, rgba(255, 176, 32, 0.22), transparent 60%);
+  background: radial-gradient(circle at 50% 44%, rgba(255, 143, 58, 0.22), transparent 60%);
   background: radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--k) 30%, transparent), transparent 62%);
 }
 .moment-rings {
@@ -806,3 +814,123 @@ html.pocket-on, html.pocket-on body { overflow: hidden; }
 .hack-flash strong { font-size: 64px; letter-spacing: 0.1em; }
 @keyframes hack-blink { 50% { background: #000; } }
 @media (prefers-reduced-motion: reduce) { .hack-flash { animation: none; } }
+
+
+/* =====================================================================================================
+   v1.6: the night-sticker look (the owner's pick: the Jackbox-like draft, kept dark and night themed).
+   Chunky ink outlines, hard "sticker" shadows, a bold display face for titles, a moonlit indigo night with
+   a gold accent. A layer over everything above, so every screen takes it without its own rules changing.
+   ===================================================================================================== */
+:root {
+  --bg: #080a1c;
+  --panel: #0e1130;
+  --card: #151a40;
+  --raised: #20275a;
+  --line: #262d5e;
+  --line-2: #343c78;
+  --text: #f4f1ff;
+  --text-2: #cfd0f0;
+  --muted: #9ea3d4;
+  --ink: #02030a;
+  --gold: #ffd23f;
+  --on-gold: #1a1200;
+  --driver: #ffd23f;   /* the driver's yellow is the one yellow */
+  --on-driver: #1a1200;
+  --hunter: #ff4f5e;
+  --on-hunter: #1a0306;
+  --hider: #3fa3ff;
+  --on-hider: #021325;
+  --ok: #3ff2a8;
+  --warn: #ff8f3a;   /* warnings are orange: yellow means the driver */
+  --accent: var(--gold);
+  --on-accent: var(--on-gold);
+  --display: 'Bowlby One', 'Space Grotesk', Impact, system-ui, sans-serif;
+  --sticker: 4px 5px 0 var(--ink);
+  --sticker-sm: 3px 3px 0 var(--ink);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --radius-lg: 24px;
+}
+body[data-team='hunter'] { --accent: var(--hunter); --on-accent: var(--on-hunter); }
+body[data-team='hider'] { --accent: var(--hider); --on-accent: var(--on-hider); }
+
+html, body {
+  background:
+    radial-gradient(1.5px 1.5px at 12% 8%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(1px 1px at 68% 14%, rgba(255,255,255,.45), transparent 60%),
+    radial-gradient(1.5px 1.5px at 85% 32%, rgba(255,255,255,.4), transparent 60%),
+    radial-gradient(1px 1px at 30% 46%, rgba(255,255,255,.35), transparent 60%),
+    radial-gradient(1.5px 1.5px at 55% 72%, rgba(255,255,255,.3), transparent 60%),
+    radial-gradient(1px 1px at 8% 88%, rgba(255,255,255,.35), transparent 60%),
+    radial-gradient(120% 80% at 50% -10%, #1d2266 0%, #0d1030 45%, var(--bg) 100%) fixed;
+  background-color: var(--bg);
+}
+
+/* titles in the display face */
+h1, .display {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+.label { color: var(--gold); letter-spacing: 0.12em; }
+
+/* buttons: ink outline, a hard shadow that presses in */
+.btn {
+  border: 3px solid var(--ink);
+  box-shadow: var(--sticker-sm);
+  background: var(--raised);
+  border-radius: var(--radius);
+  transition: transform 80ms ease, box-shadow 80ms ease, background-color 120ms ease, opacity 120ms ease;
+}
+.btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); background: var(--raised); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--ink); font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; line-height: 1.05; }
+.btn.primary:active:not(:disabled) { background: var(--accent); filter: none; }
+.btn.danger { border-color: var(--ink); }
+.btn.ghost { background: rgba(255,255,255,0.04); border-color: var(--line-2); box-shadow: none; color: var(--text-2); }
+.btn.ghost:active:not(:disabled) { transform: none; background: var(--card); }
+.btn:disabled, .btn[aria-disabled='true'] { box-shadow: none; }
+
+/* cards and tiles: stickers on the night */
+.tile, .lobby-card, .over-card, .home-card, .card {
+  border: 3px solid var(--ink) !important;
+  box-shadow: var(--sticker);
+  background: var(--card);
+  border-radius: var(--radius-lg);
+}
+.tile.on, .tile[aria-pressed='true'], .tile[aria-checked='true'] { background: var(--raised); border-color: var(--gold) !important; }
+
+/* chips: bold little stickers */
+.chip { border: 2px solid var(--ink); background: var(--raised); color: var(--text); font-weight: 700; box-shadow: 2px 2px 0 var(--ink); }
+.chip.hunter { background: var(--hunter); color: var(--on-hunter); border-color: var(--ink); }
+.chip.hider { background: var(--hider); color: var(--on-hider); border-color: var(--ink); }
+.chip.ok { background: var(--ok); color: #03140c; border-color: var(--ink); }
+.chip.warn { background: var(--warn); color: #1a1000; border-color: var(--ink); }
+
+/* switches, fields and segmented choices */
+.field { border: 3px solid var(--ink); background: #0b0e2a; box-shadow: inset 2px 2px 0 rgba(0,0,0,.35); }
+.field:focus { border-color: var(--gold); }
+.face { border-width: 3px; box-shadow: 2px 2px 0 var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .btn:active:not(:disabled) { transition: none; }
+}
+
+/* v1.6: sheets, banners and moments as stickers too */
+.sheet {
+  border: 3px solid var(--ink) !important;
+  border-bottom: 0 !important;
+  background: linear-gradient(180deg, #1a1f55, #0f1236) !important;
+  box-shadow: 0 -6px 0 rgba(2, 3, 10, .6), 0 -20px 50px rgba(0, 0, 0, .5) !important;
+}
+.sheet-grip { background: var(--gold); height: 5px; }
+.sheet-title { font-family: var(--display); font-weight: 400; color: var(--gold); letter-spacing: .01em; }
+.sheet-close { border: 2px solid var(--ink) !important; box-shadow: 2px 2px 0 var(--ink); background: var(--raised) !important; }
+.banners .banner, .banner {
+  border: 3px solid var(--ink) !important;
+  box-shadow: var(--sticker-sm) !important;
+  border-radius: 16px !important;
+  font-weight: 700;
+}
+.moment-inner { filter: drop-shadow(5px 6px 0 var(--ink)); }
+.moment-title, .moment-big, .moment-word { font-family: var(--display) !important; font-weight: 400 !important; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }

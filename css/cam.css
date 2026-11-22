@@ -66,7 +66,7 @@
 .x-cam-again {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 176, 32, 0.45);
+  border: 1px solid rgba(255, 143, 58, 0.45);
   border-radius: var(--radius-sm);
   color: var(--warn);
   font-size: 14px;
@@ -149,7 +149,7 @@
   text-overflow: ellipsis;
 }
 .cam-start .cam-start-word { overflow: hidden; text-overflow: ellipsis; }
-.cam-start[data-state='denied'], .cam-start[data-state='full'] { color: var(--warn); border-color: rgba(255, 176, 32, 0.5); }
+.cam-start[data-state='denied'], .cam-start[data-state='full'] { color: var(--warn); border-color: rgba(255, 143, 58, 0.5); }
 /* Under 420 px the HUD row has no room for words: the camera icon alone (its words are its label). */
 @media (max-width: 419px) {
   .cam-start { width: 44px; padding: 0; justify-content: center; }
@@ -315,7 +315,7 @@
 .cam-window.dim .cam-v-none { grid-auto-flow: column; gap: 6px; }
 
 /* Not filming yet: Record this starts the camera (on the narrowest phones the HUD has no room for the chip). */
-.cam-mark[data-state='off'], .cam-mark[data-state='denied'], .cam-mark[data-state='asking'] { border-color: rgba(255, 176, 32, 0.5); }
+.cam-mark[data-state='off'], .cam-mark[data-state='denied'], .cam-mark[data-state='asking'] { border-color: rgba(255, 143, 58, 0.5); }
 .cam-mark[data-state='off'] .icon, .cam-mark[data-state='denied'] .icon { color: var(--warn); }
 /* On the narrowest phones the chip is just its camera icon (the HUD has room for a 36px square), so a hider whose
    tray is tucked still has something on screen to start the camera with. */

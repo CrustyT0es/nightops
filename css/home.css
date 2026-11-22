@@ -185,7 +185,7 @@
 
 /* ---- a game this phone is still in ---- */
 
-.home-saved { border-color: rgba(255, 176, 32, 0.45); }
+.home-saved { border-color: rgba(255, 143, 58, 0.45); }
 .home-back { justify-self: start; }
 .home-saved-text { display: grid; gap: 4px; min-width: 0; color: var(--text-2); font-size: 15px; }
 .home-saved .label { color: var(--warn); }
@@ -240,4 +240,56 @@
 
 @media (min-width: 560px) {
   .home { gap: 16px; padding-top: max(48px, calc(var(--safe-top) + 24px)); }
+}
+
+
+/* =====================================================================================================
+   v1.6: the night-sticker home. A sky with a glowing moon and twinkling stars, NIGHT OPS in big sticker
+   letters (gold and white, ink outlines, a red and blue offset like a misprint), a tilted tagline sticker,
+   and cards that sit a little crooked, like stickers slapped on a notebook.
+   ===================================================================================================== */
+.screen-home { background: none; }
+.home::before { display: none; }
+.home-head { position: relative; padding: 22px 4px 16px; gap: 10px; overflow: visible; }
+.home-sky { position: absolute; inset: -30px -16px 0; z-index: -1; pointer-events: none; }
+.home-moon {
+  position: absolute; top: 40px; right: 14px; width: 86px; height: 86px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 36%, #fffbe9 0 40%, #f3e6bd 70%, #dcc98c 100%);
+  box-shadow: inset -18px -8px 0 rgba(150, 130, 70, .35), 0 0 0 3px var(--ink), 0 0 50px 12px rgba(255, 226, 140, .28), 0 0 120px 40px rgba(120, 110, 255, .18);
+  animation: home-moon 7s ease-in-out infinite;
+}
+.home-moon::before, .home-moon::after {
+  content: ''; position: absolute; border-radius: 50%; background: rgba(170, 150, 90, .35);
+}
+.home-moon::before { width: 16px; height: 16px; left: 22px; top: 44px; }
+.home-moon::after { width: 10px; height: 10px; left: 48px; top: 22px; }
+.home-twinkle { position: absolute; width: 10px; height: 10px; background: #fff; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); animation: home-twinkle 2.6s ease-in-out infinite; }
+.home-twinkle.t1 { left: 18px; top: 24px; }
+.home-twinkle.t2 { left: 64px; top: 120px; width: 7px; height: 7px; animation-delay: .9s; }
+.home-twinkle.t3 { right: 120px; top: 6px; width: 8px; height: 8px; animation-delay: 1.6s; }
+.home-title {
+  display: grid; justify-items: center; gap: 0;
+  font-family: var(--display); font-size: clamp(64px, 21vw, 92px); line-height: .86; text-transform: uppercase; letter-spacing: .01em;
+  -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill;
+}
+.home-t1 { color: var(--gold); transform: rotate(-5deg) translateX(-10px); text-shadow: 5px 5px 0 var(--hunter), -2px -2px 0 var(--ink); animation: home-pop .7s cubic-bezier(.2, 1.6, .4, 1) both; }
+.home-t2 { color: #fff; transform: rotate(3deg) translateX(18px); text-shadow: 5px 5px 0 var(--hider), -2px -2px 0 var(--ink); animation: home-pop .7s .12s cubic-bezier(.2, 1.6, .4, 1) both; }
+.home-tag {
+  display: inline-block; margin-top: 6px; padding: 7px 14px; border: 3px solid var(--ink); border-radius: 12px;
+  background: var(--hunter); color: #fff; font-weight: 700; font-size: 15px; box-shadow: var(--sticker-sm); transform: rotate(-2.5deg);
+}
+.home-line { color: var(--text-2); max-width: 32ch; }
+.home-card:nth-of-type(odd) { transform: rotate(-.6deg); }
+.home-card:nth-of-type(even) { transform: rotate(.5deg); }
+.home-create { min-height: 64px; font-size: 22px; border-radius: 18px; box-shadow: 5px 6px 0 var(--ink); }
+.home-create:not(:disabled) { animation: home-nudge 4s ease-in-out 1.5s infinite; }
+.home-or span { font-family: var(--display); color: var(--gold); letter-spacing: .1em; }
+.home-foot-btns .btn { border-radius: 999px; }
+
+@keyframes home-pop { 0% { opacity: 0; scale: .3; } 70% { opacity: 1; scale: 1.08; } 100% { scale: 1; } }
+@keyframes home-moon { 0%, 100% { translate: 0 0; } 50% { translate: 0 -6px; } }
+@keyframes home-twinkle { 0%, 100% { opacity: .25; scale: .7; } 50% { opacity: 1; scale: 1.15; } }
+@keyframes home-nudge { 0%, 88%, 100% { rotate: 0deg; } 91% { rotate: -1.5deg; } 94% { rotate: 1.5deg; } 97% { rotate: -.6deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .home-moon, .home-twinkle, .home-t1, .home-t2, .home-create { animation: none !important; }
 }
