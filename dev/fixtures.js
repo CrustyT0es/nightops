@@ -485,6 +485,7 @@ export function fixture(params = {}) {
   withCam(view, params); // v1.2 PAGE-CAM
   withReel(view, params); // v1.4 PAGE-REEL: &reel=1
   withHidersRadio(view, params); // v1.2 PAGE-RADIO
+  withLoot(view, params); // v1.6: &loot=1 (boxes on the map) | held (holding one)
   withCpPlay(view, params); // v1.3 PAGE-PLAY: &cp=lead|inside|safe|overstay|again|done (hider), waiting|shown|overstay
   if (!params.cpw) withCpOver(view, params); // v1.3 PAGE-AFTER: screen=over&cp=1
 
@@ -492,6 +493,17 @@ export function fixture(params = {}) {
     view,
     me: { name: me0.name, face: me0.faceV ? faceFor(me0.id) : null },
     game: { code: CODE, id: me0.id, secret: SECRET },
+  };
+}
+
+// v1.6: Loot drops. &loot=1: a Loot drops game with two boxes on the map (one about to go); &loot=held: this
+// phone holds one too.
+function withLoot(view, params) {
+  if (!params.loot || view.phase !== 'live') return;
+  view.settings = { ...view.settings, mode: 'loot' };
+  view.loot = {
+    boxes: [{ id: 'L1', p: offsetM(SPOTS.leo, 120, 60), left: 150000 }, { id: 'L2', p: offsetM(SPOTS.sam, -90, -110), left: 20000 }],
+    held: params.loot === 'held', next: 130000, last: null, grabbed: 1,
   };
 }
 

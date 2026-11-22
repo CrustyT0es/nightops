@@ -1,0 +1,215 @@
+/* Night Ops v1.6: Loot drops. The crates on the map (js/map.js setLoot), the tray's Open button and the burst
+   (js/screens/lootplay.js). Rarity colours: common silver, rare violet, legendary gold; red and blue stay the teams'. */
+:root {
+  --loot: #ffb547;
+  --loot-common: #d9e2f2;
+  --loot-rare: #b38bff;
+  --loot-legendary: #ffd23f;
+}
+
+/* ---- on the map ---- */
+.nmap-loot { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.nloot { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.nloot.unplaced { visibility: hidden; }
+.nloot-beam {
+  position: absolute; left: -9px; bottom: 6px; width: 18px; height: 90px; border-radius: 9px 9px 0 0;
+  background: linear-gradient(to top, rgba(255, 181, 71, 0.55), rgba(255, 181, 71, 0));
+  filter: blur(3px); transform-origin: bottom; animation: nloot-beam 2.4s ease-in-out infinite;
+}
+.nloot-glow {
+  position: absolute; left: -26px; top: -14px; width: 52px; height: 28px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 181, 71, 0.55), rgba(255, 181, 71, 0));
+  animation: nloot-glow 1.6s ease-in-out infinite;
+}
+.nloot-box {
+  position: absolute; left: -16px; top: -34px; width: 32px; height: 30px;
+  animation: nloot-drop 0.7s cubic-bezier(0.2, 1.6, 0.4, 1) both, nloot-bob 2.2s ease-in-out var(--bob, 0s) infinite 0.7s;
+  filter: drop-shadow(0 3px 0 #0a0820) drop-shadow(0 0 8px rgba(255, 181, 71, 0.7));
+}
+.nloot-lid, .nloot-body { position: absolute; left: 0; width: 32px; border: 2.5px solid #0a0820; }
+.nloot-lid { top: 0; height: 11px; border-radius: 6px 6px 3px 3px; background: linear-gradient(#ffd98a, #ffa630); z-index: 1; }
+.nloot-body {
+  top: 9px; height: 21px; border-radius: 3px 3px 6px 6px;
+  background: linear-gradient(90deg, transparent 12px, #0a0820 12px, #0a0820 14.5px, transparent 14.5px) center / 100% 100% no-repeat,
+    linear-gradient(#ff9a2e, #e0661a);
+}
+.nloot.soon-gone .nloot-box { animation: nloot-blink 0.9s steps(2, start) infinite; }
+.nloot.gone { transition: opacity 0.4s, transform 0.4s; opacity: 0; }
+.nloot.gone .nloot-box { animation: nloot-pop 0.4s ease-in forwards; }
+@keyframes nloot-drop { from { transform: translateY(-140px) scale(0.6); opacity: 0; } 60% { opacity: 1; } to { transform: none; } }
+@keyframes nloot-bob { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+@keyframes nloot-glow { 0%, 100% { opacity: 0.6; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.15); } }
+@keyframes nloot-beam { 0%, 100% { opacity: 0.5; transform: scaleY(0.85); } 50% { opacity: 1; transform: scaleY(1.1); } }
+@keyframes nloot-blink { 50% { opacity: 0.35; } }
+@keyframes nloot-pop { to { transform: scale(1.8); opacity: 0; } }
+
+/* ---- the tray button ---- */
+.btn.lt { gap: 6px; flex: 0 0 auto; min-width: 112px; padding-inline: 14px; white-space: nowrap; }
+.lt-ico { font-size: 24px; line-height: 1; }
+.btn.lt .lt-ico { font-size: 22px; }
+.lt-label { overflow: hidden; text-overflow: ellipsis; }
+.tray-sq.lt .lt-n {
+  position: absolute; top: -7px; right: -7px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+  border: 2px solid #0a0820; background: var(--card); color: var(--text); font: 700 11px/18px var(--mono, monospace);
+  white-space: nowrap;
+}
+.tray-sq.lt.some .lt-n { background: var(--loot); color: #1a0f00; font-size: 12px; }
+.tray-sq.lt.some .lt-ico { animation: lt-wiggle 2.2s ease-in-out infinite; }
+.btn.lt.held {
+  background: linear-gradient(#ffcf6b, #ff9a2e); color: #1a0f00; border-color: #0a0820;
+  box-shadow: 0 0 0 0 rgba(255, 181, 71, 0.7), var(--sticker, 0 4px 0 #0a0820);
+  animation: lt-pulse 1.4s ease-out infinite;
+}
+.btn.lt.held .lt-ico { animation: lt-wiggle 1.4s ease-in-out infinite; }
+@keyframes lt-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 181, 71, 0.75), var(--sticker, 0 4px 0 #0a0820); } 100% { box-shadow: 0 0 0 16px rgba(255, 181, 71, 0), var(--sticker, 0 4px 0 #0a0820); } }
+@keyframes lt-wiggle { 0%, 60%, 100% { transform: none; } 70% { transform: rotate(-14deg) scale(1.15); } 80% { transform: rotate(12deg) scale(1.15); } 90% { transform: rotate(-6deg); } }
+
+/* ---- the burst ---- */
+.lb {
+  --c: var(--loot);
+  position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(circle at 50% 46%, rgba(40, 24, 90, 0.92), rgba(6, 5, 20, 0.97) 70%);
+  color: #fff; perspective: 900px; animation: lb-in 0.25s ease-out both; touch-action: manipulation;
+}
+.lb[data-rarity="common"] { --c: var(--loot-common); }
+.lb[data-rarity="rare"] { --c: var(--loot-rare); }
+.lb[data-rarity="legendary"] { --c: var(--loot-legendary); }
+.lb.out { animation: lb-out 0.28s ease-in forwards; }
+@keyframes lb-in { from { opacity: 0; } }
+@keyframes lb-out { to { opacity: 0; transform: scale(1.06); } }
+
+.lb-stage { position: relative; width: 300px; height: 380px; display: grid; place-items: center; transform-style: preserve-3d; }
+.lb-rays {
+  position: absolute; left: 50%; top: 46%; width: 190vmax; height: 190vmax; margin: -95vmax 0 0 -95vmax; opacity: 0;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--c) 34%, transparent) 0 9deg, transparent 9deg 22deg);
+  -webkit-mask: radial-gradient(circle, #000 0, #000 18%, transparent 55%); mask: radial-gradient(circle, #000 0, #000 18%, transparent 55%);
+}
+.lb-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+
+/* The crate: a little 3D box (front, side, lid) */
+.lb-crate { position: absolute; width: 150px; height: 140px; transform-style: preserve-3d; transform: rotateX(-14deg) rotateY(-24deg); animation: lb-crate-drop 0.6s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+.lb-face { position: absolute; border: 4px solid #0a0820; border-radius: 10px; }
+.lb-body { position: absolute; left: 0; top: 34px; width: 150px; height: 106px; transform-style: preserve-3d; }
+.lb-front {
+  inset: 0; display: grid; place-items: center;
+  background: linear-gradient(90deg, transparent 63px, #0a0820 63px, #0a0820 70px, #ffcf6b 70px, #ffcf6b 80px, #0a0820 80px, #0a0820 87px, transparent 87px),
+    linear-gradient(#ff9a2e, #d4561a);
+  transform: translateZ(55px);
+}
+.lb-side { left: 0; top: 0; width: 110px; height: 100%; background: linear-gradient(#cf6a1c, #8f3a10); transform-origin: left; transform: rotateY(90deg) translateX(-55px) translateZ(0); }
+.lb-q { font: 400 44px/1 var(--display, "Bowlby One", system-ui); color: #fff; -webkit-text-stroke: 3px #0a0820; paint-order: stroke; text-shadow: 0 4px 0 #0a0820; }
+.lb-seam {
+  position: absolute; left: 8px; right: 8px; top: -3px; height: 8px; border-radius: 4px; transform: translateZ(56px);
+  background: var(--c); box-shadow: 0 0 18px 6px var(--c); opacity: 0.25; animation: lb-leak 1.5s ease-in forwards;
+}
+.lb-lid { position: absolute; left: -6px; top: 0; width: 162px; height: 42px; transform-style: preserve-3d; transform-origin: 50% 100%; }
+.lb-lid-front { inset: 0; background: linear-gradient(#ffe39d, #ffab36); transform: translateZ(60px); }
+.lb-lid-top { left: 0; top: 0; width: 100%; height: 120px; background: linear-gradient(#ffeec2, #ffc25c); transform-origin: top; transform: rotateX(90deg) translateZ(-60px); }
+
+.lb[data-stage="shake"] .lb-crate, .lb[data-stage="fail"] .lb-crate { animation: lb-crate-drop 0.6s cubic-bezier(0.2, 1.5, 0.4, 1) both, lb-shake 0.5s ease-in-out 0.6s infinite; }
+.lb[data-stage="shake"] .lb-lid { animation: lb-rattle 0.25s ease-in-out 0.9s infinite; }
+@keyframes lb-crate-drop { from { transform: translateY(-120vh) rotateX(-14deg) rotateY(-60deg); } to { transform: rotateX(-14deg) rotateY(-24deg); } }
+@keyframes lb-shake {
+  0%, 100% { transform: rotateX(-14deg) rotateY(-24deg) rotateZ(0); }
+  20% { transform: rotateX(-14deg) rotateY(-30deg) rotateZ(-6deg) translateX(-6px); }
+  45% { transform: rotateX(-14deg) rotateY(-18deg) rotateZ(7deg) translateX(7px) scale(1.04); }
+  70% { transform: rotateX(-10deg) rotateY(-26deg) rotateZ(-4deg) translateY(-6px); }
+}
+@keyframes lb-rattle { 50% { transform: translateY(-7px) rotateX(-8deg); } }
+@keyframes lb-leak { to { opacity: 1; box-shadow: 0 0 34px 14px var(--c); } }
+
+/* Burst: flash, lid flies, the box drops away, shards and sparks fly, rays spin */
+.lb[data-stage="burst"] .lb-flash, .lb[data-stage="card"] .lb-flash { animation: lb-flash 0.5s ease-out forwards; }
+.lb[data-stage="burst"] .lb-rays, .lb[data-stage="card"] .lb-rays { animation: lb-rays-in 0.4s ease-out forwards, lb-spin 14s linear infinite; }
+.lb[data-stage="burst"] .lb-lid, .lb[data-stage="card"] .lb-lid { animation: lb-lid-fly 0.9s cubic-bezier(0.2, 0.7, 0.4, 1) forwards; }
+.lb[data-stage="burst"] .lb-body, .lb[data-stage="card"] .lb-body { animation: lb-body-go 0.7s ease-in 0.15s forwards; }
+.lb[data-stage="burst"] .lb-crate, .lb[data-stage="card"] .lb-crate { animation: none; transform: rotateX(-14deg) rotateY(-24deg); }
+.lb[data-rarity="legendary"][data-stage="burst"] .lb-stage { animation: lb-quake 0.6s ease-out 2; }
+@keyframes lb-flash { 0% { opacity: 0.95; } 100% { opacity: 0; } }
+@keyframes lb-rays-in { to { opacity: 1; } }
+@keyframes lb-spin { to { transform: rotate(360deg); } }
+@keyframes lb-lid-fly { to { transform: translate3d(70px, -70vh, 120px) rotateX(260deg) rotateZ(160deg); opacity: 0; } }
+@keyframes lb-body-go { to { transform: translateY(40px) scale(0.4); opacity: 0; } }
+@keyframes lb-quake { 0%, 100% { transform: none; } 20% { transform: translate(-8px, 4px); } 40% { transform: translate(7px, -6px); } 60% { transform: translate(-5px, 3px); } 80% { transform: translate(4px, -2px); } }
+
+.lb-shards, .lb-sparks { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.lb-shard {
+  position: absolute; left: -9px; top: -6px; width: 18px; height: 12px; border: 3px solid #0a0820; border-radius: 3px;
+  background: linear-gradient(#ffb04a, #d4561a); opacity: 0;
+}
+.lb-spark { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px 3px var(--c); opacity: 0; }
+.lb[data-stage="burst"] .lb-shard, .lb[data-stage="card"] .lb-shard { animation: lb-fly 0.9s cubic-bezier(0.1, 0.7, 0.3, 1) forwards; }
+.lb[data-stage="burst"] .lb-spark, .lb[data-stage="card"] .lb-spark { animation: lb-spark 1.1s ease-out var(--t, 0s) forwards; }
+@keyframes lb-fly {
+  0% { opacity: 1; transform: rotate(var(--a)) translateY(0) rotate(0); }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(-1 * var(--d))) rotate(var(--r)) scale(0.7); }
+}
+@keyframes lb-spark { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(1.4); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(-1 * var(--d))) scale(0.2); } }
+.lb[data-rarity="legendary"] .lb-spark { width: 10px; height: 10px; }
+
+/* The rarity word slams in, then rides up over the card */
+.lb-word {
+  position: absolute; top: 18px; left: 50%; white-space: nowrap; opacity: 0;
+  font: 400 52px/1 var(--display, "Bowlby One", system-ui); color: var(--c); letter-spacing: 0.02em;
+  -webkit-text-stroke: 5px #0a0820; paint-order: stroke; text-shadow: 0 6px 0 #0a0820, 0 0 30px var(--c);
+  transform: translateX(-50%);
+}
+.lb[data-rarity="legendary"] .lb-word {
+  font-size: 46px;
+  background: linear-gradient(100deg, #ffd23f 0 35%, #fff6c8 45%, #ffd23f 55% 100%) 0 0 / 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lb[data-stage="burst"] .lb-word, .lb[data-stage="card"] .lb-word { animation: lb-slam 0.55s cubic-bezier(0.2, 1.8, 0.4, 1) 0.1s forwards; }
+.lb[data-rarity="legendary"][data-stage="card"] .lb-word { animation: lb-slam 0.55s cubic-bezier(0.2, 1.8, 0.4, 1) 0.1s forwards, lb-shine 1.8s linear 0.7s infinite; }
+@keyframes lb-slam { 0% { opacity: 0; transform: translateX(-50%) scale(3) rotate(-8deg); } 100% { opacity: 1; transform: translateX(-50%) scale(1) rotate(-3deg); } }
+@keyframes lb-shine { to { background-position: -300% 0; } }
+
+/* The power's card: face down, then flipped over */
+.lb-card { position: absolute; top: 96px; width: 220px; height: 260px; perspective: 800px; opacity: 0; }
+.lb-card-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transform: rotateY(180deg); }
+.lb-card-back, .lb-card-front {
+  position: absolute; inset: 0; border: 4px solid #0a0820; border-radius: 22px; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  box-shadow: 0 8px 0 #0a0820, 0 0 40px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.lb-card-back {
+  display: grid; place-items: center; transform: rotateY(180deg);
+  font: 400 80px/1 var(--display, "Bowlby One", system-ui); color: #0a0820;
+  background: repeating-linear-gradient(45deg, var(--c) 0 14px, color-mix(in srgb, var(--c) 75%, #000) 14px 28px);
+}
+.lb-card-front {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 18px; text-align: center;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 30%, #1c1640), #120e2c 70%);
+}
+.lb-emoji { font-size: 72px; line-height: 1; filter: drop-shadow(0 4px 0 #0a0820); }
+.lb-name { font: 400 30px/1.05 var(--display, "Bowlby One", system-ui); color: #fff; -webkit-text-stroke: 3px #0a0820; paint-order: stroke; text-shadow: 0 4px 0 #0a0820; }
+.lb-desc { margin: 0; font-size: 14px; line-height: 1.35; color: #e6e2ff; }
+.lb[data-stage="burst"] .lb-card { animation: lb-card-up 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) 0.3s forwards; }
+.lb[data-stage="card"] .lb-card { opacity: 1; }
+.lb[data-stage="card"] .lb-card-in { animation: lb-flip 0.7s cubic-bezier(0.3, 1.4, 0.5, 1) forwards; }
+.lb[data-stage="card"] .lb-card { animation: lb-float 3s ease-in-out 0.7s infinite; }
+@keyframes lb-card-up { from { opacity: 0; transform: translateY(80px) scale(0.3); } to { opacity: 1; transform: none; } }
+@keyframes lb-flip { from { transform: rotateY(180deg); } to { transform: rotateY(0deg); } }
+@keyframes lb-float { 0%, 100% { transform: translateY(0) rotateX(4deg); } 50% { transform: translateY(-8px) rotateX(-4deg); } }
+
+.lb-hint {
+  position: absolute; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0; margin: 0; text-align: center;
+  font: 600 15px/1.3 var(--body, system-ui); color: #cfc8ff; animation: lb-hint 1.2s ease-in-out infinite;
+}
+.lb[data-stage="fail"] .lb-hint { color: #ff8f3a; animation: none; }
+@keyframes lb-hint { 50% { opacity: 0.55; } }
+
+/* Less motion: no shaking or flying, just the result */
+.lb.still, .lb.still * { animation: none !important; transition: none !important; }
+.lb.still .lb-crate { display: none; }
+.lb.still[data-stage="card"] .lb-word, .lb.still[data-stage="burst"] .lb-word { opacity: 1; transform: translateX(-50%) rotate(-3deg); }
+.lb.still[data-stage="card"] .lb-card-in { transform: none; }
+.lb.still[data-stage="card"] .lb-card, .lb.still[data-stage="burst"] .lb-card { opacity: 1; }
+.lb.still[data-stage="card"] .lb-rays { opacity: 0.6; }
+@media (prefers-reduced-motion: reduce) {
+  .nloot-box, .nloot-glow, .nloot-beam, .btn.lt.held, .btn.lt.held .lt-ico { animation: none; }
+}
+
+/* Holding a box squeezes the main row: the tag button's words get smaller rather than spilling over */
+.tray-main:has(.btn.lt.held) .g-tag { font-size: 14px !important; gap: 0; padding-inline: 8px; min-width: 0; }
+.tray-main:has(.btn.lt.held) .g-tag > .icon { display: none; }
+.btn.lt.held { min-width: 100px; padding-inline: 12px; }

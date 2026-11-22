@@ -3,19 +3,20 @@
 // others see the same information read-only while they wait.
 // Everything is built once and then changed in place on each view, so a sync never moves the page or loses
 // focus. A setting the host just changed shows the new value at once (kept until the server answers).
-import { h, fill, add, face, text, cls, listen } from '../dom.js?v=160';
-import { icon } from '../ui/icons.js?v=160';
-import { openSheet } from '../ui/sheet.js?v=160';
-import { banner } from '../ui/banner.js?v=160';
-import { qrSvg } from '../qr.js?v=160';
-import { createMap } from '../map.js?v=160';
-import { ringProblem } from '../../shared/geo.js?v=160';
-import { cpCard } from './extras/cpcard.js?v=160'; // v1.3 PAGE-SETUP
-import { readyCard, notReady } from './ready.js?v=160'; // v1.4 PAGE-DEVICES
+import { h, fill, add, face, text, cls, listen } from '../dom.js?v=161';
+import { icon } from '../ui/icons.js?v=161';
+import { openSheet } from '../ui/sheet.js?v=161';
+import { banner } from '../ui/banner.js?v=161';
+import { qrSvg } from '../qr.js?v=161';
+import { createMap } from '../map.js?v=161';
+import { ringProblem } from '../../shared/geo.js?v=161';
+import { cpCard } from './extras/cpcard.js?v=161'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js?v=161'; // v1.4 PAGE-DEVICES
+import { createVoteShow } from './voteshow.js?v=161'; // v1.6: the Jackbox-style vote
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
-} from '../../shared/rules.js?v=160';
+} from '../../shared/rules.js?v=161';
 
 // v1.6: the browser checks written before the tabs and folds set localStorage 'nightops-show-all' = '1': every
 // tab's content shows at once and the folded cards start open (never set on a real phone).
@@ -355,7 +356,7 @@ export function mount(root, app) {
     leave.addEventListener('click', () => confirmLeave());
     const how = h('button.btn.small.ghost.icon-only.lobby-how', { type: 'button', 'aria-label': 'How to play' }, icon('info', 20));
     how.addEventListener('click', () => {
-      import('./home.js?v=160').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
+      import('./home.js?v=161').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
     });
     return h('header.lobby-top',
       h('div.lobby-top-text', h('span.label', 'Lobby'), h('h1.lobby-title', 'Get ready')),
@@ -656,7 +657,10 @@ export function mount(root, app) {
         },
       };
     }
-    const tiles = Object.entries(MODES).map(([key, m]) => {
+    // v1.6: Infection is gone from the picker (the owner: "basically the same" as Classic); a game already set to it
+    // still shows it.
+    const shown = Object.entries(MODES).filter(([key]) => key !== 'infection' || settingsNow().mode === 'infection');
+    const tiles = shown.map(([key, m]) => {
       const b = h('button.tile.lobby-mode', { type: 'button', role: 'radio', 'aria-checked': 'false' },
         h('span.lobby-mode-top', h('span.lobby-mode-name', m.label), h('span.lobby-mode-tick', icon('check', 18))),
         h('span.lobby-hint', m.line));
@@ -1014,8 +1018,13 @@ export function mount(root, app) {
       }
       render();
     });
+    // v1.6: Let's vote: every phone plays the intro and votes on the mode, the length and a twist
+    const voteBtn = h('button.btn.lobby-vote', { type: 'button' }, h('span', { 'aria-hidden': 'true' }, '🎲'), "Let's vote");
+    voteBtn.addEventListener('click', () => {
+      Promise.resolve(app.cmd({ type: 'votestart' })).catch(() => banner("The vote didn't start. Try again.", 'warn'));
+    });
     return {
-      el: h('div.lobby-foot', why, start),
+      el: h('div.lobby-foot', why, h('div.lobby-foot-row', voteBtn, start)),
       update(v) {
         const problem = startProblem(v);
         const words = S.startError || problem;
@@ -1245,10 +1254,15 @@ export function mount(root, app) {
     fill(root, h('div.lobby', h('p.lobby-hint', 'Loading the lobby...')));
   }
 
+  // v1.6: the vote's show over everything (on every phone in the lobby)
+  let voteShow = null;
+  try { voteShow = createVoteShow(app); } catch (e) { console.error(e); }
+
   return {
     update(view) {
       if (!view || S.destroyed) return;
       S.view = view;
+      if (voteShow) { try { voteShow.update(view); } catch (e) { console.error(e); } }
       // A refused Start's words stay until something that matters for starting changes.
       if (S.startError && startSig(view) !== S.startErrorSig) S.startError = '';
       // v1.3 PAGE-SETUP: ...and when the checkpoints change
@@ -1260,6 +1274,7 @@ export function mount(root, app) {
     },
     destroy() {
       S.destroyed = true;
+      if (voteShow) { try { voteShow.destroy(); } catch { /* ignore */ } }
       // Send stepper changes that were still waiting (the host tapped "Draw the ring" right after), unless
       // the lobby is over (the game started): then they can't apply any more.
       if (app.view && app.view.phase === 'lobby') flush();

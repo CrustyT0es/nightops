@@ -1,10 +1,10 @@
 // Night Ops: the role reveal, once per game at the start. Full screen in your side's colour: YOUR ROLE, a huge
 // HUNTER or HIDER, one line on what to do, your teammates' faces, and Got it (or a tap anywhere) for the game.
 // Its styles live at the end of css/lobby.css.
-import { h, fill, face, text } from '../dom.js?v=160';
-import { fmtClock } from '../../shared/rules.js?v=160';
-import { icon } from '../ui/icons.js?v=160';
-import { driverReveal } from './drive.js?v=160'; // v1.1 PAGE-DRIVER
+import { h, fill, face, text } from '../dom.js?v=161';
+import { fmtClock } from '../../shared/rules.js?v=161';
+import { icon } from '../ui/icons.js?v=161';
+import { driverReveal } from './drive.js?v=161'; // v1.1 PAGE-DRIVER
 
 const NS = 'http://www.w3.org/2000/svg';
 const TAP_GUARD_MS = 700;   // a second tap on Start mustn't skip the reveal straight away
@@ -138,10 +138,23 @@ export function mount(root, app) {
     next();
   });
 
+  // v1.6: the narrator says your role (the retro radio voice; quiet when the phone turned the narrator off)
+  let said = false;
+  function sayRole(view, w) {
+    if (said || !w.side) return;
+    said = true;
+    try {
+      if (localStorage.getItem('nightops-narrator') === 'off') return;
+    } catch { /* fine */ }
+    const line = view.me && view.me.driver ? 'driver' : w.side === 'hunter' ? 'hunter' : 'hider';
+    try { const a = new Audio(`audio/narrator/${line}.mp3`); const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch { /* no sound */ }
+  }
+
   let facesSig = '';
   function render(view) {
     if (!view) return;
     const w = revealWords(view);
+    sayRole(view, w);
     root.dataset.side = w.side || 'none';
     if (titleWord.textContent !== w.title) {
       text(titleWord, w.title);

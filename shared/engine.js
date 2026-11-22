@@ -5,14 +5,16 @@
 // run on it, so an SOS pause stops every timer at once.
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal,
-} from './geo.js?v=160';
+} from './geo.js?v=161';
 import {
-  LIMITS, TIMING, POWERS, HIDER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
+  LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=160';
+} from './rules.js?v=161';
+import { newVote, stageAt, winner, settingsFor, voteView, QUESTIONS, closed, keepFor, cleanGear } from './vote.js?v=161'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M } from './loot.js?v=161'; // v1.6: Loot drops
 
 export const ENGINE_V = 1;
 
@@ -987,6 +989,11 @@ function nextDue(s, sch, ctx, clockNow) {
   offer(endAt(s, sch), 9, { type: 'end' });
   cpDue(s, sch, offer);
   v14Due(s, offer);
+  // v1.6: Loot drops (read only here: the record is made when the drop runs)
+  if (lootGame(s) && s.ring) {
+    const next = s.loot && Number.isFinite(s.loot.next) ? s.loot.next : sch.headStartMs + LOOT_FIRST_MS;
+    if (next < sch.endMs) offer(next, 9.5, { type: 'lootDrop' });
+  }
   return best;
 }
 
@@ -1095,6 +1102,15 @@ function runDue(s, item, ctx) {
     case 'tapEnd':
       v14RunDue(s, item, t);
       break;
+    case 'lootDrop': { // v1.6
+      lootOf(s, schedule(s.settings).headStartMs);
+      const made = lootDrop(s, ringAt(s, item.clock), item.clock, ctx.rand, freeHiders(s).length);
+      if (made.length) {
+        emit(s, t, 'loot', 'all', made.length === 1 ? 'A loot box dropped! Check the map.' : `${made.length} loot boxes dropped! Check the map.`, { n: made.length });
+        addMoment(s, t, 'loot', [], { data: { n: made.length } });
+      }
+      break;
+    }
     default:
       if (cpGame(s)) cpRunDue(s, item, t, ctx);
       break;
@@ -1102,6 +1118,11 @@ function runDue(s, item, ctx) {
 }
 
 export function advance(state, { now, positions = {}, rand } = {}) {
+  // v1.6: the lobby vote: each question's winner once it has closed, the settings after the last one
+  if (state && state.phase === 'lobby' && state.vote && !state.vote.applied && voteOwed(state.vote, now)) {
+    const s1 = fillIn(copy(state));
+    if (voteDue(s1, now)) { s1.updatedAt = now; return { state: s1, changed: true }; }
+  }
   if (!state || state.phase !== 'live' || state.startedAt === null) return { state, changed: false };
   let s = state;
   let owned = false;
@@ -1179,6 +1200,25 @@ export function onPosition(state, playerId, pos, { now } = {}) {
           p.stats.distanceM = Math.round((p.stats.distanceM + d) * 10) / 10;
         }
         p.track = { p: point, at };
+        changed = true;
+      }
+    }
+  }
+
+  // v1.6: Loot drops: a free hider holding nothing grabs a box they reach (while the clock runs)
+  if (lootGame(s) && (isFree(p) || isHunter(p)) && !isDriver(s, p) && !p.loot && s.pausedAt === null && acc <= LOOT_PICK_M * 3) {
+    const clock = clockOf(s, now);
+    const sch = schedule(s.settings);
+    if (clock >= sch.headStartMs && clock < sch.endMs) {
+      const box = lootNear(s, point, clock);
+      if (box) {
+        box.by = p.id;
+        box.takenAt = clock;
+        p.loot = { id: box.id, at: clock };
+        const t = { now, clock, at: now };
+        emit(s, t, 'loot-got', p.id, 'You grabbed a loot box! Open it from your tray.');
+        emit(s, t, 'loot-taken', p.team === 'hunter' ? 'hiders' : 'hunters', `${p.name} grabbed a loot box!`, { id: p.id });
+        addMoment(s, t, 'loot', [p.id]);
         changed = true;
       }
     }
@@ -1826,7 +1866,108 @@ const COMMANDS = {
   // v1.4
   tapok: { phases: ['lobby', 'live'], run: cmdTapok },
   pin: { phases: ['live'], run: cmdPin },
+  // v1.6: the lobby vote
+  lootopen: { phases: ['live'], run: cmdLootOpen }, // v1.6: Loot drops
+  votestart: { host: true, phases: ['lobby'], run: cmdVoteStart },
+  vote: { phases: ['lobby'], run: cmdVote },
+  votestop: { host: true, phases: ['lobby'], run: cmdVoteStop },
+  gear: { phases: ['lobby'], run: cmdGear },
 };
+
+// v1.6: Loot drops: open the box you hold for a fresh charge of a hider power (a used-up one first).
+function cmdLootOpen(s, actor, cmd, t) {
+  if (!lootGame(s)) return err('bad_cmd');
+  if (!isFree(actor) && !isHunter(actor)) return err('not_free', "You can't open loot right now.");
+  if (!actor.loot) return err('no_loot', "You're not holding a loot box. Find one on the map.");
+  const side = actor.team === 'hunter' ? 'hunter' : 'hider';
+  const on = Object.entries(s.settings.powers || {}).filter(([, v]) => v).map(([k]) => k);
+  const got = lootPower(side, t.rand, on.length ? on : null);
+  if (side === 'hunter') s.team[got.power] = 'ready';
+  else actor.powers = { ...(actor.powers || {}), [got.power]: 'ready' };
+  actor.loot = null;
+  actor.lootLast = { power: got.power, rarity: got.rarity, at: t.clock };
+  actor.stats.loot = (actor.stats.loot || 0) + 1;
+  const name = POWERS[got.power] ? POWERS[got.power].name : got.power;
+  const word = got.rarity === 'legendary' ? 'LEGENDARY' : got.rarity === 'rare' ? 'Rare' : 'Common';
+  emit(s, t, 'loot-open', actor.id, `${word} loot: ${name}!`, { power: got.power, rarity: got.rarity });
+  if (side === 'hunter') emit(s, t, 'loot-team', 'hunters', `${actor.name} opened loot: ${name} for the team!`, { power: got.power, rarity: got.rarity, by: actor.id });
+  return null;
+}
+
+// ---- v1.6: the lobby vote (shared/vote.js). The host starts it; every phone plays the same intro and asks the
+// same questions from the server's clock; picks count while their question is open; the winners go into the
+// settings the first time anyone asks after the last question (voteDue, from advance).
+function cmdVoteStart(s, actor, cmd, t) {
+  const n = Array.isArray(s.checkpoints) ? s.checkpoints.length : 0;
+  s.nextVoteId = (Number.isInteger(s.nextVoteId) ? s.nextVoteId : 0) + 1;
+  s.vote = newVote({ now: t.now, id: s.nextVoteId, checkpoints: n, skipIntro: cmd.skipIntro === true });
+  emit(s, { now: t.now, clock: 0, at: t.now }, 'vote', 'all', `${actor.name} started the vote!`);
+  return null;
+}
+
+function cmdVote(s, actor, cmd, t) {
+  const v = s.vote;
+  if (!v || v.applied) return err('vote_closed', 'The vote is over.');
+  const at = stageAt(v, t.now);
+  if (at.stage !== 'question') return err('vote_closed', at.stage === 'intro' ? 'The vote starts in a moment.' : 'The vote is over.');
+  const question = v.questions[at.i];
+  if (cmd.q !== question.q || typeof cmd.pick !== 'string' || !question.options.includes(cmd.pick)) {
+    return err('vote_closed', "That question's closed: the next one's up.");
+  }
+  v.ballots[question.q][actor.id] = cmd.pick;
+  return null;
+}
+
+function cmdVoteStop(s) {
+  s.vote = null;
+  return null;
+}
+
+// The group gear check: what this phone found (location, microphone, camera), shown as everyone's ticks.
+function cmdGear(s, actor, cmd) {
+  const v = s.vote;
+  if (!v || v.applied) return err('vote_closed', 'The vote is over.');
+  if (!v.gear || typeof v.gear !== 'object') v.gear = {};
+  v.gear[actor.id] = cleanGear(cmd);
+  return null;
+}
+
+// Is there a winner or the settings still to write?
+function voteOwed(v, now) {
+  const at = stageAt(v, now);
+  if (at.stage === 'results' || at.stage === 'done') return true;
+  const result = v.result || {};
+  return v.questions.some((q, i) => !result[q.q] && closed(v, i, now));
+}
+
+// Each closed question's winner (decided from the picks alone: every phone works out the same), and the settings
+// once the last one has closed. -> true when it changed the state.
+function voteDue(s, now) {
+  const v = s.vote;
+  if (!v || v.applied) return false;
+  if (!v.result || typeof v.result !== 'object') v.result = {};
+  let changed = false;
+  v.questions.forEach((question, i) => {
+    if (v.result[question.q] || !closed(v, i, now)) return;
+    v.result[question.q] = winner(question, v.ballots[question.q], v.id, keepFor(question.q, s.settings));
+    changed = true;
+  });
+  const at = stageAt(v, now);
+  if (at.stage !== 'results' && at.stage !== 'done') return changed;
+  let next = s.settings;
+  for (const q of QUESTIONS) {
+    const key = v.result[q];
+    if (!key) continue;
+    const patch = settingsFor(q, key, { presets: PRESETS, powers: [...HIDER_POWERS, ...HUNTER_POWERS] });
+    if (!Object.keys(patch).length) continue;
+    const merged = cleanSettings(patch, next);
+    if (Array.isArray(merged.custom)) merged.custom = merged.custom.filter((k) => !Object.keys(patch).includes(k));
+    next = merged;
+  }
+  s.settings = next;
+  v.applied = true;
+  return true;
+}
 
 function phaseError(phases) {
   if (phases.includes('live')) return 'not_live';
@@ -2575,6 +2716,8 @@ export function viewFor(state, playerId, { now, positions = {}, since = 0, radio
     overId: over && Number.isFinite(s.overEventId) ? s.overEventId : null,
     watching: watchingCount(s, now),
     driverPick: s.phase === 'lobby' && typeof s.driverPick === 'string' ? s.driverPick : null,
+    vote: s.phase === 'lobby' && s.vote ? voteView(s.vote, me ? me.id : null) : null, // v1.6
+    loot: (live || over) ? lootView(s, me, clock) : null, // v1.6 Loot drops
     watchers,
     drive,
     radio,

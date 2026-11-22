@@ -11,23 +11,24 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=160';
-import { icon } from '../ui/icons.js?v=160';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=160';
-import { banner, clearBanners } from '../ui/banner.js?v=160';
-import { moment } from '../ui/moment.js?v=160';
-import { startPocket } from '../ui/pocket.js?v=160';
-import { createMap, fmtAgo } from '../map.js?v=160';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=160';
-import { distanceM, isPoint } from '../../shared/geo.js?v=160';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=160';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=160'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=160'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=160'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=160'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=160'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=160'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=160'; // v1.5.1: the beam of light on your dot
+import { h, fill, text, cls, face, listen } from '../dom.js?v=161';
+import { icon } from '../ui/icons.js?v=161';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=161';
+import { banner, clearBanners } from '../ui/banner.js?v=161';
+import { moment } from '../ui/moment.js?v=161';
+import { startPocket } from '../ui/pocket.js?v=161';
+import { createMap, fmtAgo } from '../map.js?v=161';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=161';
+import { distanceM, isPoint } from '../../shared/geo.js?v=161';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=161';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=161'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=161'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=161'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=161'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=161'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=161'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=161'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton } from './lootplay.js?v=161'; // v1.6: Loot drops
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -513,6 +514,7 @@ export function effectOf(e, view) {
   const data = e.data && typeof e.data === 'object' ? e.data : {};
   const words = String(e.text || '');
   const say = (kind, b = null, bp = null) => ({ ...none, banner: words ? [words, kind] : null, buzz: b, beep: bp });
+  if (String(e.kind).startsWith('loot')) { const fx = lootEffect(e, view); if (fx) return fx; } // v1.6
   switch (e.kind) {
     case 'checkpoint': return cpEffect(e, view); // v1.3 PAGE-PLAY
     case 'start':
@@ -733,6 +735,7 @@ export function mount(root, app) {
   S.hudSlot.appendChild(camParts.hud);
   // v1.2 end PAGE-CAM
   const cpp = cpParts({ app }); // v1.3 PAGE-PLAY: the Checkpoints card and "Take the photo"
+  const lootBtn = createLootButton({ app }); // v1.6: Loot drops' Open button
   const topBar = h('div.g-topbar', teamPill, leftBox, pingBox, S.hudSlot, sosBtn, moreBtn);
   const hidersLabel = h('span.g-hiders-label');
   const hidersFaces = h('div.g-hfaces');
@@ -1000,6 +1003,8 @@ export function mount(root, app) {
       P.cpParts = parts;
     }
     // v1.3 end PAGE-PLAY
+    // v1.6: Loot drops: a free hider's or a hunter's Open button (never the driver, who can't grab boxes)
+    if (lootOf(view) && role !== 'driver' && role !== 'out') parts.push({ el: lootBtn.el, main: true, order: 15 });
     parts.push({ el: P.chatBtn, main: true, order: 90 });
     // The last chat lines and the quick buttons.
     parts.push({ el: P.talk, main: false, order: 80 });
@@ -1182,6 +1187,7 @@ export function mount(root, app) {
     const head = inHeadStart(view, cd);
     const live = view.phase === 'live';
     cpSwap(view, c); // v1.3 PAGE-PLAY
+    try { lootBtn.update(view, c); } catch (e) { console.error(e); } // v1.6
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
@@ -1362,6 +1368,15 @@ export function mount(root, app) {
       });
     } catch (e) {
       console.error(e);
+    }
+    // v1.6: Loot drops' boxes on the ground
+    if (typeof map.setLoot === 'function' && (lootOf(view) || S.lootKey)) {
+      const boxes = lootOf(view) ? lootOf(view).boxes : [];
+      const key = JSON.stringify(boxes.map((b) => [b.id, b.p, b.left < 30000]));
+      if (key !== S.lootKey) {
+        S.lootKey = key;
+        try { map.setLoot(boxes); } catch (e) { console.error(e); }
+      }
     }
     // v1.3 PAGE-PLAY: the checkpoints this phone may see (open, closed, the hider's own done ones ticked)
     if (typeof map.setSpots === 'function' && (cpOf(view) || S.cpSpotsKey)) {
@@ -2222,6 +2237,7 @@ export function mount(root, app) {
     try { fixIt.destroy(); } catch { /* ignore */ } // v1.4 PAGE-DEVICES
     try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ } // v1.4 PAGE-PLAY
     try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
+    try { lootBtn.destroy(); } catch { /* ignore */ } // v1.6
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER

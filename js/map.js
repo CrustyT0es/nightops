@@ -31,13 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=160';
-import { icon } from './ui/icons.js?v=160';
+import { h, face as makeFace, text, listen } from './dom.js?v=161';
+import { icon } from './ui/icons.js?v=161';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=160';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=160';
+} from '../shared/geo.js?v=161';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=161';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -1217,6 +1217,9 @@ export function createMap(container, { interactive = true } = {}) {
   const pinLayer = h('div.nmap-pins');
   root.insertBefore(pinSvg, facesLayer);
   root.insertBefore(pinLayer, facesLayer);
+  // v1.6: Loot drops' boxes, over the ring, under the faces
+  const lootLayer = h('div.nmap-loot');
+  root.insertBefore(lootLayer, facesLayer);
   // v1.4 end PAGE-PLAY
 
   const timers = new Set();
@@ -1360,7 +1363,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=160');
+      lib = await import('../vendor/maplibre-gl.mjs?v=161');
     } catch {
       cancel(deadline);
       giveUp();
@@ -1619,6 +1622,7 @@ export function createMap(container, { interactive = true } = {}) {
     for (const rec of heads.values()) drawRec(rec, now, eng);
     drawSpots(eng); // v1.3 PAGE-SETUP
     drawPins(eng); // v1.4 PAGE-PLAY
+    drawLoot(eng); // v1.6
     placeGroups();
     // v1.2: a new zoom (or size): group the faces again once it stands still.
     let z = null;
@@ -2609,6 +2613,45 @@ export function createMap(container, { interactive = true } = {}) {
   }
   // v1.4.8 end
 
+  // v1.6: Loot drops. setLoot([{ id, p, left }]) draws each box as a glowing crate with its own bob; a new box
+  // drops in from above, a box that's gone pops away. Not tappable (walk to it).
+  const lootRecs = new Map(); // id -> { el, p, x, y, shown }
+  function setLoot(list) {
+    if (S.destroyed) return;
+    const seen = new Set();
+    for (const b of Array.isArray(list) ? list : []) {
+      if (!b || !isPoint(b.p)) continue;
+      const id = String(b.id);
+      seen.add(id);
+      let rec = lootRecs.get(id);
+      if (!rec) {
+        const el = h('div.nloot.unplaced', { 'aria-hidden': 'true' },
+          h('span.nloot-beam'), h('span.nloot-glow'), h('span.nloot-box', h('span.nloot-lid'), h('span.nloot-body')));
+        el.style.setProperty('--bob', `${(lootRecs.size % 4) * -0.35}s`);
+        rec = { el, p: b.p, x: null, y: null, shown: false };
+        lootRecs.set(id, rec);
+        lootLayer.appendChild(el);
+      }
+      rec.p = [b.p[0], b.p[1]];
+      rec.el.classList.toggle('soon-gone', Number.isFinite(b.left) && b.left < 30000);
+    }
+    for (const [id, rec] of lootRecs) {
+      if (seen.has(id)) continue;
+      lootRecs.delete(id);
+      rec.el.classList.add('gone');
+      setTimeout(() => rec.el.remove(), 450);
+    }
+    if (active) drawLoot(active);
+    requestFrame();
+  }
+  function drawLoot(eng) {
+    for (const rec of lootRecs.values()) {
+      const xy = eng.project(rec.p);
+      if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) { unplace(rec); continue; }
+      place(rec, xy[0], xy[1]);
+    }
+  }
+
   // ---- start ----
 
   makePlain();
@@ -2628,6 +2671,7 @@ export function createMap(container, { interactive = true } = {}) {
     setRoutes,
     setSpots, onSpotTap, // v1.3 PAGE-SETUP
     setPins, onPinTap, // v1.4 PAGE-PLAY
+    setLoot, // v1.6
     setNavRoute, navCamera, flatView, navView, // v1.4.8
     setInsets,
     setHeading, // v1.5.1: the beam of light on your dot (deg, 0 = north; null hides it)

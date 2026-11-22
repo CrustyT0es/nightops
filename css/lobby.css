@@ -667,3 +667,19 @@ button.lobby-mode { min-height: 88px; }
 
 @keyframes lobby-pop { 0% { opacity: 0; scale: .2; } 70% { opacity: 1; scale: 1.15; } 100% { scale: 1; } }
 @media (prefers-reduced-motion: reduce) { .lobby-code > .lobby-code-letter { animation: none; } }
+
+/* v1.6: the team reveal, night-sticker style: your side's colour floods the screen behind a turning sunburst,
+   the word stamps on in the display face with an ink outline, the teammates as stickers. */
+.screen-reveal { background: radial-gradient(120% 90% at 50% 30%, color-mix(in srgb, var(--side, #333) 70%, #fff 0%) 0%, color-mix(in srgb, var(--side, #333) 55%, #000) 60%, #08091c 100%) !important; }
+.screen-reveal .reveal-bg::before {
+  content: ''; position: absolute; left: 50%; top: 42%; width: 220vmax; height: 220vmax; translate: -50% -50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, .10) 0 8deg, transparent 8deg 16deg);
+  animation: vs-spin 22s linear infinite; pointer-events: none;
+}
+.screen-reveal .reveal-kicker { font-family: var(--display); font-size: 20px; letter-spacing: .12em; color: #fff; -webkit-text-stroke: 1.5px var(--ink); paint-order: stroke fill; }
+.screen-reveal .reveal-title { font-family: var(--display); font-weight: 400; color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; text-shadow: 7px 7px 0 var(--ink); rotate: -4deg; animation: vs-slam .6s .2s cubic-bezier(.2, 1.7, .4, 1) both; }
+.screen-reveal .reveal-title .reveal-bar { display: none; }
+.screen-reveal .reveal-sub, .screen-reveal .reveal-line { color: #fff; font-weight: 700; text-shadow: 2px 2px 0 rgba(0, 0, 0, .5); }
+.screen-reveal .reveal-team { border: 3px solid var(--ink); border-radius: 20px; background: rgba(10, 12, 40, .6); box-shadow: 5px 6px 0 var(--ink); }
+.screen-reveal .reveal-go { background: #fff; color: var(--ink); font-family: var(--display); font-weight: 400; font-size: 20px; }
+@media (prefers-reduced-motion: reduce) { .screen-reveal .reveal-bg::before, .screen-reveal .reveal-title { animation: none; } }
