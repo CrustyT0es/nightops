@@ -13,9 +13,9 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { h, fill, text, face } from '../dom.js?v=165';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=165';
-import { pickFace } from '../face.js?v=165';
+import { h, fill, text, face } from '../dom.js?v=166';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=166';
+import { pickFace } from '../face.js?v=166';
 
 const AUDIO = 'audio/narrator/';
 const MUTE_KEY = 'nightops-narrator';   // 'off' = Static stays quiet on this phone
@@ -115,6 +115,21 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   doc.body.appendChild(layer);
   const narr = new Audio();
   narr.preload = 'auto';
+  // The show's music (ElevenLabs, a loop), quieter while Static talks; the mute button quiets both.
+  const music = new Audio('audio/show-music.mp3');
+  music.loop = true;
+  music.preload = 'auto';
+  const MUSIC_VOL = 0.32;
+  const MUSIC_DUCK = 0.12;
+  const duck = (down) => { try { music.volume = down ? MUSIC_DUCK : MUSIC_VOL; } catch { /* fine */ } };
+  narr.addEventListener('playing', () => duck(true));
+  for (const ev of ['ended', 'pause', 'error']) narr.addEventListener(ev, () => duck(false));
+  function musicOn(on) {
+    try {
+      if (on && !muted() && music.paused) { duck(!narr.paused); const p = music.play(); if (p && p.catch) p.catch(() => {}); }
+      if ((!on || muted()) && !music.paused) music.pause();
+    } catch { /* no music: the show goes on */ }
+  }
   narr.addEventListener('playing', () => host.talk(true));
   for (const ev of ['ended', 'pause', 'error']) narr.addEventListener(ev, () => host.talk(muted() && Date.now() < S.talkUntil));
   let unlocked = false;
@@ -134,6 +149,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   muteBtn.addEventListener('click', () => {
     try { localStorage.setItem(MUTE_KEY, muted() ? 'on' : 'off'); } catch { /* fine */ }
     if (muted()) narr.pause();
+    musicOn(!layer.hidden);
     paintMute();
   });
   skipBtn.addEventListener('click', () => { S.localSkip = S.voteId; S.key = ''; tick(); app.cmd({ type: 'voteskip' }, { quiet: true }).catch(() => {}); }); // (everyone skips with the host)
@@ -453,6 +469,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     const v = S.view && S.view.vote;
     const at = v ? stageAt(v, now()) : { stage: 'done' };
     if (!v || at.stage === 'done') {
+      musicOn(false);
       layer.hidden = true;
       doc.documentElement.classList.remove('vs-on');
       S.key = '';
@@ -460,6 +477,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     }
     layer.hidden = false;
     doc.documentElement.classList.add('vs-on');
+    if (unlocked) musicOn(true);
     let skipped = false;
     const countdown = () => { const secs = Math.ceil(at.left / 1000); text(clock, String(secs)); clock.classList.toggle('hurry', secs <= 3); };
     if (at.stage === 'intro') {
@@ -538,7 +556,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     destroy() {
       S.dead = true;
       clearInterval(S.timer);
-      try { narr.pause(); } catch { /* fine */ }
+      try { narr.pause(); music.pause(); } catch { /* fine */ }
       doc.removeEventListener('pointerdown', unlock, { capture: true });
       doc.documentElement.classList.remove('vs-on');
       layer.remove();

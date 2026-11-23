@@ -544,3 +544,7 @@ html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
 .cd-card.front .cd-card-in { animation: cd-float 3.4s ease-in-out infinite, cd-showoff 9s ease-in-out 3s infinite; }
 @keyframes cd-showoff { 0%, 70% { rotate: y 0deg; } 85% { rotate: y 180deg; } 100% { rotate: y 360deg; } }
 .cd-card.flipped .cd-card-in { animation: none !important; transform: rotateY(180deg); transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
+/* The chest is gone before the card rises (never half through it) */
+.lb[data-stage="burst"] .lb-crate.mc { animation: mc-sink .45s ease-in .35s forwards; }
+.lb[data-stage="card"] .lb-crate.mc { visibility: hidden; animation: none; }
+.lb[data-stage="burst"] .lb-card { animation: lb-card-up .5s cubic-bezier(.2, 1.4, .4, 1) .8s both; }
