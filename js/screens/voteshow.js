@@ -13,10 +13,10 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { h, fill, text, face } from '../dom.js?v=172';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=172';
-import { pickFace } from '../face.js?v=172';
-import { chest } from '../chest.js?v=172';
+import { h, fill, text, face } from '../dom.js?v=173';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=173';
+import { pickFace } from '../face.js?v=173';
+import { chest } from '../chest.js?v=173';
 
 const AUDIO = 'audio/narrator/';
 const MUTE_KEY = 'nightops-narrator';   // 'off' = Static stays quiet on this phone

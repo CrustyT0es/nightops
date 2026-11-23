@@ -8,10 +8,10 @@
 // During a live game: when the watchdog says 'denied', 'off' or 'timeout' (or 'stale' for STALE_SHOUT_MS more), a
 // full-screen layer over the map and tray (under sheets, moments, SOS and pocket mode). It goes by itself as soon as
 // a fix comes; "I'll fix it later" leaves a red bar ("Location off. Fix it") until then. Retries go on underneath.
-import { h, fill } from '../dom.js?v=172';
-import { icon } from './icons.js?v=172';
-import { holdInert } from './inert.js?v=172';
-import { helpFor, stepParts, deviceKind } from '../help.js?v=172';
+import { h, fill } from '../dom.js?v=173';
+import { icon } from './icons.js?v=173';
+import { holdInert } from './inert.js?v=173';
+import { helpFor, stepParts, deviceKind } from '../help.js?v=173';
 
 export const STALE_SHOUT_MS = 30000;
 export const LOST = ['denied', 'off'];
