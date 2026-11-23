@@ -970,9 +970,13 @@ body[data-team='none'] .g-ask-power-icon { color: var(--text-2); }
 .tray-more .g-status {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas: 'line btn';
-  min-height: 0;
-  padding: 8px 8px 8px 12px;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  height: auto;
+  padding: 10px 10px 10px 14px;
 }
+.tray-more .g-status-line { overflow-wrap: anywhere; white-space: normal; }
 .tray-more .g-status-icon { display: none; }
 .tray-more .g-status-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .tray-more .g-status-line { align-self: center; padding-right: 0; }

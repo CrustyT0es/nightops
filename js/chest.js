@@ -2,7 +2,7 @@
 // chest(size) -> element. size: 'map' (on the map, ~44 px), 'fly' (flying into your phone), 'show' (the show's
 // scenes), or nothing (the opening's own, full size). A base and a hinged lid, each six shaded faces with gold trim,
 // a "?" lock; it turns slowly. Its styles are css/loot.css (.mc-*, .chest).
-import { h } from './dom.js?v=174';
+import { h } from './dom.js?v=175';
 
 export function chestModel() {
   const prism = (cls, kids = {}) => h(`div.mc-${cls}`, ...['front', 'back', 'left', 'right', 'top', 'bottom']

@@ -511,6 +511,7 @@ button.nmark-hit:active .face { transform: scale(0.94); }
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
+  grid-auto-rows: max-content; /* rows never squash (their words spilled over the next row's buttons) */
   gap: 8px;
   max-height: 52vh;
   max-height: 52dvh;
