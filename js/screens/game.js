@@ -11,24 +11,24 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=173';
-import { icon } from '../ui/icons.js?v=173';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=173';
-import { banner, clearBanners } from '../ui/banner.js?v=173';
-import { moment } from '../ui/moment.js?v=173';
-import { startPocket } from '../ui/pocket.js?v=173';
-import { createMap, fmtAgo } from '../map.js?v=173';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=173';
-import { distanceM, isPoint } from '../../shared/geo.js?v=173';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=173';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=173'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=173'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=173'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=173'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=173'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=173'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=173'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, createCardDeck } from './lootplay.js?v=173'; // v1.6: Loot drops
+import { h, fill, text, cls, face, listen } from '../dom.js?v=174';
+import { icon } from '../ui/icons.js?v=174';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=174';
+import { banner, clearBanners } from '../ui/banner.js?v=174';
+import { moment } from '../ui/moment.js?v=174';
+import { startPocket } from '../ui/pocket.js?v=174';
+import { createMap, fmtAgo } from '../map.js?v=174';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=174';
+import { distanceM, isPoint } from '../../shared/geo.js?v=174';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=174';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=174'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=174'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=174'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=174'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=174'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=174'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=174'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, createCardDeck } from './lootplay.js?v=174'; // v1.6: Loot drops
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped

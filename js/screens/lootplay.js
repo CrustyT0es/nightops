@@ -11,11 +11,11 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=173';
-import { chest, chestModel } from '../chest.js?v=173';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=173';
-import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=173';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=173';
+import { h, text } from '../dom.js?v=174';
+import { chest, chestModel } from '../chest.js?v=174';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=174';
+import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=174';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=174';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -173,7 +173,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=173').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=174').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Walk right up to one to grab it.${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -441,7 +441,8 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
     storm.hidden = !st;
     stormTxt.hidden = !st;
     if (st) { text(stormTxt.lastChild, fmtClock(st)); if (!stormWas) drawStatic(); }
-    const gl = left('glitch') > 0;
+    const victim = !!(view && view.me && view.me.team === 'hunter' && !view.me.driver); // Glitch only hits the hunters' phones
+    const gl = victim && left('glitch') > 0;
     if (gl && !S.glitchOn) { S.glitchOn = true; S.started = Date.now(); S.pocketDone = false; S.timer = setTimeout(glitchTick, 1200); }
     if (!gl && S.glitchOn) { S.glitchOn = false; clearTimeout(S.timer); fakePocket.hidden = true; }
     const c = fx.compass && Math.max(0, fx.compass.left - gone) > 0 ? fx.compass : null;
