@@ -10,11 +10,11 @@
 // (memory only where OPFS is missing, and then only up to MEMORY_MOST). About 720p at a rate that keeps 45 min
 // near 400 MB; storage.estimate is checked first and a smaller size offered when space is short. Paused while the
 // page is hidden (a hidden page's frames stop) and carried on when it's back; the screen kept on; Cancel any time.
-import { h, text } from './dom.js?v=170';
-import { openSheet } from './ui/sheet.js?v=170';
-import { fmtClock } from '../shared/rules.js?v=170';
-import { createMp4Muxer } from './mp4mux.js?v=170';
-import { openSink as openFileSink, clearMovies } from './sink.js?v=170';
+import { h, text } from './dom.js?v=171';
+import { openSheet } from './ui/sheet.js?v=171';
+import { fmtClock } from '../shared/rules.js?v=171';
+import { createMp4Muxer } from './mp4mux.js?v=171';
+import { openSink as openFileSink, clearMovies } from './sink.js?v=171';
 
 export const TYPES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
 export const FPS = 30;
@@ -92,7 +92,7 @@ export async function renderReel({
   const Recorder = win.MediaRecorder;
   const type = recType(Recorder);
   if (!type) throw new Error("This phone can't make a movie file. Watch it here instead.");
-  const openReel = open || (await import('./screens/reelplayer.js?v=170')).openReel;
+  const openReel = open || (await import('./screens/reelplayer.js?v=171')).openReel;
   const player = openReel({ app, summary, reel, ring, kind: reel.kind, record: true, doc, win });
   // the street map's pictures first (never longer than MAPS_WAIT_MS: then the grid)
   if (player.mapsReady) await Promise.race([player.mapsReady.catch(() => false), sleep(MAPS_WAIT_MS)]);
@@ -325,9 +325,9 @@ async function linksFor(app, ids) {
 export async function renderFast({ app, reel, summary = {}, ring = null, signal = null, small = false, onProgress = () => {}, code = '', doc = globalThis.document, win = globalThis.window, how = null } = {}) {
   const way = how || (await chooseWay(win));
   if (way.way !== 'webcodecs') throw new Error(NO_WAY);
-  const { drawFrame, framePlan, audioAt } = await import('./movie.js?v=170');
-  const { synth } = await import('./screens/reelplayer.js?v=170');
-  const { gainOf } = await import('./scenes.js?v=170');
+  const { drawFrame, framePlan, audioAt } = await import('./movie.js?v=171');
+  const { synth } = await import('./screens/reelplayer.js?v=171');
+  const { gainOf } = await import('./scenes.js?v=171');
   const plan = renderPlan({ reel, quality: small ? 'small' : 'normal' });
   const total = Math.max(1, reel.ms);
   const stopped = () => !!(signal && signal.aborted);
@@ -377,7 +377,7 @@ export async function renderFast({ app, reel, summary = {}, ring = null, signal 
   }
   let maps = null;
   try {
-    const { prepareMaps } = await import('./moviemap.js?v=170');
+    const { prepareMaps } = await import('./moviemap.js?v=171');
     maps = prepareMaps(reel, { doc, win });
     await Promise.race([maps.done.catch(() => false), sleep(MAPS_WAIT_MS)]);
   } catch { maps = null; }

@@ -8,12 +8,12 @@
 // (else performance.now()) is reel time. Clip frames come from a pool of <video> elements; each frame a video is
 // compared with its target: off by more than DRIFT_MS -> playbackRate 0.9 / 1.1 for up to 1 s, over RESEEK_MS -> a
 // seek. A video still loading holds its last frame dimmed; the clock never stalls (the audio carries on).
-import { h, text } from '../dom.js?v=170';
-import { icon } from '../ui/icons.js?v=170';
-import { scenes } from '../scenes.js?v=170';
-import { drawFrame, framePlan } from '../movie.js?v=170';
-import { prepareMaps } from '../moviemap.js?v=170';
-import { fmtClock } from '../../shared/rules.js?v=170';
+import { h, text } from '../dom.js?v=171';
+import { icon } from '../ui/icons.js?v=171';
+import { scenes } from '../scenes.js?v=171';
+import { drawFrame, framePlan } from '../movie.js?v=171';
+import { prepareMaps } from '../moviemap.js?v=171';
+import { fmtClock } from '../../shared/rules.js?v=171';
 
 export const VIDEO_POOL = 4;
 export const REC_W = 720;              // a recorded file's size (render.js): about 720p, upright

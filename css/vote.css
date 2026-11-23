@@ -505,6 +505,6 @@ html.vs-on, html.vs-on body { overflow: hidden; }
   transform: translateX(-110%) skewX(-18deg);
 }
 .vs-tvx.go { animation: none; }
-.vs-tvx.go::before { animation: vs-wipe .6s cubic-bezier(.6, 0, .3, 1) both; }
+.vs-tvx.go::before { animation: vs-wipe 1.6s cubic-bezier(.45, 0, .55, 1) both; }
 @keyframes vs-wipe { from { transform: translateX(-110%) skewX(-18deg); } to { transform: translateX(90%) skewX(-18deg); } }
 @media (prefers-reduced-motion: reduce) { .vs-tvx.go::before { animation: none; } }

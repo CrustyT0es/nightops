@@ -1,14 +1,14 @@
 // Night Ops: the home screen. Who you are (name + optional selfie), then Create a game or Join one with a
 // 6-letter code (typed, pasted, or from an invite link). A "How to play" sheet, and a note about location.
 // There's no game yet, so this screen renders from the App (app.me, app.args, app.savedGame), not a view.
-import { h, fill, face, text, listen } from '../dom.js?v=170';
-import { icon } from '../ui/icons.js?v=170';
-import { openSheet } from '../ui/sheet.js?v=170';
-import { linkSheet, linkedPc } from '../pcedit.js?v=170'; // v1.5: the PC edit
-import { pickFace } from '../face.js?v=170';
-import { cleanName } from '../identity.js?v=170';
-import { normalizeCode } from '../app.js?v=170';
-import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=170';
+import { h, fill, face, text, listen } from '../dom.js?v=171';
+import { icon } from '../ui/icons.js?v=171';
+import { openSheet } from '../ui/sheet.js?v=171';
+import { linkSheet, linkedPc } from '../pcedit.js?v=171'; // v1.5: the PC edit
+import { pickFace } from '../face.js?v=171';
+import { cleanName } from '../identity.js?v=171';
+import { normalizeCode } from '../app.js?v=171';
+import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=171';
 
 const NS = 'http://www.w3.org/2000/svg';
 
