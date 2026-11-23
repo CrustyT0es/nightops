@@ -31,14 +31,13 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { chest } from './chest.js?v=167'; // v1.6.2: the 3D mystery chest
-import { h, face as makeFace, text, listen } from './dom.js?v=167';
-import { icon } from './ui/icons.js?v=167';
+import { h, face as makeFace, text, listen } from './dom.js?v=168';
+import { icon } from './ui/icons.js?v=168';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=167';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=167';
+} from '../shared/geo.js?v=168';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=168';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -1365,7 +1364,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=167');
+      lib = await import('../vendor/maplibre-gl.mjs?v=168');
     } catch {
       cancel(deadline);
       giveUp();
@@ -2629,7 +2628,7 @@ export function createMap(container, { interactive = true } = {}) {
       let rec = lootRecs.get(id);
       if (!rec) {
         const el = h('div.nloot.unplaced', { 'aria-hidden': 'true' },
-          h('span.nloot-beam'), h('span.nloot-glow'), chest('map'));
+          h('span.nloot-zone'), h('span.nloot-beam'), h('span.chest2d', h('i.c2-lid'), h('i.c2-base'), h('i.c2-band'), h('b.c2-lock', '?')));
         el.style.setProperty('--bob', `${(lootRecs.size % 4) * -0.35}s`);
         rec = { el, p: b.p, x: null, y: null, shown: false };
         lootRecs.set(id, rec);
@@ -2652,6 +2651,18 @@ export function createMap(container, { interactive = true } = {}) {
       const xy = eng.project(rec.p);
       if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) { unplace(rec); continue; }
       place(rec, xy[0], xy[1]);
+      // v1.6.2: to scale: the grab zone (LOOT_PICK_M) in real metres, the chest sized from it (never bigger than
+      // the zone, so a face beside it never looks like it's on it)
+      let r = 20;
+      try { r = 20 * eng.pxPerMetre(rec.p[1]); } catch { /* the default */ }
+      const rr = Math.round(r * 10) / 10;
+      if (rec.r !== rr) {
+        rec.r = rr;
+        rec.el.style.setProperty('--zr', `${rr}px`);
+        const size = Math.max(18, Math.min(44, rr * 1.3));
+        rec.el.style.setProperty('--cs', `${Math.round(size)}px`);
+        rec.el.style.setProperty('--kk', String(Math.round((size / 200) * 1000) / 1000 / 0.9));
+      }
     }
   }
 

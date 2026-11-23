@@ -565,3 +565,18 @@ html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
 /* Static's loot scene and the explainer */
 .chest-show { width: 150px; height: 130px; margin: 10px 0 4px; --k: .72; animation: nloot-drop .8s cubic-bezier(.2, 1.6, .4, 1) both, vs-lootshake .5s ease-in-out 1s infinite; }
 @media (prefers-reduced-motion: reduce) { .chest .mc-spin, .chest-map, .chest-show, .chest-fly { animation: none !important; } }
+/* v1.6.2: the chest on the map, to scale: sitting on its spot inside its real 20 m grab zone */
+.nloot-zone { position: absolute; left: calc(var(--zr, 20px) * -1); top: calc(var(--zr, 20px) * -1); width: calc(var(--zr, 20px) * 2); height: calc(var(--zr, 20px) * 2); border-radius: 50%; border: 2px dashed rgba(180, 140, 255, .8); background: rgba(155, 107, 255, .12); box-sizing: border-box; }
+.nloot .nloot-glow { display: none; }
+.nloot .nloot-beam { left: -6px; width: 12px; height: 60px; bottom: 0; }
+.chest-map { left: calc(var(--cs, 30px) / -2); top: calc(var(--cs, 30px) * -.62); width: var(--cs, 30px); height: var(--cs, 30px); --k: var(--kk, .15); }
+/* v1.6.2: on the map, a flat chest (same colours), to scale in its grab zone */
+.chest2d { position: absolute; left: calc(var(--cs, 30px) / -2); top: calc(var(--cs, 30px) * -.5); width: var(--cs, 30px); height: calc(var(--cs, 30px) * .82);
+  filter: drop-shadow(0 2px 0 #0a0820) drop-shadow(0 0 6px rgba(155, 107, 255, .9));
+  animation: nloot-drop .7s cubic-bezier(.2, 1.6, .4, 1) both, nloot-bob 2.2s ease-in-out var(--bob, 0s) infinite .7s; }
+.c2-lid { position: absolute; left: 0; right: 0; top: 0; height: 40%; border: 2px solid #0a0820; border-radius: 45% 45% 10% 10% / 70% 70% 10% 10%; background: linear-gradient(#c8a8ff, #7d4cf5); box-shadow: inset 0 -2px 0 #ffc21f; }
+.c2-base { position: absolute; left: 4%; right: 4%; top: 36%; bottom: 0; border: 2px solid #0a0820; border-radius: 2px 2px 5px 5px; background: linear-gradient(#8a5cff, #4a22b8); box-shadow: inset 0 0 0 2px #ffc21f; }
+.c2-band { position: absolute; left: 50%; top: 0; bottom: 0; width: 16%; margin-left: -8%; background: #ffd23f; border-left: 1.5px solid #0a0820; border-right: 1.5px solid #0a0820; }
+.c2-lock { position: absolute; left: 50%; top: 28%; width: 34%; height: 40%; margin-left: -17%; display: grid; place-items: center; border: 1.5px solid #0a0820; border-radius: 3px; background: #ffc21f; color: #2a1270; font: 400 calc(var(--cs, 30px) * .26)/1 var(--display, "Bowlby One", system-ui); }
+.nloot.soon-gone .chest2d { animation: nloot-blink .9s steps(2, start) infinite; }
+.nloot.gone .chest2d { animation: nloot-pop .4s ease-in forwards; }

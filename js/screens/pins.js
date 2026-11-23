@@ -5,10 +5,10 @@
 //   createPinTool(app, { map, getView, banner, navigate }) -> { btn, update(view), arm(), tapPin(key), destroy() }
 //       the tray's "Pin" button: the next map tap opens the drop sheet; a pin tapped shows its words (+ Remove;
 //       v1.4.8: + Navigate on the driver's phone, for a Driver: go here or Go here pin, when `navigate(pin)` is given)
-import { h, text, cls } from '../dom.js?v=167';
-import { icon } from '../ui/icons.js?v=167';
-import { openSheet } from '../ui/sheet.js?v=167';
-import { LIMITS } from '../../shared/rules.js?v=167';
+import { h, text, cls } from '../dom.js?v=168';
+import { icon } from '../ui/icons.js?v=168';
+import { openSheet } from '../ui/sheet.js?v=168';
+import { LIMITS } from '../../shared/rules.js?v=168';
 
 // 'Hider seen' pins are never shown to the driver (they only see hunters): use 'Driver: go here' for them.
 export const PIN_HINT = "The driver doesn't see Hider seen pins. Use Driver: go here.";
