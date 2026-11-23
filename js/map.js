@@ -31,13 +31,14 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=166';
-import { icon } from './ui/icons.js?v=166';
+import { chest } from './chest.js?v=167'; // v1.6.2: the 3D mystery chest
+import { h, face as makeFace, text, listen } from './dom.js?v=167';
+import { icon } from './ui/icons.js?v=167';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=166';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=166';
+} from '../shared/geo.js?v=167';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=167';
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -1364,7 +1365,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=166');
+      lib = await import('../vendor/maplibre-gl.mjs?v=167');
     } catch {
       cancel(deadline);
       giveUp();
@@ -2628,7 +2629,7 @@ export function createMap(container, { interactive = true } = {}) {
       let rec = lootRecs.get(id);
       if (!rec) {
         const el = h('div.nloot.unplaced', { 'aria-hidden': 'true' },
-          h('span.nloot-beam'), h('span.nloot-glow'), h('span.nloot-box', h('span.nloot-lid'), h('span.nloot-body')));
+          h('span.nloot-beam'), h('span.nloot-glow'), chest('map'));
         el.style.setProperty('--bob', `${(lootRecs.size % 4) * -0.35}s`);
         rec = { el, p: b.p, x: null, y: null, shown: false };
         lootRecs.set(id, rec);

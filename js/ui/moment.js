@@ -4,7 +4,7 @@
 // above it, one line under it, on a background tinted in the kind's colour. One at a time: others wait their
 // turn (only the newest two wait; older ones are skipped). Tap (or Esc) closes it when `tap` is true; with
 // tap false, taps go through to the screen underneath. Nothing is shown while the page is hidden.
-import { h } from '../dom.js?v=166';
+import { h } from '../dom.js?v=167';
 
 export const MOMENT_KINDS = ['hunter', 'hider', 'ping', 'caught', 'radar', 'win', 'sos'];
 MOMENT_KINDS.push('checkpoint'); // v1.3 PAGE-PLAY: checkpoint violet (css/cpplay.css)

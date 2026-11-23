@@ -13,9 +13,10 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { h, fill, text, face } from '../dom.js?v=166';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=166';
-import { pickFace } from '../face.js?v=166';
+import { h, fill, text, face } from '../dom.js?v=167';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=167';
+import { pickFace } from '../face.js?v=167';
+import { chest } from '../chest.js?v=167';
 
 const AUDIO = 'audio/narrator/';
 const MUTE_KEY = 'nightops-narrator';   // 'off' = Static stays quiet on this phone
@@ -214,7 +215,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
         ...['📡', '🎭', '📵', '👁️', '🏃', '🚨', '🌫️', '👻'].map((e, i, all) => setVar(setVar(h('span.vs-ccard', e), '--i', i), '--n', all.length))))),
     loot: () => h('div.vs-scene', ...head('Loot drops', 'warn', ['Grab a box.', h('br'), 'Crack it open.']),
       h('div.vs-lootshow', { 'aria-hidden': 'true' },
-        h('span.nloot-box.big', h('span.nloot-lid'), h('span.nloot-body')),
+        chest('show'),
         h('span.vs-rarities', ...['COMMON', 'RARE', 'LEGENDARY', 'MYTHIC'].map((w, n) => setVar(h(`span.r${n}`, w), '--i', n))))),
     walkie: () => h('div.vs-scene', ...head('Walkie + driver', 'hunter', ['Hold to talk.', h('br'), 'Hop in the car.']),
       plane('road', h('span.vs-road'), h('span.vs-car', '🚗'), dot('hunter', 'waiting')),

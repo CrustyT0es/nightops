@@ -11,10 +11,11 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=166';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=166';
-import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=166';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=166';
+import { h, text } from '../dom.js?v=167';
+import { chest, chestModel } from '../chest.js?v=167';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=167';
+import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=167';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=167';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -88,12 +89,7 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
   // v1.6.2: a mystery chest in 3D: a base and a hinged lid (each a box of six shaded faces: lit front, darker
   // sides, gold trim), a "?" lock on the front. It spins in, hops and spins faster while it shakes, then the lid
   // swings open with light pouring out (Clash Royale style).
-  const prism = (cls, kids = {}) => h(`div.mc-${cls}`, ...['front', 'back', 'left', 'right', 'top', 'bottom']
-    .map((k) => h(`span.mc-f.mc-${k}`, h('i.mc-trim'), kids[k] || null)));
-  const crate = h('div.lb-crate.mc', { 'aria-hidden': 'true' }, h('div.mc-glow'), h('div.mc-spin',
-    prism('base', { front: h('b.mc-lock', '?') }),
-    h('div.mc-hinge', prism('lid', { top: h('i.mc-band') })),
-    h('div.mc-light')), h('div.mc-shadow'));
+  const crate = h('div.lb-crate.mc', { 'aria-hidden': 'true' }, h('div.mc-glow'), chestModel(), h('div.mc-shadow'));
   const word = h('div.lb-word');
   const emoji = h('div.lb-emoji', { 'aria-hidden': 'true' });
   const name = h('div.lb-name');
@@ -177,7 +173,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=166').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=167').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Walk right up to one to grab it.${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -275,7 +271,7 @@ export function flyIn({ from, to, doc = globalThis.document } = {}) {
     const sy = from ? from[1] : W.innerHeight / 2;
     const ex = end ? end.left + end.width / 2 : W.innerWidth / 2;
     const ey = end ? end.top + end.height / 2 : W.innerHeight - 60;
-    const crate = h('div.lf-crate', { 'aria-hidden': 'true' }, h('span.nloot-box.lf-box', h('span.nloot-lid'), h('span.nloot-body')));
+    const crate = h('div.lf-crate', { 'aria-hidden': 'true' }, chest('fly'));
     const ring = h('div.lf-ring', { 'aria-hidden': 'true' });
     const got = h('div.lf-got', { 'aria-hidden': 'true' }, 'GOT IT!');
     const layer = h('div.lf', { 'aria-hidden': 'true' }, ring, crate, got);

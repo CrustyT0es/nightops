@@ -548,3 +548,20 @@ html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
 .lb[data-stage="burst"] .lb-crate.mc { animation: mc-sink .45s ease-in .35s forwards; }
 .lb[data-stage="card"] .lb-crate.mc { visibility: hidden; animation: none; }
 .lb[data-stage="burst"] .lb-card { animation: lb-card-up .5s cubic-bezier(.2, 1.4, .4, 1) .8s both; }
+
+/* ======================= v1.6.2: the chest everywhere ======================= */
+.chest { position: relative; display: inline-block; perspective: 600px; }
+.chest-scale { position: absolute; left: 50%; top: 50%; width: 200px; height: 200px; margin: -100px 0 0 -100px; transform: scale(var(--k, 1)); transform-style: preserve-3d; }
+.chest .mc-spin { animation: mc-turn 5s ease-in-out infinite alternate; }
+/* on the map: drops in, bobs, blinks when it's about to go, pops when it's gone */
+.chest-map { position: absolute; left: -24px; top: -50px; width: 48px; height: 48px; --k: .26;
+  filter: drop-shadow(0 3px 0 #0a0820) drop-shadow(0 0 9px rgba(155, 107, 255, .9));
+  animation: nloot-drop .7s cubic-bezier(.2, 1.6, .4, 1) both, nloot-bob 2.2s ease-in-out var(--bob, 0s) infinite .7s; }
+.nloot.soon-gone .chest-map { animation: nloot-blink .9s steps(2, start) infinite; }
+.nloot.gone .chest-map { animation: nloot-pop .4s ease-in forwards; }
+/* flying into your phone */
+.chest-fly { position: absolute; left: -30px; top: -60px; width: 60px; height: 60px; --k: .34; filter: drop-shadow(0 3px 0 #0a0820) drop-shadow(0 0 14px rgba(155, 107, 255, .9)); animation: lf-spin 1.3s ease-in-out forwards; }
+.chest-fly .mc-spin { animation-duration: .8s; }
+/* Static's loot scene and the explainer */
+.chest-show { width: 150px; height: 130px; margin: 10px 0 4px; --k: .72; animation: nloot-drop .8s cubic-bezier(.2, 1.6, .4, 1) both, vs-lootshake .5s ease-in-out 1s infinite; }
+@media (prefers-reduced-motion: reduce) { .chest .mc-spin, .chest-map, .chest-show, .chest-fly { animation: none !important; } }
