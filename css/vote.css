@@ -500,11 +500,11 @@ html.vs-on, html.vs-on body { overflow: hidden; }
    and night navy bands sweep across, skewed, with an ink edge. */
 .vs-tvx { opacity: 1; background: none; clip-path: none; overflow: hidden; }
 .vs-tvx::before {
-  content: ''; position: absolute; top: -10%; bottom: -10%; left: -60%; width: 220%;
-  background: linear-gradient(90deg, transparent 0 18%, #0a0820 18% 19%, var(--gold, #ffd23f) 19% 33%, #0a0820 33% 34%, var(--hunter, #ff4d5e) 34% 47%, #0a0820 47% 48%, var(--hider, #2c8cff) 48% 61%, #0a0820 61% 62%, #1a1c5c 62% 80%, #0a0820 80% 81%, transparent 81%);
-  transform: translateX(-110%) skewX(-18deg);
+  content: ''; position: absolute; top: -10%; bottom: -10%; left: -100%; width: 300%;
+  background: linear-gradient(90deg, transparent 0 8%, #0a0820 8% 9%, var(--gold, #ffd23f) 9% 22%, #0a0820 22% 23%, var(--hunter, #ff4d5e) 23% 36%, #0a0820 36% 37%, var(--hider, #2c8cff) 37% 50%, #0a0820 50% 51%, #1a1c5c 51% 91%, #0a0820 91% 92%, transparent 92%);
+  transform: translateX(-100%) skewX(-18deg);
 }
 .vs-tvx.go { animation: none; }
 .vs-tvx.go::before { animation: vs-wipe 1.6s cubic-bezier(.45, 0, .55, 1) both; }
-@keyframes vs-wipe { from { transform: translateX(-110%) skewX(-18deg); } to { transform: translateX(90%) skewX(-18deg); } }
+@keyframes vs-wipe { from { transform: translateX(-100%) skewX(-18deg); } to { transform: translateX(100%) skewX(-18deg); } }
 @media (prefers-reduced-motion: reduce) { .vs-tvx.go::before { animation: none; } }

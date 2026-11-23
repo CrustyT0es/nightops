@@ -13,14 +13,15 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { h, fill, text, face } from '../dom.js?v=171';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=171';
-import { pickFace } from '../face.js?v=171';
-import { chest } from '../chest.js?v=171';
+import { h, fill, text, face } from '../dom.js?v=172';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=172';
+import { pickFace } from '../face.js?v=172';
+import { chest } from '../chest.js?v=172';
 
 const AUDIO = 'audio/narrator/';
 const MUTE_KEY = 'nightops-narrator';   // 'off' = Static stays quiet on this phone
-export const DRUM_MS = 1300;            // the explainer's drum roll before the winner slams in
+export const WIPE_SWAP_MS = 800;       // the colour wipe (1.6 s) covers the screen here: the scene changes under it
+export const DRUM_MS = 2000;            // the explainer's drum roll before the winner slams in
 // The intro's beats (ms into it), Static's line for each, and where he stands ('hero' big in the middle, 'side').
 export const BEATS = [
   { at: 0, key: 'title', line: 'r_intro', host: 'hero' },
@@ -456,13 +457,20 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       h('p.vs-sub', S.view.me && S.view.me.host ? 'Hit Start when everyone\'s ready!' : 'Waiting for the host to start the game.'));
   }
 
+  // The bands cover the screen at the middle of the wipe (WIPE_SWAP_MS): the new scene goes in under them then.
   function show(key, el, where = 'side', mood = '') {
-    if (S.key) channel();
+    const put = () => {
+      fill(stage, el);
+      layer.dataset.scene = key.split(':')[0];
+      layer.dataset.host = where;
+      host.mood(mood);
+    };
+    const first = !S.key;
     S.key = key;
-    fill(stage, el);
-    layer.dataset.scene = key.split(':')[0];
-    layer.dataset.host = where;
-    host.mood(mood);
+    clearTimeout(S.swap);
+    if (first) { put(); return; }
+    channel();
+    S.swap = setTimeout(() => { if (S.key === key) put(); }, WIPE_SWAP_MS);
   }
 
   function tick() {
