@@ -11,11 +11,11 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=168';
-import { chest, chestModel } from '../chest.js?v=168';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=168';
-import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=168';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=168';
+import { h, text } from '../dom.js?v=169';
+import { chest, chestModel } from '../chest.js?v=169';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=169';
+import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=169';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=169';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -173,7 +173,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=168').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=169').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Walk right up to one to grab it.${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }

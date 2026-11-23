@@ -580,3 +580,4 @@ html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
 .c2-lock { position: absolute; left: 50%; top: 28%; width: 34%; height: 40%; margin-left: -17%; display: grid; place-items: center; border: 1.5px solid #0a0820; border-radius: 3px; background: #ffc21f; color: #2a1270; font: 400 calc(var(--cs, 30px) * .26)/1 var(--display, "Bowlby One", system-ui); }
 .nloot.soon-gone .chest2d { animation: nloot-blink .9s steps(2, start) infinite; }
 .nloot.gone .chest2d { animation: nloot-pop .4s ease-in forwards; }
+.chest2d { --cs: 34px; }
