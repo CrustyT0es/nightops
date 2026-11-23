@@ -8,8 +8,8 @@
 //   wt.destroy()
 //
 // The hider's phone never plays its own pieces (the server only gives tap clips to hunters).
-import { h } from './dom.js?v=169';
-import { toBase64 } from './radio.js?v=169';
+import { h } from './dom.js?v=170';
+import { toBase64 } from './radio.js?v=170';
 
 export const TAP_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const TAP_BITS = 24000;

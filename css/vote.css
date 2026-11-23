@@ -495,3 +495,16 @@ html.vs-on, html.vs-on body { overflow: hidden; }
   .vs-wheel-disc { animation: none; transform: rotateX(18deg) rotate(var(--land)); }
   .vs-wheel-name { opacity: 1; }
 }
+
+/* v1.6.2: the scene change is a sticker wipe in the game's own colours (not TV static): gold, hunter red, hider blue
+   and night navy bands sweep across, skewed, with an ink edge. */
+.vs-tvx { opacity: 1; background: none; clip-path: none; overflow: hidden; }
+.vs-tvx::before {
+  content: ''; position: absolute; top: -10%; bottom: -10%; left: -60%; width: 220%;
+  background: linear-gradient(90deg, transparent 0 18%, #0a0820 18% 19%, var(--gold, #ffd23f) 19% 33%, #0a0820 33% 34%, var(--hunter, #ff4d5e) 34% 47%, #0a0820 47% 48%, var(--hider, #2c8cff) 48% 61%, #0a0820 61% 62%, #1a1c5c 62% 80%, #0a0820 80% 81%, transparent 81%);
+  transform: translateX(-110%) skewX(-18deg);
+}
+.vs-tvx.go { animation: none; }
+.vs-tvx.go::before { animation: vs-wipe .6s cubic-bezier(.6, 0, .3, 1) both; }
+@keyframes vs-wipe { from { transform: translateX(-110%) skewX(-18deg); } to { transform: translateX(90%) skewX(-18deg); } }
+@media (prefers-reduced-motion: reduce) { .vs-tvx.go::before { animation: none; } }
