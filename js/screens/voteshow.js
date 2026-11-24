@@ -7,18 +7,24 @@
 //             property only, SOS) and pocket mode; a channel-change between scenes
 //   gear      everyone checks location, mic (and camera) together; anyone without a picture snaps one
 //   question  the one vote: the game mode (Classic, Checkpoints, Loot drops); everyone's faces on their pick
-//   explain   a drum roll, the winner slams in, and a scene shows how it plays
+//   explain   a drum roll, the winner slams in, then (v1.6.4) Static shows how that mode plays, scene by scene
+//             (js/screens/voteexplain.js: Classic's pings, tags and powers; Checkpoints' race; every Loot drops
+//             card and a demo); the host can skip it
 //   driver    (when the host has a driver on) who wants to drive? then a wheel lands on one of them
 //   results   the mode and the driver, then the lobby comes back
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { h, fill, text, face } from '../dom.js?v=175';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=175';
-import { pickFace } from '../face.js?v=175';
-import { chest } from '../chest.js?v=175';
+import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=176'; // v1.6.4: how each mode plays
+import { h, fill, text, face } from '../dom.js?v=176';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=176';
+import { pickFace } from '../face.js?v=176';
+import { chest } from '../chest.js?v=176';
+import { askAll, ask as askPart, answerWords } from '../permissions.js?v=176'; // v1.6.2 PERMS: the gear check's Allow
+import { openHelp } from '../ui/fixit.js?v=176'; // v1.6.2 PERMS
 
-const AUDIO = 'audio/narrator/';
+// (from this file, not the page: the dev preview pages live in web/dev/)
+const AUDIO = new URL('../../audio/narrator/', import.meta.url).href;
 const MUTE_KEY = 'nightops-narrator';   // 'off' = Static stays quiet on this phone
 export const WIPE_SWAP_MS = 800;       // the colour wipe (1.6 s) covers the screen here: the scene changes under it
 export const DRUM_MS = 2000;            // the explainer's drum roll before the winner slams in
@@ -60,6 +66,7 @@ export const LINES = {
   e_mode_loot: "Loot drops! Boxes fall around the ring. Grab one, crack it open, and get a power. Common, rare... or legendary!",
 };
 const EMOJI = { target: '🎯', flag: '🚩', gift: '🎁' };
+const LATE_MS = 2500; // a line whose moment passed this long ago is only shown, not played (a phone that caught up)
 export const TAGS = ['hide and seek, but your phone snitches', 'cardio, but make it sneaky', 'the bushes are your best friend now', 'trust nobody.'];
 
 function muted() { try { return localStorage.getItem(MUTE_KEY) === 'off'; } catch { return false; } }
@@ -100,7 +107,7 @@ export function makeStatic() {
 export function createVoteShow(app, { doc = globalThis.document } = {}) {
   const S = {
     view: null, skew: 0, key: '', localSkip: 0, timer: null, dead: false, played: new Set(), voteId: null,
-    tapped: false, gear: null, gearRun: null, talkUntil: 0, snapping: false, wheelDone: '',
+    tapped: false, gear: null, gearRun: null, talkUntil: 0, snapping: false, wheelDone: '', localCut: '',
   };
   const layer = h('div.vs', { hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'The vote' });
   const stage = h('div.vs-stage');
@@ -118,17 +125,26 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   const narr = new Audio();
   narr.preload = 'auto';
   // The show's music (ElevenLabs, a loop), quieter while Static talks; the mute button quiets both.
-  const music = new Audio('audio/show-music.mp3');
+  const music = new Audio(new URL('../../audio/show-music.mp3', import.meta.url).href);
   music.loop = true;
   music.preload = 'auto';
   const MUSIC_VOL = 0.32;
   const MUSIC_DUCK = 0.12;
-  const duck = (down) => { try { music.volume = down ? MUSIC_DUCK : MUSIC_VOL; } catch { /* fine */ } };
+  // (v1.6.4: the music comes back up only after a moment of quiet, so it stays down between lines said close
+  // together, like the cards one after another, instead of pumping)
+  let unduck = null;
+  const duck = (down, now = false) => {
+    clearTimeout(unduck);
+    const set = (v) => { try { music.volume = v; } catch { /* fine */ } };
+    if (down) set(MUSIC_DUCK);
+    else if (now) set(MUSIC_VOL);
+    else unduck = setTimeout(() => set(MUSIC_VOL), 900);
+  };
   narr.addEventListener('playing', () => duck(true));
   for (const ev of ['ended', 'pause', 'error']) narr.addEventListener(ev, () => duck(false));
   function musicOn(on) {
     try {
-      if (on && !muted() && music.paused) { duck(!narr.paused); const p = music.play(); if (p && p.catch) p.catch(() => {}); }
+      if (on && !muted() && music.paused) { duck(!narr.paused, true); const p = music.play(); if (p && p.catch) p.catch(() => {}); }
       if ((!on || muted()) && !music.paused) music.pause();
     } catch { /* no music: the show goes on */ }
   }
@@ -154,15 +170,26 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     musicOn(!layer.hidden);
     paintMute();
   });
-  skipBtn.addEventListener('click', () => { S.localSkip = S.voteId; S.key = ''; tick(); app.cmd({ type: 'voteskip' }, { quiet: true }).catch(() => {}); }); // (everyone skips with the host)
+  skipBtn.addEventListener('click', () => {
+    // (everyone skips with the host: the intro, or v1.6.4 the winner's explainer)
+    const v = S.view && S.view.vote;
+    const at = v ? stageAt(v, now()) : null;
+    if (at && at.stage === 'explain') S.localCut = `${v.id}:${at.i}`;
+    else S.localSkip = S.voteId;
+    S.key = '';
+    tick();
+    app.cmd({ type: 'voteskip' }, { quiet: true }).catch(() => {});
+  });
 
-  // Static says a line: the sound (unless muted) and the caption; his mouth moves while it plays.
-  function say(line, words = LINES[line]) {
+  // Static says a line: the sound (unless muted) and the caption; his mouth moves while it plays. late: its moment
+  // went by a while ago (this phone caught up): only the caption.
+  function say(line, words = LINES[line], { late = false } = {}) {
     const id = `${S.voteId}:${line}`;
     if (S.played.has(id)) return;
     S.played.add(id);
     if (words) { text(bubble, words); bubble.classList.remove('pop'); void bubble.offsetWidth; bubble.classList.add('pop'); }
     S.talkUntil = Date.now() + Math.min(15000, 900 + String(words || '').length * 55);
+    if (late) return;
     if (muted()) { host.talk(true); setTimeout(() => host.talk(Date.now() < S.talkUntil && !narr.paused), S.talkUntil - Date.now()); return; }
     try { narr.src = `${AUDIO}${line}.mp3`; const p = narr.play(); if (p && p.catch) p.catch(() => host.talk(false)); } catch { /* the words are in the bubble */ }
   }
@@ -179,6 +206,11 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   const byId = (id) => players().find((p) => p.id === id) || {};
   const faceSrc = (pid) => { try { return app.faces && app.faces.get ? app.faces.get(pid) || null : null; } catch { return null; } };
   const faceFor = (pid, size, extra = '') => face({ name: byId(pid).name || '?', src: faceSrc(pid), team: null, size, extra });
+  // v1.6.4: who's in the lobby, for the explainers' little scoreboards (names, faces)
+  const sceneCtx = () => {
+    const ps = players();
+    return { names: ps.map((p) => p.name || '?'), faceAt: (n, size) => (ps[n] ? faceFor(ps[n].id, size) : null) };
+  };
 
   // ---- the little 3D stages ----
   function plane(cls, ...kids) {
@@ -234,15 +266,19 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   };
 
   // ---- the gear check (and a picture for anyone without one) ----
+  // v1.6.2 PERMS: "Allow all" asks the browser for location, then the mic, then the camera, one after another
+  // (permissions.js askAll), all from the one tap, so the phone shows its own Allow boxes. A part that couldn't ask
+  // (iPhones want a tap each) gets its own Allow button; one blocked for good gets Fix it (the steps for this phone).
   const GEAR_PARTS = [['loc', '📍', 'Location'], ['mic', '🎙️', 'Mic'], ['cam', '📷', 'Camera']];
+  const PART_OF = { loc: 'location', mic: 'mic', cam: 'camera' };
   const wantsCam = () => !!(S.view && S.view.settings && S.view.settings.cam);
   const meId = () => S.view && S.view.me && S.view.me.id;
   const hasFace = (pid) => !!faceSrc(pid) || (byId(pid).faceV > 0);
   function gearScreen() {
     const grid = h('div.vs-gear-grid');
     const mine = h('div.vs-gear-mine');
-    const again = h('button.btn.vs-gear-go', { type: 'button' }, 'Check my gear');
-    again.addEventListener('click', () => runGear());
+    const again = h('button.btn.vs-gear-go', { type: 'button' }, 'Allow all');
+    again.addEventListener('click', () => (S.gearNext ? gearOne(S.gearNext) : runGear(true)));
     const snap = h('button.btn.vs-snap', { type: 'button', hidden: true }, '📸 Snap my picture');
     snap.addEventListener('click', async () => {
       if (S.snapping) return;
@@ -271,17 +307,37 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     const me = meId();
     const g = { ...(v.gear || {}) };
     const faces = players().map((p) => hasFace(p.id) ? 1 : 0).join('');
-    const sig = JSON.stringify([g, S.gear, wantsCam(), faces, S.snapping]);
+    const ans = S.gearAns || {};
+    const sig = JSON.stringify([g, S.gear, ans, wantsCam(), faces, S.snapping, !!S.gearRun]);
     if (sig === S.gearSig) return;
     S.gearSig = sig;
     const mineNow = S.gear || g[me] || null;
     fill(els.mine, GEAR_PARTS.map(([k, e, label]) => {
       const st = k === 'cam' && !wantsCam() ? 'off' : mineNow ? mineNow[k] : null;
-      return h('div.vs-gear-row', gearIcon(st, e, label), h('span', label),
-        h('strong', st === true ? 'Ready' : st === false ? 'Fix it' : st === 'busy' ? 'Checking…' : st === 'off' ? 'Not this game' : '—'));
+      // v1.6.2 PERMS: what's wrong, and the one button that fixes it
+      const a = ans[k] || null;
+      const stuck = st === false && !!a && (a.blocked || a.result === 'unavailable');
+      const word = st === true ? 'Ready' : st === 'busy' ? 'Asking…' : st === 'off' ? 'Not this game'
+        : st === false ? (stuck ? (a.blocked ? 'Blocked' : a.why === 'none' ? 'Not found' : 'Not working') : 'Tap Allow') : '—';
+      const act = st !== false ? null
+        : stuck ? h('button.btn.vs-gear-act.fix', { type: 'button', disabled: !!S.gearRun, onclick: () => gearFix(k) }, 'Fix it')
+          : h('button.btn.vs-gear-act', { type: 'button', disabled: !!S.gearRun, onclick: () => gearOne(k) }, 'Allow');
+      return h(`div.vs-gear-row${act ? '.has-act' : ''}`, { 'data-k': k }, gearIcon(st, e, label), h('span', label), h('strong', word), act);
     }));
-    text(els.again, S.gearRun ? 'Checking…' : mineNow ? 'Check again' : 'Check my gear');
-    els.again.disabled = !!S.gearRun;
+    const allOk = !!mineNow && mineNow.loc === true && mineNow.mic === true && (mineNow.cam === true || !wantsCam());
+    // v1.6.2 PERMS: a part that needs its own tap (iPhones) turns the big button into its own Allow
+    const NEXT_WORDS = { loc: 'Allow location', mic: 'Allow microphone', cam: 'Allow camera' };
+    S.gearNext = null;
+    if (!allOk && mineNow) {
+      for (const [k] of GEAR_PARTS) {
+        const a = ans[k];
+        const st = k === 'cam' && !wantsCam() ? 'off' : mineNow[k];
+        if (st === false && a && a.needsTap && !a.blocked && a.result !== 'unavailable') { S.gearNext = k; break; }
+      }
+    }
+    text(els.again, S.gearRun ? 'Asking…' : allOk ? 'All set ✓' : S.gearNext ? NEXT_WORDS[S.gearNext] : 'Allow all');
+    els.again.disabled = !!S.gearRun || allOk;
+    els.again.classList.toggle('done', allOk && !S.gearRun);
     els.snap.hidden = !me || hasFace(me);
     if (!S.snapping) text(els.snap, '📸 Snap my picture');
     fill(els.grid, players().slice(0, 12).map((p, i) => {
@@ -292,34 +348,62 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
         h('span.vs-gear-icons', ...GEAR_PARTS.map(([k, e, label]) => gearIcon(k === 'cam' && !wantsCam() ? 'off' : pg ? pg[k] : null, e, label)))), '--i', i);
     }));
   }
-  async function runGear() {
+  // v1.6.2 PERMS: one answer into the gear rows (true works, false trouble)
+  function gearTook(k, a) {
+    if (!S.gear) S.gear = { loc: null, mic: null, cam: null };
+    S.gearAns = { ...(S.gearAns || {}), [k]: a };
+    S.gear[k] = !!a && a.result === 'granted';
+    S.gearSig = '';
+    paintGear();
+  }
+  function sendGear() {
+    const gg = S.gear || {};
+    const yes = (x) => (x === true ? true : x === false ? false : null);
+    return Promise.resolve(app.cmd({ type: 'gear', loc: yes(gg.loc), mic: yes(gg.mic), cam: wantsCam() ? yes(gg.cam) : null }, { quiet: true })).catch(() => { /* the next view says */ });
+  }
+  // "Allow all" (fromTap), or the gear check starting by itself for a phone that was tapped before: location, then
+  // the mic, then the camera, each asked once the one before was answered.
+  async function runGear(fromTap = false) {
     if (S.gearRun) return;
     const cam = wantsCam();
     S.gear = { loc: 'busy', mic: 'busy', cam: cam ? 'busy' : null };
+    S.gearAns = {};
     paintGear();
-    const nav = globalThis.navigator || {};
-    const loc = new Promise((res) => {
-      try {
-        if (!nav.geolocation) return res(false);
-        nav.geolocation.getCurrentPosition(() => res(true), () => res(false), { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
-      } catch { res(false); }
-    }).then((ok) => { S.gear.loc = ok; paintGear(); return ok; });
-    const media = async (c) => {
-      try {
-        const st = await nav.mediaDevices.getUserMedia(c);
-        for (const t of st.getTracks()) t.stop();
-        return true;
-      } catch { return false; }
-    };
-    S.gearRun = (async () => {
-      const mic = await media({ audio: true });
-      S.gear.mic = mic; paintGear();
-      const camOk = cam ? await media({ video: { facingMode: 'user' } }) : null;
-      S.gear.cam = camOk; paintGear();
-      const l = await loc;
-      try { await app.cmd({ type: 'gear', loc: l, mic, cam: camOk }, { quiet: true }); } catch { /* the next view says */ }
-    })();
+    const parts = cam ? ['location', 'mic', 'camera'] : ['location', 'mic'];
+    const K = { location: 'loc', mic: 'mic', camera: 'cam' };
+    // (askAll calls the first ask right here, in the tap)
+    S.gearRun = askAll(parts, {
+      tapped: fromTap,
+      onStep: (part, a) => {
+        if (S.dead) return;
+        if (a) gearTook(K[part], a);
+        else { S.gear[K[part]] = 'busy'; S.gearSig = ''; paintGear(); }
+      },
+    }).then(() => sendGear());
     try { await S.gearRun; } finally { S.gearRun = null; S.gearSig = ''; paintGear(); }
+  }
+  // A part's own Allow (a tap of its own: iPhones want one per ask).
+  function gearOne(k) {
+    if (S.gearRun) return;
+    if (!S.gear) S.gear = { loc: null, mic: null, cam: null };
+    S.gear[k] = 'busy';
+    S.gearSig = '';
+    paintGear();
+    const p = askPart(PART_OF[k], { waitFix: false }); // (in the tap itself)
+    S.gearRun = p.then((a) => { gearTook(k, a); return sendGear(); });
+    S.gearRun.finally(() => { S.gearRun = null; S.gearSig = ''; paintGear(); });
+  }
+  // Blocked for good (or not working): the steps for this phone, over the show; its Try again asks again.
+  function gearFix(k) {
+    const part = PART_OF[k];
+    const a = (S.gearAns || {})[k] || {};
+    const again = () => askPart(part, { waitFix: false }).then((x) => { gearTook(k, x); sendGear(); return answerWords(x, { blockedBefore: true }); });
+    const hp = openHelp({
+      part, why: a.why || 'denied', perm: a.blocked ? 'denied' : null, onTry: again,
+      ask: () => askPart(part, { waitFix: false }),
+      onAnswer: (x) => { gearTook(k, x); sendGear(); },
+    });
+    try { hp.el.classList.add('fx-over-show'); } catch { /* fine */ }
   }
 
   // ---- the vote ----
@@ -360,7 +444,8 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   function winnerOf(i) {
     const v = S.view.vote;
     const q = v.questions[i];
-    return (v.result && v.result[q.q]) || winner(q, v.picks[q.q], v.id, null);
+    // (the server's answer, else from the picks and what "nobody voted" keeps: shared/vote.js winnerAt's way)
+    return (v.result && v.result[q.q]) || winner(q, v.picks[q.q], v.id, v.keep ? v.keep[q.q] : null);
   }
   function drum(i) {
     const v = S.view.vote;
@@ -458,18 +543,26 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
   }
 
   // The bands cover the screen at the middle of the wipe (WIPE_SWAP_MS): the new scene goes in under them then.
+  // (v1.6.4: an explainer scene catches up with the clock the moment it goes in.)
   function show(key, el, where = 'side', mood = '') {
     const put = () => {
       fill(stage, el);
       layer.dataset.scene = key.split(':')[0];
       layer.dataset.host = where;
+      bubble.classList.remove('wait');
       host.mood(mood);
+      const v = S.view && S.view.vote;
+      const at = v ? stageAt(v, now()) : null;
+      if (at && at.stage === 'explain') syncScene(stage, at.ms);
     };
     const first = !S.key;
     S.key = key;
     clearTimeout(S.swap);
     if (first) { put(); return; }
     channel();
+    // Static moves (side/mini <-> hero) only when the new scene goes in: until then a new line could sit in the old
+    // layout's bubble and run off the screen, so the bubble waits for the move.
+    if (layer.dataset.host !== where) bubble.classList.add('wait');
     S.swap = setTimeout(() => { if (S.key === key) put(); }, WIPE_SWAP_MS);
   }
 
@@ -519,15 +612,31 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       countdown();
     } else if (at.stage === 'explain') {
       const q = v.questions[at.i].q;
-      if (at.ms < DRUM_MS) {
+      const k = at.ms < DRUM_MS ? '' : winnerOf(at.i);
+      const beat = q === 'mode' && k ? explainBeat(k, at.ms) : null;
+      if (S.localCut === `${v.id}:${at.i}`) {
+        // the host skipped it here: hold on until the server says so (a moment)
+        if (S.key !== 'cut') show('cut', h('div.vs-call', h('h1.vs-big', 'Get ready…')), 'hero', 'happy');
+      } else if (at.ms < DRUM_MS) {
         const key = `drum:${at.i}`;
         if (S.key !== key) show(key, drum(at.i), 'side', 'wow');
+      } else if (beat && beat.scene !== 'slam') {
+        // v1.6.4: how the mode plays, scene by scene; within a scene the parts come in on Static's words
+        const key = `explain:${at.i}:${k}:${beat.scene}`;
+        if (S.key !== key) {
+          const el = modeScene(beat.scene, k, sceneCtx());
+          show(key, el || explain(at.i), beat.host || 'side', beat.mood || '');
+        } else {
+          layer.dataset.host = beat.host || 'side';
+          host.mood(beat.mood || '');
+        }
+        say(beat.line, X_LINES[beat.line] || LINES[beat.line], { late: at.ms - beat.at > LATE_MS });
+        syncScene(stage, at.ms);
       } else {
-        const k = winnerOf(at.i);
         const key = `explain:${at.i}:${k}`;
         if (S.key !== key) {
           show(key, explain(at.i), 'side', 'happy');
-          say(`e_${q}_${k}`);
+          say(`e_${q}_${k}`, LINES[`e_${q}_${k}`], { late: !!beat && at.ms - beat.at > LATE_MS });
         }
       }
       text(clock, '');
@@ -547,7 +656,8 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       if (S.key !== key) { show(key, results(), 'hero', 'happy'); say('results2'); }
       text(clock, '');
     }
-    skipBtn.hidden = at.stage !== 'intro' || skipped || !(S.view.me && S.view.me.host);
+    const skipsNow = (at.stage === 'intro' && !skipped) || (at.stage === 'explain' && at.ms >= DRUM_MS && S.localCut !== `${v.id}:${at.i}`);
+    skipBtn.hidden = !skipsNow || !(S.view.me && S.view.me.host);
     layer.dataset.stage = at.stage;
   }
 
@@ -559,7 +669,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       if (S.dead || !view) return;
       S.view = view;
       if (Number.isFinite(view.now)) S.skew = view.now - Date.now();
-      if (view.vote && view.vote.id !== S.voteId) { S.voteId = view.vote.id; S.key = ''; S.gear = null; }
+      if (view.vote && view.vote.id !== S.voteId) { S.voteId = view.vote.id; S.key = ''; S.gear = null; S.localCut = ''; }
       tick();
     },
     destroy() {

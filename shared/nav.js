@@ -14,8 +14,8 @@
 // A destination ("where to"): { kind: 'pickup', id } | { kind: 'pin', id } | { kind: 'hunters' }. The point and
 // the name come from the driver's own view (navTarget), which never holds a hider's spot (CONTRACT v1.4 G), so
 // nothing about a route ever involves a hider.
-import { isPoint, distanceM, toLocal, bearingDeg, compassWord } from './geo.js?v=175';
-import { tidyText } from './rules.js?v=175';
+import { isPoint, distanceM, toLocal, bearingDeg, compassWord } from './geo.js?v=176';
+import { tidyText } from './rules.js?v=176';
 
 export const NAV = Object.freeze({
   OFF_M: 40,               // the car this far from the route...

@@ -3,14 +3,18 @@
 //
 //   state.vote = null | {
 //     id, at (epoch ms the show began), introMs, gearMs, voteMs, explainMs, resultMs,
+//     explainFor: { [q]: { [key]: ms } }  (v1.6.4: each winner's own explainer length; else explainMs)
+//     keep: { [q]: key }                  (v1.6.4: what "nobody voted" keeps, fixed when the show began)
+//     cut: { [i]: ms }                    (v1.6.4: the host skipped question i's explainer this far into it)
 //     questions: [{ q, options: [key...] }],
 //     ballots: { [q]: { [playerId]: key } },
 //     gear: { [playerId]: { loc, mic, cam } },      (the group gear check: true ok, false trouble, null not asked)
 //     applied: false | true, result: { [q]: key } (each question's winner, filled in as each one closes)
 //   }
 // The timeline is fixed from `at`: the intro, the group gear check, then for each question its vote (voteMs) and
-// the winner with its explainer (explainMs), then the recap (resultMs). Every phone works out where it is from the
-// server's clock (view.now), so they all play together.
+// the winner with its explainer (explainLen: the winner's own length), then the recap (resultMs). Every phone works
+// out where it is from the server's clock (view.now), so they all play together. The explainer's length hangs on
+// the winner, which every phone works out from the picks alone (winnerAt), so they agree on it too.
 //
 // The winner is decided from the picks alone (a tie is settled by a hash of the vote and the question, never by
 // chance at the server), so a phone shows the right winner the moment the question closes, before the server's
@@ -21,7 +25,11 @@
 export const INTRO_MS = 83500;    // Static's rules: teams, pings, tags, the ring, powers, loot, walkie + driver, safety, pocket mode
 export const GEAR_MS = 25000;     // everyone checks location, microphone and camera together
 export const VOTE_MS = 10000;     // each question
-export const EXPLAIN_MS = 9000;   // each winner (a drum roll, then the slam) and how it plays
+export const EXPLAIN_MS = 9000;   // each winner (a drum roll, then the slam) and how it plays (a vote made before v1.6.4)
+// v1.6.4: each mode's explainer is as long as Static needs to show how it plays (the beats are in
+// js/screens/voteexplain.js; its test checks they fit): Classic and Checkpoints walk through a round, Loot drops
+// deals every card, says what each does, then plays a little demo. The host's Skip ends it early (cut).
+export const EXPLAIN_FOR = Object.freeze({ mode: Object.freeze({ classic: 37000, checkpoints: 28500, loot: 76000 }) });
 export const RESULT_MS = 6500;
 export const DRIVER_MS = 10000;   // who wants to drive? (only when the host has the driver on)
 export const SPIN_MS = 6500;      // the wheel picks one of the volunteers    // the recap before the lobby comes back
@@ -138,8 +146,35 @@ export function settingsFor(q, key, { presets, powers } = {}) {
   return {};
 }
 
+// Question i's winner as every phone works it out: the server's answer once it's there, else from the picks (the
+// state's ballots, a phone's view's picks) and what "nobody voted" keeps.
+export function winnerAt(v, i) {
+  const question = v && v.questions && v.questions[i];
+  if (!question) return null;
+  const done = v.result && v.result[question.q];
+  if (done) return done;
+  const picks = ((v.ballots || v.picks || {})[question.q]) || {};
+  return winner(question, picks, v.id, v.keep ? v.keep[question.q] : null);
+}
+
+// How long question i's explainer runs: the winner's own length (explainFor), else explainMs; the host's Skip cut
+// it short at `cut[i]` ms into it.
+export function explainLen(v, i) {
+  const question = v.questions[i];
+  const per = v.explainFor && question ? v.explainFor[question.q] : null;
+  let ms = v.explainMs || 0;
+  if (per) {
+    const k = winnerAt(v, i);
+    if (k && Number.isFinite(per[k])) ms = per[k];
+  }
+  const cut = v.cut ? v.cut[i] : undefined;
+  return Number.isFinite(cut) ? Math.max(0, Math.min(ms, cut)) : ms;
+}
+
 export function totalMs(v) {
-  return v.introMs + (v.gearMs || 0) + v.questions.length * (v.voteMs + (v.explainMs || 0)) + (v.driverMs || 0) + (v.spinMs || 0) + v.resultMs;
+  let qs = 0;
+  for (let i = 0; i < v.questions.length; i++) qs += v.voteMs + explainLen(v, i);
+  return v.introMs + (v.gearMs || 0) + qs + (v.driverMs || 0) + (v.spinMs || 0) + v.resultMs;
 }
 
 // Where the show is at `now`: { stage: 'intro'|'gear'|'question'|'explain'|'results'|'done', i (question index),
@@ -153,14 +188,13 @@ export function stageAt(v, now) {
   if (t < gear) return { stage: 'gear', i: -1, left: gear - t, ms: t };
   t -= gear;
   const n = v.questions.length;
-  const each = v.voteMs + (v.explainMs || 0);
-  if (t < n * each) {
-    const i = Math.floor(t / each);
-    const u = t - i * each;
-    if (u < v.voteMs) return { stage: 'question', i, left: v.voteMs - u, ms: u };
-    return { stage: 'explain', i, left: each - u, ms: u - v.voteMs };
+  for (let i = 0; i < n; i++) {
+    if (t < v.voteMs) return { stage: 'question', i, left: v.voteMs - t, ms: t };
+    t -= v.voteMs;
+    const ex = explainLen(v, i);
+    if (t < ex) return { stage: 'explain', i, left: ex - t, ms: t };
+    t -= ex;
   }
-  t -= n * each;
   const dm = v.driverMs || 0;
   if (t < dm) return { stage: 'driver', i: n, left: dm - t, ms: t };
   t -= dm;
@@ -181,12 +215,16 @@ export function closed(v, i, now) {
 }
 
 // The questions offered: Checkpoints only once the host has placed at least two; `skip` leaves questions out.
-export function newVote({ now, id, checkpoints = 0, skipIntro = false, skip = [], driver = false }) {
+// `keep`: what each question keeps when nobody votes ({ [q]: key }, from keepFor and the settings now).
+export function newVote({ now, id, checkpoints = 0, skipIntro = false, skip = [], driver = false, keep = {} }) {
   const options = (q) => Object.keys(OPTIONS[q]).filter((k) => q !== 'mode' || k !== 'checkpoints' || checkpoints >= 2);
   const qs = QUESTIONS.filter((q) => !skip.includes(q));
   return {
     id, at: now,
     introMs: skipIntro ? SKIPPED_INTRO_MS : INTRO_MS, gearMs: GEAR_MS, voteMs: VOTE_MS, explainMs: EXPLAIN_MS, resultMs: RESULT_MS,
+    explainFor: Object.fromEntries(qs.filter((q) => EXPLAIN_FOR[q]).map((q) => [q, { ...EXPLAIN_FOR[q] }])),
+    keep: Object.fromEntries(qs.filter((q) => keep && typeof keep[q] === 'string' && options(q).includes(keep[q])).map((q) => [q, keep[q]])),
+    cut: {},
     driverMs: driver ? DRIVER_MS : 0, spinMs: driver ? SPIN_MS : 0, drive: {},
     questions: qs.map((q) => ({ q, options: options(q) })),
     ballots: Object.fromEntries(qs.map((q) => [q, {}])),
@@ -244,7 +282,13 @@ export function voteView(v, meId) {
   if (!v) return null;
   const qs = v.questions.map((x) => x.q);
   return {
-    id: v.id, at: v.at, introMs: v.introMs, gearMs: v.gearMs || 0, voteMs: v.voteMs, explainMs: v.explainMs || 0, resultMs: v.resultMs,
+    id: v.id, at: v.at, introMs: v.introMs, gearMs: v.gearMs || 0, voteMs: v.voteMs,
+    // explainMs carries the real (winner's, Skip-cut) length so a phone on an older vote.js, which reads only
+    // explainMs, stays in step; newer phones work it out from explainFor and cut, which give the same number.
+    explainMs: v.questions.length === 1 ? explainLen(v, 0) : (v.explainMs || 0), resultMs: v.resultMs,
+    explainFor: Object.fromEntries(Object.entries(v.explainFor || {}).map(([q, per]) => [q, { ...per }])),
+    keep: { ...(v.keep || {}) },
+    cut: { ...(v.cut || {}) },
     questions: v.questions.map((x) => ({ q: x.q, options: [...x.options] })),
     picks: Object.fromEntries(qs.map((q) => [q, { ...((v.ballots || {})[q] || {}) }])),
     mine: Object.fromEntries(qs.map((q) => [q, ((v.ballots || {})[q] || {})[meId] || null])),

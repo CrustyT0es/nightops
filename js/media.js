@@ -14,6 +14,7 @@
 //   m.get() -> Promise<stream|null>   the held stream, asking (not from a tap) when it isn't there
 //   m.reacquire(why)           a user of the stream saw it fail (a recorder error): get a new one
 //   m.test(kind) -> Promise<state>   the ready check's test: kind 'camera' | 'mic' (asks once; a held stream counts)
+//   m.allowed(kind, word)      v1.6.2: permissions.js's answer from an Allow tap; a wanted stream starts on a yes
 //   m.on('state' | 'stream', fn) -> off()
 //   m.level() -> 0..100        the microphone's loudness now
 //   m.destroy()
@@ -360,6 +361,17 @@ export function createMedia({
     reacquire() {
       if (!needed()) return;
       later();
+    },
+    // v1.6.2 PERMS: an Allow tap (permissions.js) was answered for kind 'mic' | 'camera' with word 'ok' | 'denied' |
+    // 'none' | 'off'. What's known now; on a yes, a stream this phone wants (and hasn't got) is asked for again at
+    // once, with no reload (the browser already said yes, so no second box). -> Promise<stream | null>
+    allowed(kind, word) {
+      if (M.dead) return Promise.resolve(null);
+      const w = ['ok', 'denied', 'none', 'off'].includes(word) ? word : 'off';
+      if (kind === 'camera') M.camKnown = w; else M.micKnown = w;
+      if (w === 'ok' && needed() && !(M.stream && healthy(M.stream) && !M.needsTap)) return m.restore();
+      judge();
+      return Promise.resolve(M.stream);
     },
     // The ready check: ask once for this part (a held healthy stream already answers).
     async test(kind = 'mic') {

@@ -11,24 +11,27 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=175';
-import { icon } from '../ui/icons.js?v=175';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=175';
-import { banner, clearBanners } from '../ui/banner.js?v=175';
-import { moment } from '../ui/moment.js?v=175';
-import { startPocket } from '../ui/pocket.js?v=175';
-import { createMap, fmtAgo } from '../map.js?v=175';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=175';
-import { distanceM, isPoint } from '../../shared/geo.js?v=175';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=175';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=175'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=175'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=175'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=175'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=175'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=175'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=175'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, createCardDeck } from './lootplay.js?v=175'; // v1.6: Loot drops
+import { h, fill, text, cls, face, listen } from '../dom.js?v=176';
+import { icon } from '../ui/icons.js?v=176';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=176';
+import { banner, clearBanners } from '../ui/banner.js?v=176';
+import { moment } from '../ui/moment.js?v=176';
+import { startPocket } from '../ui/pocket.js?v=176';
+import { createMap, fmtAgo } from '../map.js?v=176';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=176';
+import { distanceM, isPoint } from '../../shared/geo.js?v=176';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=176';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=176'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=176'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=176'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=176'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=176'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=176'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=176'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=176'; // v1.6: Loot drops
+import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=176'; // v1.6.3: your collection and the card-played effects
+import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=176'; // v1.6.4: the card collection
+const localStore = () => { try { return globalThis.localStorage; } catch { return null; } }; // v1.6.4 (may throw)
 
 export const TICK_MS = 250;
 export const STALE_MOMENT_MS = 20000;   // a moment for something that happened longer ago than this is skipped
@@ -756,7 +759,12 @@ export function mount(root, app) {
   });
   const lootBtn = createLootButton({ app, useIt: (k) => lootStash.use(k) }); // v1.6: Loot drops' Open button
   const deck = createCardDeck({ app, onClassic: (k) => onPower(k), useLoot: (k) => lootStash.use(k) }); // v1.6.1: your cards
-  const nearChip = h('div.lt-near', { hidden: true, 'aria-live': 'polite' }, h('span.lt-near-gift', { 'aria-hidden': 'true' }, '🎁'), h('span.lt-near-d'), h('span.lt-near-arrow', { 'aria-hidden': 'true' }, '➤'));
+  // v1.6.3: the nearest box chip: "7 m / Get within 5 m", "Right here!" inside it; a tap shows you and the box
+  // close up, so its 5 m circle shows at its real size
+  const nearBig = h('span.lt-near-d');
+  const nearSmall = h('span.lt-near-sub', { 'aria-live': 'polite' });
+  const nearChip = h('button.lt-near', { type: 'button', hidden: true, onclick: () => showNearBox() },
+    h('span.lt-near-gift', { 'aria-hidden': 'true' }, '🎁'), h('span.lt-near-words', nearBig, nearSmall), h('span.lt-near-arrow', { 'aria-hidden': 'true' }, '➤'));
   const topBar = h('div.g-topbar', teamPill, leftBox, pingBox, S.hudSlot, sosBtn, moreBtn);
   const hidersLabel = h('span.g-hiders-label');
   const hidersFaces = h('div.g-hfaces');
@@ -853,8 +861,12 @@ export function mount(root, app) {
       tray: () => tray.set(tray.state === 'open' ? 'tucked' : 'open'),
       chat: () => { openChatSheet(); setTimeout(() => closeSheets(), 2200); },
       menu: () => { openMenu(); setTimeout(() => closeSheets(), 1800); },
+      tear: () => cardFx.bug(), // v1.6.3: the screen tears for a moment
     },
   });
+  // v1.6.3: a card played: a short effect on the phones that should know (cards.js cardFxOf says which), under the
+  // top bar (SOS stays in sight) and never in the way of a tap.
+  const cardFx = createCardFx({ root });
   linesBox.append(nearChip);
   hud.after(fixIt.tapBtn); // v1.4 PAGE-DEVICES
   linesBox.prepend(fixIt.bar); // v1.4 PAGE-DEVICES: the red bar leads the lines over the map
@@ -1224,7 +1236,7 @@ export function mount(root, app) {
     const live = view.phase === 'live';
     cpSwap(view, c); // v1.3 PAGE-PLAY
     try { lootBtn.update(view, c); } catch (e) { console.error(e); } // v1.6
-    try { lootStash.update(view); deck.update(view); lootFx.update(view, c); paintNear(view); } catch (e) { console.error(e); } // v1.6.1
+    try { lootStash.update(view); deck.update(view); recordView(localStore(), view); lootFx.update(view, c); paintNear(view); } catch (e) { console.error(e); } // v1.6.1
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
@@ -1430,11 +1442,7 @@ export function mount(root, app) {
       }
       S.lootHeld = held;
       S.lootBoxes = boxes.map((b) => ({ id: b.id, p: b.p }));
-      const key = JSON.stringify(boxes.map((b) => [b.id, b.p, b.left < 30000]));
-      if (key !== S.lootKey) {
-        S.lootKey = key;
-        try { map.setLoot(boxes); } catch (e) { console.error(e); }
-      }
+      putLoot(view);
     }
     // v1.3 PAGE-PLAY: the checkpoints this phone may see (open, closed, the hider's own done ones ticked)
     if (typeof map.setSpots === 'function' && (cpOf(view) || S.cpSpotsKey)) {
@@ -1448,15 +1456,66 @@ export function mount(root, app) {
     // v1.3 end PAGE-PLAY
   }
 
+  // v1.6: the boxes on the map; v1.6.3: each with its pickup circle (r metres), lit while you're inside it
+  function putLoot(view) {
+    if (!map || typeof map.setLoot !== 'function') return;
+    const l = lootOf(view);
+    if (!l && !S.lootKey) return;
+    const boxes = (l ? l.boxes : []).map((b) => ({ ...b, r: boxRadius(b), here: b.id === S.lootHere }));
+    const key = JSON.stringify(boxes.map((b) => [b.id, b.p, b.left < 30000, b.r, b.here]));
+    if (key === S.lootKey) return;
+    S.lootKey = key;
+    try { map.setLoot(boxes); } catch (e) { console.error(e); }
+  }
+
+  // Where this phone is for the boxes: its newest own fix (what the next sync sends), else its mark.
+  function lootWhere() {
+    let pos = null;
+    try { pos = app.positionNow(); } catch { pos = null; }
+    if (pos && isPoint(pos.p) && !(Number.isFinite(pos.at) && Date.now() - pos.at > 30000)) {
+      return { p: pos.p, acc: Number.isFinite(pos.acc) ? pos.acc : null };
+    }
+    const p = myPoint();
+    return p ? { p, acc: null } : null;
+  }
+
   // v1.6.1: the nearest loot box within 250 m: "🎁 45 m" with an arrow (north up, as the map)
+  // v1.6.3: "Get within 5 m" until you're inside its 5 m circle, then "Right here!" (and the circle lights up)
   function paintNear(view) {
-    const n = view && view.phase === 'live' && S.mode !== 'out' && !(view.me && view.me.driver) ? nearestBox(view, myPoint()) : null;
+    const where = view && view.phase === 'live' && S.mode !== 'out' && !(view.me && view.me.driver) ? lootWhere() : null;
+    const n = where ? nearestBox(view, where.p) : null;
+    const hereId = n && n.inside ? n.box.id : null;
+    if (hereId !== (S.lootHere || null)) {
+      S.lootHere = hereId;
+      putLoot(view);
+    }
     const show = !!n && n.d <= 250;
     nearChip.hidden = !show;
+    S.lootNear = show ? n : null;
     if (!show) return;
-    text(nearChip.children[1], n.d < 20 ? 'Right here!' : `${Math.round(n.d / 5) * 5} m`);
-    nearChip.children[2].style.transform = `rotate(${Math.round(n.b) - 90}deg)`;
+    const words = nearWords(n, where.acc);
+    text(nearBig, words.big);
+    text(nearSmall, words.small);
+    nearChip.setAttribute('aria-label', n.inside ? `Loot box: ${words.big} ${words.small}` : `Loot box ${words.big} away. ${words.small}. Show it on the map`);
+    nearChip.lastElementChild.style.transform = `rotate(${Math.round(n.b) - 90}deg)`;
     nearChip.classList.toggle('hot', n.d < 60);
+    nearChip.classList.toggle('here', !!n.inside);
+  }
+
+  // A tap on the chip: you and the box on the map, as close as the map goes (its circle at its real size once
+  // you're near it).
+  function showNearBox() {
+    const n = S.lootNear;
+    const where = lootWhere();
+    if (!map || !n || !n.box || !isPoint(n.box.p)) return;
+    const pts = [n.box.p];
+    if (where && isPoint(where.p)) pts.push(where.p);
+    // (the circle's edge in every direction, so it's all in sight)
+    const r = (n.r || 5) + 2;
+    const dLat = r / 111320;
+    const dLng = r / (111320 * Math.max(0.05, Math.cos((n.box.p[1] * Math.PI) / 180)));
+    pts.push([n.box.p[0] - dLng, n.box.p[1] - dLat], [n.box.p[0] + dLng, n.box.p[1] + dLat]);
+    try { map.fit(pts, { padding: 70, maxZoom: 19, animate: true }); } catch (e) { console.error(e); }
   }
 
   function myPoint() {
@@ -1842,6 +1901,7 @@ export function mount(root, app) {
       menuRow('moon', 'Pocket mode', pocketWords().line, later(pocketOn)),
       soundSwitch,
       menuRow('info', 'How to play', '', later(openHelp)),
+      menuRow('cards', 'Card collection', collectionLine(loadCollection(localStore())), later(() => openCollection())), // v1.6.4
     ];
     // v1.2 PAGE-CAM: Stop filming (asks first)
     { const r = camParts.menuRow(menuRow, later); if (r) rows.push(r); }
@@ -2152,8 +2212,23 @@ export function mount(root, app) {
     if (S.dead || !e) return;
     const view = S.view || app.view;
     if (!view) return;
-    const fx = effectOf(e, view);
+    let fx = effectOf(e, view);
     const age = ageOf(e);
+    // v1.6.3: a card played shows as its card effect instead of a moment or a banner (one effect per card: the
+    // player's own phone hears some cards twice)
+    const card = cardFxOf(e, view);
+    if (card && age <= STALE_MOMENT_MS && !S.sosShown) {
+      const seen = S.cardsSeen || (S.cardsSeen = []);
+      const again = seen.includes(card.key);
+      const sameKind = seen.includes(`${card.key}|${e.kind}`);
+      if (again ? sameKind : cardFx.play(card)) {
+        fx = { ...fx, moment: null, banner: null };
+        if (!again) seen.push(card.key);
+        seen.push(`${card.key}|${e.kind}`);
+        while (seen.length > 80) seen.shift();
+        if (card.who === 'self' && !again) { deck.played(card.power); fx = { ...fx, buzz: null, beep: fx.beep || 'power' }; } // (the effect buzzes itself)
+      }
+    }
     if (fx.chat && !(S.chat && S.chat.isOpen())) {
       S.unread += 1;
       if (S.view) paintChatPreview(S.view);
@@ -2309,7 +2384,7 @@ export function mount(root, app) {
     try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ } // v1.4 PAGE-PLAY
     try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
     try { lootBtn.destroy(); } catch { /* ignore */ } // v1.6
-    try { lootFx.destroy(); deck.close(); } catch { /* ignore */ } // v1.6.1
+    try { lootFx.destroy(); deck.close(); cardFx.destroy(); } catch { /* ignore */ } // v1.6.1 (v1.6.3: cardFx)
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER

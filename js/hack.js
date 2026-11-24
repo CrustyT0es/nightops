@@ -1,7 +1,7 @@
 // v1.4 Hacker: when the server's view says this hider was hacked (view.hack {n, at, ms}),
 // blare a full-gain siren for ms (5 s) and flash "HACKED". Each n plays once.
-import { h } from './dom.js?v=175';
-import { audioContext, unlockBeep, alarmSession } from './alerts.js?v=175';
+import { h } from './dom.js?v=176';
+import { audioContext, unlockBeep, alarmSession } from './alerts.js?v=176';
 
 // sound: alerts.js's shared context (tests: stand-ins). The audio session is never touched by a tap: only around the
 // siren itself (alarmSession), so a player's "sound off" stays off and capture isn't disturbed.

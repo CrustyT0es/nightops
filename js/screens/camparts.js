@@ -8,17 +8,18 @@
 //   confirmAgain(app, view) -> Promise<boolean>   Play again's warning when this round has clips
 //
 // Pure helpers (tested in Node): fmtMB, progressWords, clipLabel, keptWords, camOf, stillComing, mineOf.
-import { h, fill, text, cls, face } from '../dom.js?v=175';
-import { icon } from '../ui/icons.js?v=175';
-import { openSheet } from '../ui/sheet.js?v=175';
-import { fmtClock } from '../../shared/rules.js?v=175';
-import { direct, fileTimeAt } from '../director.js?v=175';
-import { canMakeMovie, talkOf } from '../movie.js?v=175';
-import { scenes as reelScenes } from '../scenes.js?v=175';
-import { renderReel } from '../render.js?v=175';
-import { createUploader } from '../upload.js?v=175';
-import { heldOf } from '../camstore.js?v=175';
-import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=175'; // v1.4.7
+import { h, fill, text, cls, face } from '../dom.js?v=176';
+import { icon } from '../ui/icons.js?v=176';
+import { openSheet } from '../ui/sheet.js?v=176';
+import { fmtClock } from '../../shared/rules.js?v=176';
+import { direct, fileTimeAt } from '../director.js?v=176';
+import { canMakeMovie, talkOf } from '../movie.js?v=176';
+import { scenes as reelScenes } from '../scenes.js?v=176';
+import { renderReel } from '../render.js?v=176';
+import { createUploader } from '../upload.js?v=176';
+import { heldOf } from '../camstore.js?v=176';
+import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=176'; // v1.4.7
+import { ask as askPart, answerWords as answerText } from '../permissions.js?v=176'; // v1.6.2 PERMS
 
 export const POLL_MS = 10000;
 export const URL_KEEP_MS = 13 * 60 * 1000;   // signed links last 15 min; asked again a little before
@@ -884,10 +885,18 @@ export function gameCamParts({ app }) {
     if (!media) return;
     const st = media.state;
     const part = st.cam === 'denied' ? 'camera' : st.mic === 'denied' ? 'mic' : null;
-    if (part) {
-      import('../ui/fixit.js?v=175').then((m) => m.openHelp({ part, why: 'denied', onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still blocked.')) })).catch(() => {});
-    } else media.restore();
+    // v1.6.2 PERMS: blocked -> ask the browser from this tap; the steps only when it can't ask again
+    if (part) allowFromTap(part);
+    else media.restore();
   });
+  function allowFromTap(part) {
+    askPart(part).then((a) => {
+      if (S.dead || !a) return;
+      if (a.blocked || a.result === 'unavailable') {
+        import('../ui/fixit.js?v=176').then((m) => m.openHelp({ part, why: a.why || 'denied', perm: a.blocked ? 'denied' : null, onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still not working.')) })).catch(() => {});
+      } else if (a.result !== 'granted') app.banner(answerText(a), 'warn', 6000);
+    });
+  }
   // v1.4 end PAGE-DEVICES
   const hud = h('span.cam-hud', dot, chip, offChip);
   const recordBtn = h('button.btn.cam-mark', { type: 'button', 'aria-label': 'Record this: keep a clip of right now' },
@@ -897,14 +906,15 @@ export function gameCamParts({ app }) {
 
   chip.addEventListener('click', () => {
     if (!cam) return;
-    if (cam.state === 'denied') app.banner(WORDS_GAME.deniedLong, 'warn', 7000);
+    // v1.6.2 PERMS: blocked -> the browser's own Allow box from this tap (a yes starts the camera: app.allowed)
+    if (cam.state === 'denied') { allowFromTap('camera'); return; }
     cam.start();
     paint();
   });
   recordBtn.addEventListener('click', () => {
     if (!cam) return;
     if (cam.state !== 'on') {
-      if (cam.state === 'denied') app.banner(WORDS_GAME.deniedLong, 'warn', 7000);
+      if (cam.state === 'denied') { allowFromTap('camera'); return; } // v1.6.2 PERMS
       cam.start();
       paint();
       return;
@@ -924,8 +934,8 @@ export function gameCamParts({ app }) {
     const st = cam ? cam.state : 'unsupported';
     const on = filmed && st === 'on';
     dot.hidden = !on;
-    const words = { off: 'Tap to start your camera', asking: 'Starting the camera...', denied: 'Camera blocked. Tap for help.', full: 'Your phone is full, so filming stopped.' }[st];
-    const short = { off: 'Start camera', asking: 'Camera...', denied: 'Camera blocked', full: 'Phone full' }[st];
+    const words = { off: 'Tap to start your camera', asking: 'Starting the camera...', denied: 'Camera blocked. Tap to allow it.', full: 'Your phone is full, so filming stopped.' }[st];
+    const short = { off: 'Start camera', asking: 'Camera...', denied: 'Allow camera', full: 'Phone full' }[st];
     chip.hidden = !filmed || !words || cam.stoppedHere;
     if (words) {
       text(chip.querySelector('.cam-start-word'), short);
@@ -947,7 +957,7 @@ export function gameCamParts({ app }) {
     offChip.hidden = !off;
     if (off) {
       text(offChip.querySelector('.fx-chip-word'), off);
-      offChip.setAttribute('aria-label', /blocked/.test(off) ? `${off}. Tap for help.` : `${off}. Tap to turn it back on.`);
+      offChip.setAttribute('aria-label', /blocked/.test(off) ? `${off}. Tap to allow it.` : `${off}. Tap to turn it back on.`);
       dot.hidden = true;
     }
     // v1.4 end PAGE-DEVICES

@@ -1,16 +1,26 @@
 // Night Ops v1.6: the Loot drops mode. Classic, plus loot boxes that drop at random spots inside the ring every few
-// minutes. A free hider who walks within LOOT_PICK_M of one grabs it (one held at a time); opening it gives a fresh
-// charge of one power, by its rarity. Everyone sees the boxes on the map, so
+// minutes. A free hider who walks into a box's 5 m circle (LOOT_PICK_M) grabs it (one held at a time); opening it
+// gives a fresh charge of one power, by its rarity. Everyone sees the boxes (and their circles) on the map, so
 // a box is also a trap: the hunters know where hiders will run. Unclaimed boxes vanish after LOOT_LIFE_MS.
 // Hunters grab boxes too (the owner: a box is something both teams race for): theirs hold a hunter power for the
 // whole team. What's inside has a rarity (common, rare, legendary), shown when it bursts open.
 // Pure functions over the game state; the engine calls them (lootDue, lootPickup, lootOpen, lootView).
-import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=175';
+import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=176';
 
 export const LOOT_FIRST_MS = 60000;     // the first drop, this long after the head start
 export const LOOT_EVERY_MS = 240000;    // then one every 4 minutes
 export const LOOT_LIFE_MS = 180000;     // a box nobody grabs is gone after 3 minutes
-export const LOOT_PICK_M = 20;          // grabbed within this of it (a phone's fix is rarely better)
+// Picking a box up (the owner, Nov 2026: "you have to go within 5 m of the loot drop to pick it up", and the map shows
+// that circle). A phone's fix is a spot plus a margin (acc, metres): the phone is probably within acc of the spot.
+// The rule: the fix's own spot is within LOOT_PICK_M of the box, and its margin is no worse than LOOT_ACC_MAX_M.
+//  - Not a margin of 5 m too: a good phone outdoors says 3-10 m, and 10-20 m between houses or under trees at
+//    night, so most fixes would never count and a hider standing on the box could wait for ever.
+//  - Not any margin: past about 25 m the spot comes from wifi or phone masts and jumps about; one of those landing
+//    on the box by luck must never grab it from 30 m away.
+// The spot wobbles by a few metres from fix to fix (one every 3 s or so), so someone standing in the circle grabs
+// it within a few seconds, and someone walking past outside it doesn't.
+export const LOOT_PICK_M = 5;           // the box's circle: a fix whose spot is this close grabs it
+export const LOOT_ACC_MAX_M = 25;       // ...when the fix's margin is no worse than this
 export const LOOT_EDGE_M = 40;          // never dropped closer than this to the ring's edge
 export const LOOT_MOST = 4;             // boxes in one drop at most
 
@@ -58,7 +68,7 @@ export function lootDrop(s, ring, clock, rand, hidersFree) {
   return made;
 }
 
-// The box a hider at `point` grabs now (free, holding nothing), or null.
+// The box a player at `point` grabs now (inside its circle), or null. (The fix's margin is the engine's check.)
 export function lootNear(s, point, clock) {
   if (!s.loot || !Array.isArray(s.loot.boxes)) return null;
   let best = null;
@@ -124,7 +134,7 @@ export function lootPower(side, rand, allowed = null) {
 // What a phone sees: the boxes on the ground now, whether it holds one, the next drop's time, its last loot.
 export function lootView(s, me, clock) {
   if (!lootGame(s) || !s.loot) return null;
-  const boxes = s.loot.boxes.filter((b) => !b.by && clock >= b.at && clock < b.until).map((b) => ({ id: b.id, p: [...b.p], left: b.until - clock }));
+  const boxes = s.loot.boxes.filter((b) => !b.by && clock >= b.at && clock < b.until).map((b) => ({ id: b.id, p: [...b.p], left: b.until - clock, r: LOOT_PICK_M }));
   return {
     boxes,
     held: !!(me && me.loot),

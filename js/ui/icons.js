@@ -5,6 +5,7 @@ const NS = 'http://www.w3.org/2000/svg';
 
 // Each icon: a list of [tag, attributes]. Strokes unless the attributes say fill.
 const PATHS = {
+  cards: [['rect', { x: 3, y: 6, width: 11, height: 15, rx: 2 }], ['path', { d: 'M8 3.5 17.5 2a2 2 0 0 1 2.3 1.7l1.9 12.6a2 2 0 0 1-1.7 2.3L18 19' }]], // v1.6.4: the card collection
   radar: [['circle', { cx: 12, cy: 12, r: 9 }], ['circle', { cx: 12, cy: 12, r: 4.5 }], ['path', { d: 'M12 12 18.5 5.5' }]],
   eye: [['path', { d: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
   jammer: [['path', { d: 'M2 8.5a15 15 0 0 1 20 0' }], ['path', { d: 'M5.5 12a10 10 0 0 1 13 0' }], ['path', { d: 'M9 15.5a5 5 0 0 1 6 0' }], ['path', { d: 'M3 3l18 18' }]],

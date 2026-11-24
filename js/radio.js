@@ -34,9 +34,10 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=175';
-import { icon } from './ui/icons.js?v=175';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=175';
+import { h, text, cls } from './dom.js?v=176';
+import { icon } from './ui/icons.js?v=176';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=176';
+import { classify, permState } from './permissions.js?v=176'; // v1.6.2 PERMS
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
@@ -66,7 +67,10 @@ export const WORDS = {
   sending: 'Sending...',
   sent: 'Sent.',
   short: 'Hold the button while you talk.',
-  denied: "The walkie-talkie needs the microphone. Allow it in your browser's settings.",
+  // v1.6.2 PERMS: the button asks the browser again (its own Allow box); only a block for good opens the steps
+  denied: 'The walkie-talkie needs the microphone. Tap it, then tap Allow.',
+  blocked: "Your browser blocked the microphone, so it can't ask again. Tap the walkie for the steps.",
+  allow: 'Allow microphone',
   unsupported: "This phone can't record walkie-talkie messages.",
   notSent: "Didn't send. Hold to try again.",
   tooLong: 'That was too long to send. Keep it shorter.',
@@ -384,6 +388,7 @@ export function createRadio({
   function wordFor() {
     if (R.state === 'recording') return `Talking ${fmtClock(Math.max(0, now() - R.startedAt))}`;
     if (R.state === 'asking') return R.granted ? WORDS.hold : WORDS.asking;
+    if (R.state === 'denied') return WORDS.allow; // v1.6.2 PERMS: a tap asks again
     if (R.state === 'sending') return WORDS.sending;
     if (R.talking && R.talking.words) return R.talking.words; // v1.4 PAGE-PLAY: a Wiretap piece
     if (R.talking) return talkingWords(R.talking.name || someone(R.side));
@@ -455,6 +460,7 @@ export function createRadio({
     if (R.state === 'sending' || R.state === 'recording' || R.state === 'asking' || R.state === 'unsupported') return;
     R.holding = true;
     R.byClick = by === 'click';
+    if (!R.stream && R.stepsDue && R.state === 'denied') { R.holding = false; R.stepsDue = false; showSteps(); return; }
     if (!R.stream) { ask(); return; }
     record();
   }
@@ -474,6 +480,7 @@ export function createRadio({
   }
 
   function ask() {
+    const askedAt = now(); // v1.6.2 PERMS: a "no" quicker than a person could tap = blocked for good
     setState('asking');
     let p;
     try {
@@ -515,7 +522,32 @@ export function createRadio({
       }
       setState('denied');
       say(WORDS.denied, { stay: true, error: true });
+      // v1.6.2 PERMS: blocked for good (the browser showed no box): say why, and the steps for this phone
+      const ms = now() - askedAt;
+      permState('mic').then((state) => {
+        if (R.dead || R.state !== 'denied') return;
+        const a = classify({ part: 'mic', outcome: 'no', state, ms });
+        if (!a.blocked) return;
+        say(WORDS.blocked, { stay: true });
+        R.stepsDue = true; // (the steps open on the next tap, never over the map by themselves)
+      }).catch(() => {});
     });
+  }
+
+  // v1.6.2 PERMS: the full-screen steps (and Try again, which asks again) when the microphone is blocked for good
+  function showSteps() {
+    const d = globalThis.document;
+    if (!d || d.querySelector('.fx-sheet')) return;
+    import('./ui/fixit.js?v=176').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
+  }
+
+  // v1.6.2 PERMS: the microphone was allowed (an Allow tap anywhere): a blocked walkie-talkie is ready again
+  function allowed() {
+    if (R.dead || R.state !== 'denied') return;
+    R.stepsDue = false;
+    R.granted = true;
+    setState('idle');
+    say(WORDS.ready);
   }
 
   function record() {
@@ -1087,6 +1119,7 @@ export function createRadio({
     unlock,
     stop,
     destroy,
+    allowed, // v1.6.2 PERMS
     on: ev.on,
     get state() { return R.state; },
     get talking() { return R.talking; },

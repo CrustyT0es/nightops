@@ -18,6 +18,8 @@
 //   map.setRoutes(routes | null, clockSeconds, { players, faces })      the replay
 //   map.mode() -> 'maplibre' | 'plain'     map.ready -> Promise<'maplibre' | 'plain'> (never rejects)
 //   map.getCenter(), map.getZoom(), map.project(p), map.unproject([x, y]), map.resize(), map.destroy()
+//   map.setLoot([{ id, p, left, r, here }])  v1.6: loot boxes; v1.6.3: each in its pickup circle (r metres, to scale),
+//                                           lit up while `here` (you're inside it)
 //   v1.2: map.setInsets({ top, right, bottom, left })   px hidden by a screen's bars: fit/center/fitAll keep to the rest
 //         map.fitAll({ ring, marks, padding })          Fit everyone: the ring and every mark (with its circle)
 //         map.zoomBy(step)                              +1 / -1 around the middle of what shows, animated
@@ -31,19 +33,21 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=175';
-import { icon } from './ui/icons.js?v=175';
+import { h, face as makeFace, text, listen } from './dom.js?v=176';
+import { icon } from './ui/icons.js?v=176';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=175';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=175';
+} from '../shared/geo.js?v=176';
+import { TIMING, fmtDistance } from '../shared/rules.js?v=176';
+import { LOOT_PICK_M } from '../shared/loot.js?v=176'; // v1.6.3: a loot box's pickup circle
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
 export const SWAP_WAIT_MS = 2500;    // after the style loads, wait at most this for the first tiles before swapping
 export const TILE_SIZE = 512;        // MapLibre's zoom: the world is 512 * 2^zoom px wide
 export const MIN_AREA_PX = 28;       // a ping circle is never smaller than this radius
+export const LOOT_ZONE_MIN_PX = 28;  // v1.6.3: a loot box's 5 m circle is never drawn smaller than this radius
 export const GLIDE_MS = 700;         // a mark that moved slides to its new spot this fast
 export const DEFAULT_ZOOM = 16;      // about 350 m across a phone
 export const MAX_ZOOM = 19;
@@ -1364,7 +1368,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=175');
+      lib = await import('../vendor/maplibre-gl.mjs?v=176');
     } catch {
       cancel(deadline);
       giveUp();
@@ -2615,9 +2619,15 @@ export function createMap(container, { interactive = true } = {}) {
   }
   // v1.4.8 end
 
-  // v1.6: Loot drops. setLoot([{ id, p, left }]) draws each box as a glowing crate with its own bob; a new box
-  // drops in from above, a box that's gone pops away. Not tappable (walk to it).
-  const lootRecs = new Map(); // id -> { el, p, x, y, shown }
+  // v1.6: Loot drops. setLoot([{ id, p, left, r, here }]) draws each box as a glowing crate with its own bob; a new
+  // box drops in from above, a box that's gone pops away. Not tappable (walk to it).
+  // v1.6.3: each box sits in its pickup circle (the owner: "show the area on the map you need to be in to get it,
+  // like a highlighted circle"): r metres (LOOT_PICK_M, 5 m) to scale like the ring, glowing and gently pulsing, lit
+  // up while `here` (this phone is inside it). Zoomed out, 5 m is a few pixels, hidden under the crate, so the circle
+  // is never drawn smaller than LOOT_ZONE_MIN_PX; while it's bigger than the real 5 m it's only a soft halo with no edge
+  // ('wide') and a small solid ring inside shows the real 5 m to scale (the review: the halo alone misled), and it turns solid once you zoom in far enough to see it at its real size. The crate itself stays the same size.
+  // Under the faces, so it never hides anyone.
+  const lootRecs = new Map(); // id -> { el, p, rM, zr, wide, x, y, shown }
   function setLoot(list) {
     if (S.destroyed) return;
     const seen = new Set();
@@ -2628,14 +2638,17 @@ export function createMap(container, { interactive = true } = {}) {
       let rec = lootRecs.get(id);
       if (!rec) {
         const el = h('div.nloot.unplaced', { 'aria-hidden': 'true' },
+          h('span.nloot-zone', h('i.nloot-ripple')), h('span.nloot-core'),
           h('span.nloot-beam'), h('span.chest2d', h('i.c2-lid'), h('i.c2-base'), h('i.c2-band'), h('b.c2-lock', '?')));
         el.style.setProperty('--bob', `${(lootRecs.size % 4) * -0.35}s`);
-        rec = { el, p: b.p, x: null, y: null, shown: false };
+        rec = { el, p: b.p, rM: LOOT_PICK_M, zr: null, wide: null, x: null, y: null, shown: false };
         lootRecs.set(id, rec);
         lootLayer.appendChild(el);
       }
       rec.p = [b.p[0], b.p[1]];
+      rec.rM = Number.isFinite(b.r) && b.r > 0 ? Math.min(b.r, 500) : LOOT_PICK_M;
       rec.el.classList.toggle('soon-gone', Number.isFinite(b.left) && b.left < 30000);
+      rec.el.classList.toggle('here', !!b.here);
     }
     for (const [id, rec] of lootRecs) {
       if (seen.has(id)) continue;
@@ -2651,6 +2664,17 @@ export function createMap(container, { interactive = true } = {}) {
       const xy = eng.project(rec.p);
       if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) { unplace(rec); continue; }
       place(rec, xy[0], xy[1]);
+      // v1.6.3: the pickup circle, metres to pixels at this zoom (as the ring and the checkpoints)
+      let px = NaN;
+      try { px = rec.rM * eng.pxPerMetre(rec.p[1]); } catch { px = NaN; }
+      const real = Number.isFinite(px) && px > 0 ? px : 0;
+      const zr = Math.round(Math.max(LOOT_ZONE_MIN_PX, real) * 10) / 10;
+      if (rec.zr !== zr) { rec.zr = zr; rec.el.style.setProperty('--zr', `${zr}px`); }
+      const wide = real < LOOT_ZONE_MIN_PX;
+      if (rec.wide !== wide) { rec.wide = wide; rec.el.classList.toggle('wide', wide); }
+      // the real 5 m, always to scale: a small solid ring inside the soft halo (at least 3 px so it shows)
+      const cr = Math.round(Math.max(3, real) * 10) / 10;
+      if (rec.cr !== cr) { rec.cr = cr; rec.el.style.setProperty('--cr', `${cr}px`); }
     }
   }
 

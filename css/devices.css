@@ -164,3 +164,56 @@
 .rd-card.rd-folded > :not(.rd-head) { display: none !important; }
 .rd-card[data-ok='1'] .rd-sum { color: var(--ok); }
 .rd-card[data-ok='0'] .rd-sum { color: var(--warn); }
+
+/* v1.6.2 PERMS: one big Allow button that makes the browser ask; why + the steps only once it's blocked for good */
+.fx-ask-hint { margin: 0; font-size: 17px; line-height: 1.35; color: var(--text); }
+.fx-ask-hint[hidden], .fx-why[hidden], .fx-after[hidden], .fx-allow[hidden] { display: none; }
+.fx-allow { min-height: 64px; gap: 10px; font-size: 20px; white-space: normal; text-align: center; }
+.fx-allow .icon { flex: none; }
+.fx-help[data-mode='ask'] .fx-allow { animation: fx-nudge 2.4s ease-in-out 0.6s infinite; }
+@keyframes fx-nudge { 0%, 70%, 100% { transform: none; } 78% { transform: translateY(-3px) rotate(-1deg); } 86% { transform: translateY(0) rotate(1deg); } }
+.fx-why {
+  margin: 0;
+  padding: 10px 12px;
+  border: 2px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 143, 58, 0.12);
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.fx-how:empty { display: none; }
+/* the short first screen (one button) sits in the middle, not at the top of an empty page */
+.fx-scroll > .fx-askview[data-mode='ask'], .fx-scroll > .fx-askview[data-mode='done'] { min-height: 100%; align-content: center; }
+.fx-help[data-mode='done'] .fx-icon { color: var(--ok); border-color: var(--ok); background: rgba(63, 242, 168, 0.1); animation: none; }
+.fx-help[data-result='granted'] .fx-status { color: var(--ok); font-weight: 700; font-size: 17px; }
+.rd-allow { background: var(--accent); color: var(--on-accent); font-weight: 800; }
+/* the lobby's "I'm OK being recorded": a refused camera's line and its Allow camera button */
+.x-cam-blocked-box { display: grid; gap: 8px; justify-items: start; }
+.x-cam-blocked-box[hidden] { display: none; }
+.x-cam-allow { gap: 8px; background: var(--accent); color: var(--on-accent); font-weight: 800; }
+/* the help layer opened from the lobby show (it sits over the show: z 60) */
+.fx-layer.fx-over-show { z-index: 70; }
+
+/* the show's gear check: "Allow all", and each part's own Allow / Fix it (kept here, next to the other Allow parts) */
+.vs-gear-go { font-size: 20px; min-height: 54px; }
+.vs-gear-go.done { background: #1fbf7a; color: var(--ink); opacity: 1; }
+.vs-gear-go:not(:disabled):not(.done) { animation: fx-nudge 2.4s ease-in-out 0.8s infinite; }
+.vs-gear-row { align-content: start; }
+.vs-gear-row strong { text-align: center; line-height: 1.1; }
+.vs-gear-act {
+  min-height: 40px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 0 8px;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: var(--gold, #ffd23f);
+  color: var(--ink);
+  font: 400 15px var(--display);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.vs-gear-act.fix { background: var(--warn); }
+.vs-gear-act:disabled { opacity: 0.5; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .vs-gear-go:not(:disabled):not(.done) { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .fx-help[data-mode='ask'] .fx-allow { animation: none; } }

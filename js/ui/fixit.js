@@ -8,10 +8,16 @@
 // During a live game: when the watchdog says 'denied', 'off' or 'timeout' (or 'stale' for STALE_SHOUT_MS more), a
 // full-screen layer over the map and tray (under sheets, moments, SOS and pocket mode). It goes by itself as soon as
 // a fix comes; "I'll fix it later" leaves a red bar ("Location off. Fix it") until then. Retries go on underneath.
-import { h, fill } from '../dom.js?v=175';
-import { icon } from './icons.js?v=175';
-import { holdInert } from './inert.js?v=175';
-import { helpFor, stepParts, deviceKind } from '../help.js?v=175';
+//
+// v1.6.2 PERMS: helpView({ ..., ask, perm, onAnswer }) for location / mic / camera when the browser may still ask:
+// one big "Allow location" button whose tap asks the browser itself (permissions.js), so its own Allow box shows.
+// Only when the browser has blocked it for good ('denied', or a "no" with no box) does it say why and show the
+// steps for this phone (with Try again, which asks again).
+import { h, fill, text } from '../dom.js?v=176';
+import { icon } from './icons.js?v=176';
+import { holdInert } from './inert.js?v=176';
+import { helpFor, stepParts, deviceKind } from '../help.js?v=176';
+import { permState, lastAnswer, blockedWords, answerWords, LABELS, askLocation, askMic, askCamera } from '../permissions.js?v=176';
 
 export const STALE_SHOUT_MS = 30000;
 export const LOST = ['denied', 'off'];
@@ -62,7 +68,110 @@ function stepList(steps) {
   return h('ol.fx-steps', steps.map((st) => h('li', stepParts(st).map((part) => (part.bold ? h('strong', part.text) : part.text)))));
 }
 
-export function helpView({ part = 'location', why = 'denied', kind = deviceKind(), onTry = null, onLater = null, onReload = null, tryLabel = 'Try again', laterLabel = "I'll fix it later", titleId = '' } = {}) {
+// v1.6.2 PERMS ------------------------------------------------------------------------------------------------------
+export const ASKABLE = ['location', 'mic', 'camera'];
+// the problems a tap on Allow can fix (the rest: location services off, no signal, no microphone... keep their steps)
+export const ASK_WHYS = ['denied', 'asking', 'na', 'prompt', 'unanswered'];
+const ICON_FOR = { location: 'locate', camera: 'camera', mic: 'mic', sound: 'speaker' };
+
+// The part's own ask, from a tap (location: done once allowed; the watch finds the fix).
+export function askFor(part) {
+  if (part === 'mic') return () => askMic();
+  if (part === 'camera') return () => askCamera();
+  return () => askLocation({ waitFix: false });
+}
+
+// Which screen to start on: 'ask' (the big Allow button) or 'blocked' (why + the steps).
+export function firstMode(part, perm, last = null) {
+  if (perm === 'denied') return 'blocked';
+  if (perm !== 'granted' && last && last.part === part && last.blocked) return 'blocked';
+  return 'ask';
+}
+
+function askView({ part, why, kind, ask, perm, onAnswer, onLater, onReload, laterLabel, titleId }) {
+  const S = { mode: firstMode(part, perm, lastAnswer(part)), why: ASK_WHYS.includes(why) ? 'denied' : why, busy: false };
+  const last = lastAnswer(part);
+  if (S.mode === 'blocked' && perm !== 'denied' && last && last.blocked && last.why) S.why = last.why;
+  const title = h('h2.fx-title', titleId ? { id: titleId } : {});
+  const line = h('p.fx-line');
+  const reason = h('p.fx-why', { hidden: true });
+  const hint = h('p.fx-ask-hint', 'Tap the button. When your phone asks, tap Allow.');
+  const how = h('div.fx-how');
+  const after = h('p.fx-after', { hidden: true });
+  const word = h('span.fx-allow-word');
+  // (.fx-try too: the screen's main button, as in the steps view)
+  const allowBtn = h('button.btn.primary.wide.fx-allow.fx-try', { type: 'button' }, icon(ICON_FOR[part], 22), word);
+  const reloadBtn = onReload ? h('button.btn.wide.fx-reload', { type: 'button', hidden: true, onclick: () => onReload() }, 'Reload Night Ops') : null;
+  const laterBtn = onLater ? h('button.btn.ghost.wide.fx-later', { type: 'button', onclick: () => onLater() }, laterLabel) : null;
+  const status = h('p.fx-status', { role: 'status', 'aria-live': 'polite' });
+  const root = h('div.fx-help.fx-askview', { 'data-part': part, 'data-kind': kind },
+    h('div.fx-icon', { 'aria-hidden': 'true' }, icon(ICON_FOR[part], 34)),
+    title, line, reason, hint, how, after,
+    h('div.fx-actions', allowBtn, reloadBtn, laterBtn),
+    status);
+
+  function paint() {
+    const help = helpFor(part, S.why, kind);
+    root.dataset.mode = S.mode;
+    root.dataset.why = S.why;
+    text(title, help.title);
+    text(line, help.line);
+    reason.hidden = S.mode !== 'blocked';
+    text(reason, `${blockedWords(part)} Turn it back on like this:`);
+    hint.hidden = S.mode !== 'ask';
+    fill(how, S.mode === 'ask' ? null : stepList(help.steps));
+    after.hidden = S.mode === 'ask' || !help.after;
+    text(after, help.after || '');
+    text(word, S.mode === 'ask' ? LABELS[part] : 'Try again');
+    allowBtn.hidden = S.mode === 'done';
+    if (S.mode === 'done') { hint.hidden = true; fill(how); after.hidden = true; }
+    if (reloadBtn) reloadBtn.hidden = S.mode !== 'blocked';
+  }
+
+  allowBtn.addEventListener('click', () => {
+    if (S.busy) return;
+    S.busy = true;
+    allowBtn.disabled = true;
+    const blockedBefore = S.mode === 'blocked';
+    fill(status, S.mode === 'ask' ? 'Asking your phone...' : 'Trying...');
+    let p;
+    try { p = ask(); } catch (e) { p = Promise.reject(e); } // (called in the tap itself: that shows the box)
+    Promise.resolve(p).then((a) => {
+      S.busy = false;
+      allowBtn.disabled = false;
+      if (!a) return;
+      if (a.result === 'granted') S.mode = 'done';
+      else if (a.blocked) { S.mode = 'blocked'; S.why = a.why || 'denied'; }
+      else if (a.result === 'unavailable') { S.mode = 'steps'; S.why = a.why || 'off'; }
+      else if (a.unsure) { S.mode = 'steps'; S.why = 'denied'; } // (may be blocked: the steps, and Try again stays)
+      paint();
+      root.dataset.result = a.result;
+      // (a first block: the reason above the steps says it)
+      fill(status, a.blocked && !blockedBefore ? '' : answerWords(a, { blockedBefore }));
+      if (onAnswer) { try { onAnswer(a); } catch (e) { console.error(e); } }
+    }, () => {
+      S.busy = false;
+      allowBtn.disabled = false;
+      fill(status, "Couldn't ask. Tap the button again.");
+    });
+  });
+
+  paint();
+  // What the browser says about it (a moment later): blocked for good shows the steps at once.
+  if (perm === undefined || perm === null) {
+    permState(part).then((st) => {
+      if (S.busy || S.mode !== 'ask') return;
+      const m = firstMode(part, st, lastAnswer(part));
+      if (m !== S.mode) { S.mode = m; paint(); }
+    }).catch(() => {});
+  }
+  return root;
+}
+// v1.6.2 end PERMS --------------------------------------------------------------------------------------------------
+
+export function helpView({ part = 'location', why = 'denied', kind = deviceKind(), onTry = null, onLater = null, onReload = null, tryLabel = 'Try again', laterLabel = "I'll fix it later", titleId = '', ask = null, perm = null, onAnswer = null } = {}) {
+  // v1.6.2 PERMS: the Allow button first, where a tap can still make the browser ask
+  if (ask && ASKABLE.includes(part) && ASK_WHYS.includes(why)) return askView({ part, why, kind, ask, perm, onAnswer, onLater, onReload, laterLabel, titleId });
   const help = helpFor(part, why, kind);
   const iconName = part === 'location' ? 'locate' : part === 'camera' ? 'camera' : part === 'mic' ? 'mic' : 'speaker';
   const tryBtn = onTry ? h('button.btn.primary.wide.fx-try', { type: 'button' }, tryLabel) : null;
@@ -93,13 +202,28 @@ export function helpView({ part = 'location', why = 'denied', kind = deviceKind(
 
 let seq = 0;
 // A full-screen help layer (from the ready check's "Fix it", or a camera/mic chip). Esc and Close close it.
-export function openHelp({ part, why, kind = deviceKind(), onTry = null, onClose = null } = {}) {
+// v1.6.2 PERMS: ask (from permissions.js; default: the part's own) shows the Allow button where it can still help;
+// onAnswer(answer) hears each answer, and a yes closes the layer by itself after GRANT_CLOSE_MS.
+export const GRANT_CLOSE_MS = 1400;
+const reloadPage = () => { try { globalThis.location.reload(); } catch { /* ignore */ } };
+export function openHelp({ part, why, kind = deviceKind(), onTry = null, onClose = null, ask, perm = null, onAnswer = null, onReload } = {}) {
   seq += 1;
   const id = `fx-t${seq}`;
   const before = document.activeElement;
   let release = () => {};
   const closeBtn = h('button.fx-close', { type: 'button', 'aria-label': 'Close' }, icon('close', 22));
-  const view = helpView({ part, why, kind, onTry, onLater: () => close(), laterLabel: 'Close', titleId: id });
+  const asking = ask === undefined ? (ASKABLE.includes(part) ? askFor(part) : null) : ask;
+  const view = helpView({
+    part, why, kind, onTry, onLater: () => close(), laterLabel: 'Close', titleId: id,
+    ask: asking,
+    perm,
+    // (Safari keeps a "Don't Allow" until the page reloads: the game comes back by itself)
+    onReload: onReload === undefined ? (IOS_KINDS.includes(kind) ? reloadPage : null) : onReload,
+    onAnswer: (a) => {
+      if (onAnswer) { try { onAnswer(a); } catch (e) { console.error(e); } }
+      if (a && a.result === 'granted') setTimeout(() => close(), GRANT_CLOSE_MS);
+    },
+  });
   const layer = h('div.fx-layer.fx-sheet', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': id, tabindex: '-1' },
     h('div.fx-scroll', closeBtn, view));
   let closed = false;
@@ -122,6 +246,17 @@ export function openHelp({ part, why, kind = deviceKind(), onTry = null, onClose
   return { el: layer, close };
 }
 
+// v1.6.2 PERMS: from a tap, ask the browser for `part` at once (its own Allow box). Blocked for good, or not
+// working for another reason: the help layer with the steps. -> Promise<Answer>
+export function allowOrHelp(part, { kind = deviceKind(), onTry = null, onAnswer = null } = {}) {
+  return askFor(part)().then((a) => {
+    const again = () => askFor(part)().then((x) => answerWords(x, { blockedBefore: true }));
+    if (a && (a.blocked || a.result === 'unavailable')) openHelp({ part, why: a.why || 'denied', kind, onTry: onTry || again, perm: a.blocked ? 'denied' : null });
+    if (onAnswer) { try { onAnswer(a); } catch (e) { console.error(e); } }
+    return a;
+  });
+}
+
 // ---- the game screen's parts ----
 export function createFixIt({ app, root = null, now = () => Date.now(), kind = deviceKind(), reload = () => { try { globalThis.location.reload(); } catch { /* ignore */ } }, wait = 4000 } = {}) {
   const loc = app && app.location;
@@ -135,7 +270,8 @@ export function createFixIt({ app, root = null, now = () => Date.now(), kind = d
   tapBtn.addEventListener('click', () => {
     if (!media) return;
     const st = media.state;
-    if (st.cam === 'denied' || st.mic === 'denied') openHelp({ part: st.cam === 'denied' ? 'camera' : 'mic', why: 'denied', kind, onTry: () => media.restore().then((s) => (s ? '' : 'Still blocked.')) });
+    // v1.6.2 PERMS: blocked -> the browser's own Allow box straight from this tap; the steps only if it can't ask
+    if (st.cam === 'denied' || st.mic === 'denied') allowOrHelp(st.cam === 'denied' ? 'camera' : 'mic', { kind, onTry: () => media.restore().then((s) => (s ? '' : 'Still not working.')) });
     else media.restore();
   });
 
@@ -160,6 +296,8 @@ export function createFixIt({ app, root = null, now = () => Date.now(), kind = d
       },
       onReload: IOS_KINDS.includes(kind) ? () => reload() : null,
       onLater: () => { S.later = true; paint(); },
+      // v1.6.2 PERMS: blocked -> "Allow location" asks the browser itself (app.js restarts the watch on a yes)
+      ask: why === 'denied' ? askFor('location') : null,
     })));
     layer.dataset.why = why;
   }

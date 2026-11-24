@@ -11,11 +11,12 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=175';
-import { chest, chestModel } from '../chest.js?v=175';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=175';
-import { LOOT_POWERS, rarityOfPower } from '../../shared/loot.js?v=175';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=175';
+import { h, text } from '../dom.js?v=176';
+import { chest, chestModel } from '../chest.js?v=176';
+import { cardEl, tiltFrom } from '../cards.js?v=176'; // v1.6.3: one card look everywhere
+import { POWERS, fmtClock } from '../../shared/rules.js?v=176';
+import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=176';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=176';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -52,6 +53,8 @@ export function lootEffect(e, view) {
     case 'lootfx': {
       const big = { blackout: 'BLACKOUT', eye: 'ALL-SEEING EYE', storm: 'STATIC STORM', freeze: 'FREEZE', tracker: 'TRACKER DART' }[data.power];
       if (data.by === me.id) return { ...none, banner: [words, 'power'], buzz: 'power' };
+      // v1.6.3: the Blackout screen itself says it to the hunters (a moment would only wait unseen under it)
+      if (data.power === 'blackout' && e.to === 'hunters') return { ...none, buzz: 'warn', beep: 'warn' };
       if (big && (data.power !== 'tracker' || e.to === me.id)) {
         return { ...none, moment: { kicker: data.power === 'blackout' || data.power === 'storm' || data.power === 'eye' ? 'Mythic loot' : 'Loot power', title: big, line: words, kind: data.power === 'eye' || data.power === 'tracker' || data.power === 'freeze' ? 'radar' : 'hider' }, buzz: 'warn', beep: 'warn' };
       }
@@ -91,11 +94,8 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
   // swings open with light pouring out (Clash Royale style).
   const crate = h('div.lb-crate.mc', { 'aria-hidden': 'true' }, h('div.mc-glow'), chestModel(), h('div.mc-shadow'));
   const word = h('div.lb-word');
-  const emoji = h('div.lb-emoji', { 'aria-hidden': 'true' });
-  const name = h('div.lb-name');
-  const desc = h('p.lb-desc');
-  const edges = Array.from({ length: 6 }, (_, i) => { const e = h('i.lb-card-edge'); e.style.setProperty('--z', `${-(i + 1) * 1.6}px`); return e; });
-  const card = h('div.lb-card', h('div.lb-card-in', ...edges, h('div.lb-card-back', { 'aria-hidden': 'true' }, h('span.card-moon'), h('b.card-logo', 'NIGHT', h('br'), 'OPS')), h('div.lb-card-front', h('span.lb-card-shine', { 'aria-hidden': 'true' }), emoji, name, desc)));
+  // v1.6.3: the card that comes out is the same card as in your collection (js/cards.js), made once we know it.
+  const card = h('div.lb-card.has-nc');
   card.addEventListener('click', (e) => { e.stopPropagation(); if (layer.dataset.stage === 'card') card.classList.toggle('flipped'); });
   const foot = h('div.lb-foot');
   const hint = h('p.lb-hint', 'Opening…');
@@ -137,9 +137,12 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
         use.addEventListener('click', (e) => { e.stopPropagation(); close(); try { useIt(power); } catch (err) { console.error(err); } });
         foot.append(use, ok);
       } else foot.append(ok);
-      text(emoji, POWER_EMOJI[power] || '⭐');
-      text(name, p.name);
-      text(desc, p.desc || '');
+      const nc = cardEl(power, { full: true, back: true, rarity: r });
+      const inner = nc.querySelector('.nc-in');
+      if (inner) inner.classList.add('lb-card-in');
+      card.replaceChildren(nc);
+      // A finger over the card moves its foil shine (the card itself keeps turning slowly).
+      layer.addEventListener('pointermove', (e) => { tiltFrom(nc, card.getBoundingClientRect(), e.clientX, e.clientY); });
       text(hint, 'It goes in your cards 🃏');
       text(live, `${RARITY_WORD[r]} loot: ${p.name}. ${p.desc || ''}`);
       layer.dataset.stage = 'burst';
@@ -173,8 +176,8 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=175').then(({ banner }) => banner(n
-        ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Walk right up to one to grab it.${when}`
+      import('../ui/banner.js?v=176').then(({ banner }) => banner(n
+        ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Get within 5 m of one to grab it (zoom in to see the real circle).${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
   });
@@ -290,6 +293,8 @@ export function flyIn({ from, to, doc = globalThis.document } = {}) {
 }
 
 // ---- v1.6.1: the nearest box, as a chip over the map ("🎁 45 m" and an arrow) -----------------------------
+// v1.6.3: a box is picked up inside its circle (r metres, 5 m): -> { d, b (bearing), box, r, inside }
+export const boxRadius = (b) => (b && Number.isFinite(b.r) && b.r > 0 ? b.r : LOOT_PICK_M);
 export function nearestBox(view, me) {
   const l = lootOf(view);
   if (!l || l.held || !isPoint(me)) return null;
@@ -299,14 +304,33 @@ export function nearestBox(view, me) {
     const d = distanceM(me, b.p);
     if (!best || d < best.d) best = { d, b: bearingDeg(me, b.p), box: b };
   }
+  if (best) {
+    best.r = boxRadius(best.box);
+    best.inside = best.d <= best.r;
+  }
   return best;
+}
+
+// v1.6.3: the chip's words for the nearest box (n from nearestBox; acc: this phone's GPS margin in metres, or
+// null): -> { big, small }. Outside the circle: the distance to the box ("7 m", to the metre up close, to 5 m
+// further off) over "Walk into the circle". Inside: "Right here!", and the box is picked up with the next fix, or
+// waits for a sharper one (the game only counts a fix within LOOT_ACC_MAX_M).
+export function nearWords(n, acc = null) {
+  if (!n) return null;
+  if (n.inside) {
+    const vague = Number.isFinite(acc) && acc > LOOT_ACC_MAX_M;
+    return { big: 'Right here!', small: vague ? 'GPS is fuzzy. Stand still.' : 'Grabbing it...' };
+  }
+  // (Never "5 m" while outside a 5 m circle: just outside reads as the next metre up.)
+  const m = n.d < 30 ? Math.max(Math.floor(n.r) + 1, Math.round(n.d)) : Math.round(n.d / 5) * 5;
+  return { big: `${m} m`, small: 'Get within 5 m' };
 }
 
 // ---- v1.6.1: what the loot powers do to this screen --------------------------------------------------------
 // createLootFx({ app, root, slot, sos, annoy }) -> { update(view, clock), destroy() }
 //   slot     the lines over the map (game.js's .g-lines): the chips and the compass go there, in the flow, so they
 //            never cover each other or the middle of the map
-//   annoy    what Glitch may do by itself: { zoom(), pan(), tray(), chat(), menu() } (never SOS, tags or powers)
+//   annoy    what Glitch may do by itself: { zoom(), pan(), tray(), chat(), menu(), tear() } (never SOS, tags or powers)
 //   Blackout   the whole screen black: a countdown, a big walkie (it crackles) and SOS; nothing else works
 //   Storm      TV static over the map (your own dot and the ring faintly through it)
 //   Glitch     a minute of an app that won't behave: it zooms and pans the map, opens the tray and the chat by
@@ -415,7 +439,7 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
     const t = Date.now() - S.started;
     if (!S.pocketDone && t > 14000 && fakePocket.hidden) pocketTrap();
     else if (fakePocket.hidden) {
-      const acts = ['zoom', 'zoom', 'pan', 'pan', 'tray', 'chat', 'menu'];
+      const acts = ['zoom', 'zoom', 'pan', 'pan', 'tray', 'chat', 'menu', 'tear']; // v1.6.3: 'tear', the screen tears
       call(acts[Math.floor(Math.random() * acts.length)]);
     }
     S.timer = setTimeout(glitchTick, 1400 + Math.random() * 1800);
@@ -430,6 +454,14 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
     const gone = Number.isFinite(clock) && Number.isFinite(view && view.clock) ? Math.max(0, clock - view.clock) : 0;
     const left = (k) => (Number.isFinite(fx[k]) ? Math.max(0, fx[k] - gone) : 0);
     const bo = left('blackout');
+    // v1.6.3: a fresh Blackout switches the screen off like an old TV (once; never again after a reload)
+    if (bo && blackout.hidden && bo > (LOOT_POWERS.blackout.ms || 0) - 10000) {
+      blackout.classList.remove('arrive');
+      const crt = h('div.lx-bo-crt', { 'aria-hidden': 'true' });
+      blackout.append(crt);
+      blackout.classList.add('arrive');
+      setTimeout(() => { crt.remove(); blackout.classList.remove('arrive'); }, 1300);
+    }
     blackout.hidden = !bo;
     doc.documentElement.classList.toggle('lx-dark', !!bo);
     if (bo) {
@@ -443,7 +475,7 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
     if (st) { text(stormTxt.lastChild, fmtClock(st)); if (!stormWas) drawStatic(); }
     const victim = !!(view && view.me && view.me.team === 'hunter' && !view.me.driver); // Glitch only hits the hunters' phones
     const gl = victim && left('glitch') > 0;
-    if (gl && !S.glitchOn) { S.glitchOn = true; S.started = Date.now(); S.pocketDone = false; S.timer = setTimeout(glitchTick, 1200); }
+    if (gl && !S.glitchOn) { S.glitchOn = true; S.started = Date.now(); S.pocketDone = false; call('tear'); S.timer = setTimeout(glitchTick, 1200); }
     if (!gl && S.glitchOn) { S.glitchOn = false; clearTimeout(S.timer); fakePocket.hidden = true; }
     const c = fx.compass && Math.max(0, fx.compass.left - gone) > 0 ? fx.compass : null;
     compass.hidden = !c;
@@ -487,145 +519,5 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
   };
 }
 
-// ---- v1.6.1: your cards (every power you hold, from boxes) --------------------------------------------------
-// createCardDeck({ app, onClassic, useLoot, doc }) -> { button, update(view), open(), close() }
-// The tray's 🃏 button (with how many cards); a tap fans them out big in 3D: swipe or tap a side card to bring it
-// forward, Use plays it (a classic power through the game's own onClassic, with its usual checks; a loot-only one
-// through useLoot), Close puts them back.
-export function cardsOf(view) {
-  const out = [];
-  if (!view || !view.me) return out;
-  const hunter = view.me.team === 'hunter';
-  const side = hunter ? 'hunter' : 'hider';
-  if (hunter) {
-    for (const k of ['radar', 'exposure', 'hacker', 'wiretap']) if (view.team && view.team[k] === 'ready') out.push({ key: k, n: 1, classic: true });
-  } else {
-    for (const [k, v] of Object.entries(view.me.powers || {})) if (v === 'ready' && POWERS[k]) out.push({ key: k, n: 1, classic: true });
-  }
-  const l = lootOf(view);
-  for (const [k, n] of Object.entries((l && l.stash) || {})) if (LOOT_POWERS[k] && n > 0) out.push({ key: k, n, classic: false });
-  const order = { mythic: 0, legendary: 1, rare: 2, common: 3 };
-  for (const c of out) c.rarity = rarityOfPower(side, c.key) || 'common';
-  return out.sort((a, b) => order[a.rarity] - order[b.rarity] || a.key.localeCompare(b.key));
-}
-
-export function createCardDeck({ app, onClassic = null, useLoot = null, doc = globalThis.document } = {}) {
-  const count = h('span.cd-n', { 'aria-hidden': 'true' });
-  const button = h('button.tray-sq.cd-btn', { type: 'button', 'aria-label': 'Your cards' }, h('span.cd-ico', { 'aria-hidden': 'true' }, '🃏'), count);
-  const S = { view: null, cards: [], at: 0, layer: null, sig: '' };
-  button.addEventListener('click', () => open());
-
-  function cardEl(c, i) {
-    const info = powerInfo(c.key);
-    const el = h(`div.cd-card.r-${c.rarity}`, { 'data-i': String(i), role: 'button', tabindex: '-1', 'aria-label': `${info.name}, ${RARITY_WORD[c.rarity]}${c.n > 1 ? `, ${c.n} of them` : ''}: ${info.desc}` },
-      h('div.cd-card-in',
-        ...Array.from({ length: 5 }, (_, k) => { const e = h('i.cd-edge'); e.style.setProperty('--z', `${-(k + 1) * 1.5}px`); return e; }),
-        h('div.cd-cback', { 'aria-hidden': 'true' }, h('span.card-moon'), h('b.card-logo', 'NIGHT', h('br'), 'OPS'), h('span.cd-back-r', RARITY_WORD[c.rarity].toUpperCase())),
-        h('div.cd-face',
-          h('span.cd-shine', { 'aria-hidden': 'true' }),
-          h('span.cd-rarity', RARITY_WORD[c.rarity].toUpperCase()),
-          h('span.cd-emoji', { 'aria-hidden': 'true' }, POWER_EMOJI[c.key] || '⭐'),
-          h('strong.cd-name', info.name),
-          h('p.cd-desc', info.desc || ''),
-          c.n > 1 ? h('span.cd-count', `×${c.n}`) : null)));
-    el.addEventListener('click', () => { if (S.at !== i) { S.at = i; place(); } else el.classList.toggle('flipped'); });
-    return el;
-  }
-  // Each card's spot on the arc from the one in front: further ones turn away, sink back and shrink.
-  function place() {
-    if (!S.layer) return;
-    const cards = [...S.layer.querySelectorAll('.cd-card')];
-    cards.forEach((el, i) => {
-      const d = i - S.at;
-      const a = Math.max(-3, Math.min(3, d));
-      el.style.setProperty('--x', `${a * 62 + Math.sign(d) * (Math.abs(d) > 0 ? 40 : 0)}%`);
-      el.style.setProperty('--ry', `${-a * 28}deg`);
-      el.style.setProperty('--tz', `${-Math.abs(a) * 120}px`);
-      el.style.setProperty('--s', Math.abs(d) > 3 ? '0' : '1');
-      el.style.zIndex = String(10 - Math.abs(d));
-      el.classList.toggle('front', d === 0);
-      el.tabIndex = d === 0 ? 0 : -1;
-    });
-    const c = S.cards[S.at];
-    const use = S.layer.querySelector('.cd-use');
-    if (use) { use.disabled = !c; text(use, 'Use it'); use.setAttribute('aria-label', c ? `Use ${powerInfo(c.key).name}` : 'Use'); }
-    const dots = S.layer.querySelector('.cd-dots');
-    if (dots) [...dots.children].forEach((d, i) => d.classList.toggle('on', i === S.at));
-  }
-  function close() {
-    const L = S.layer;
-    if (!L) return;
-    S.layer = null;
-    L.classList.add('out');
-    doc.removeEventListener('keydown', keys);
-    setTimeout(() => L.remove(), 300);
-  }
-  function keys(e) {
-    if (e.key === 'Escape') close();
-    else if (e.key === 'ArrowRight') { S.at = Math.min(S.cards.length - 1, S.at + 1); place(); }
-    else if (e.key === 'ArrowLeft') { S.at = Math.max(0, S.at - 1); place(); }
-  }
-  async function useFront() {
-    const c = S.cards[S.at];
-    if (!c || !S.layer) return;
-    const front = S.layer.querySelector('.cd-card.front');
-    if (front) front.classList.add('played');
-    await new Promise((r) => setTimeout(r, 550));
-    close();
-    try {
-      if (c.classic) { if (onClassic) onClassic(c.key); } else if (useLoot) await useLoot(c.key);
-    } catch (e) { console.error(e); }
-  }
-  function open() {
-    if (S.layer) return;
-    S.cards = cardsOf(S.view);
-    S.at = 0;
-    const r = button.getBoundingClientRect ? button.getBoundingClientRect() : null;
-    const fan = h('div.cd-fan');
-    const dots = h('div.cd-dots', { 'aria-hidden': 'true' }, ...S.cards.map(() => h('i')));
-    const use = h('button.btn.cd-use', { type: 'button' }, 'Use');
-    const shut = h('button.btn.cd-close', { type: 'button' }, 'Close');
-    use.addEventListener('click', () => useFront());
-    shut.addEventListener('click', () => close());
-    const empty = h('div.cd-empty', h('span', { 'aria-hidden': 'true' }, '📦'), h('strong', 'No cards yet'), h('p', 'Race to a loot box on the map. Every power comes out of one.'));
-    const L = h('div.cd', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your cards' },
-      h('div.cd-back', { 'aria-hidden': 'true' }),
-      h('p.cd-title', `🃏 Your cards · ${S.cards.reduce((n, c) => n + c.n, 0)}`),
-      S.cards.length ? fan : empty,
-      S.cards.length > 1 ? dots : null,
-      h('div.cd-foot', S.cards.length ? use : null, shut));
-    if (r) { L.style.setProperty('--fx', `${Math.round(r.left + r.width / 2)}px`); L.style.setProperty('--fy', `${Math.round(r.top + r.height / 2)}px`); }
-    S.cards.forEach((c, i) => { const el = cardEl(c, i); el.style.setProperty('--d', `${i * 0.07}s`); fan.appendChild(el); });
-    // Swipe between cards
-    let sx = null;
-    fan.addEventListener('pointerdown', (e) => { sx = e.clientX; });
-    fan.addEventListener('pointerup', (e) => {
-      if (sx === null) return;
-      const dx = e.clientX - sx;
-      sx = null;
-      if (Math.abs(dx) > 40) { S.at = Math.max(0, Math.min(S.cards.length - 1, S.at + (dx < 0 ? 1 : -1))); place(); }
-    });
-    L.querySelector('.cd-back').addEventListener('click', () => close());
-    doc.body.appendChild(L);
-    S.layer = L;
-    doc.addEventListener('keydown', keys);
-    place();
-    try { (S.cards.length ? use : shut).focus({ preventScroll: true }); } catch { /* fine */ }
-  }
-  function update(view) {
-    S.view = view;
-    const cards = cardsOf(view);
-    const n = cards.reduce((a, c) => a + c.n, 0);
-    const sig = cards.map((c) => `${c.key}${c.n}`).join(',');
-    text(count, String(n));
-    count.hidden = !n;
-    button.classList.toggle('some', n > 0);
-    button.hidden = !lootOf(view);
-    button.setAttribute('aria-label', n ? `Your cards: ${n}` : 'Your cards: none yet');
-    if (sig !== S.sig) {
-      if (S.sig && n > cards.length - 1) { button.classList.remove('new'); void button.offsetWidth; button.classList.add('new'); }
-      S.sig = sig;
-    }
-  }
-  return { button, update, open, close };
-}
+// ---- v1.6.1: your cards: v1.6.3 moved them to js/cards.js (the collection, one card look everywhere) ----------
+export { cardsOf, createCardDeck } from '../cards.js?v=176';

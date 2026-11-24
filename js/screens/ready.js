@@ -5,11 +5,15 @@
 // Each phone sees its own rows (Location, Camera when filmed, Microphone, Alarm sound for a hider with Hacker on), each
 // with a green dot and "Ready", or an amber dot and "Fix it" (the help screen for that part). "Test my location"
 // takes one fix that never leaves the phone. The host's card adds "Everyone".
-import { h, fill, text } from '../dom.js?v=175';
-import { icon } from '../ui/icons.js?v=175';
-import { openHelp } from '../ui/fixit.js?v=175';
-import { deviceKind } from '../help.js?v=175';
-import { soundFor } from '../hack.js?v=175';
+//
+// v1.6.2 PERMS: a row the browser can still ask about has an "Allow" button that asks it straight from the tap
+// (permissions.js); "Fix it" (the steps) only once it's blocked for good, or for what a tap can't fix.
+import { h, fill, text } from '../dom.js?v=176';
+import { icon } from '../ui/icons.js?v=176';
+import { openHelp, ASKABLE, ASK_WHYS } from '../ui/fixit.js?v=176';
+import { deviceKind } from '../help.js?v=176';
+import { soundFor } from '../hack.js?v=176';
+import { ask, askLocation, onAnswer, lastAnswer, PERM_NAMES } from '../permissions.js?v=176';
 
 export const AWAY_MS = 120000;     // "hasn't opened the game for 2 min"
 export const GOOD_ACC_M = 30;
@@ -99,9 +103,29 @@ export function playTestTone(win = globalThis.window) {
   } catch { return false; }
 }
 
+// v1.6.2 PERMS: a location answer as the ready check's test result { ok, acc, why }
+export function testOf(a) {
+  if (!a) return null;
+  if (a.result === 'granted') return a.acc !== null && a.acc !== undefined ? { ok: true, acc: a.acc, why: null } : { ok: false, acc: null, why: 'timeout' };
+  if (a.result === 'unavailable') return { ok: false, acc: null, why: a.why === 'none' ? 'none' : 'off' };
+  return { ok: false, acc: null, why: a.why === 'off' ? 'off' : 'denied', blocked: !!a.blocked };
+}
+
+// v1.6.2 PERMS: what a row's button does: 'allow' (ask the browser from this tap), 'fix' (the steps), 'test'
+// (the alarm sound) or null (ready). perm: the browser's word for the part; last: permissions.js's last answer.
+export function rowAction(r, perm = 'unknown', last = null) {
+  if (r.ok && !r.weak) return null;
+  if (r.part === 'sound') return r.untested ? 'test' : 'fix';
+  if (!ASKABLE.includes(r.part)) return 'fix';
+  if (r.weak) return 'fix';
+  const blocked = perm === 'denied' || (perm !== 'granted' && !!last && last.part === r.part && !!last.blocked);
+  if (blocked) return 'fix';
+  return r.untested || ASK_WHYS.includes(r.why) ? 'allow' : 'fix';
+}
+
 export function readyCard({ app, host = false } = {}) {
   const kind = deviceKind();
-  const S = { view: null, locWord: 'asking', locTest: null, testing: false, dead: false, perm: null };
+  const S = { view: null, locWord: 'asking', locTest: null, testing: false, dead: false, perm: null, perms: {}, statuses: [], asking: '' };
   const list = h('ul.rd-list');
   const testBtn = h('button.btn.rd-test', { type: 'button' }, icon('locate', 18), 'Test my location');
   const testLine = h('p.rd-test-line', { role: 'status', 'aria-live': 'polite' });
@@ -135,46 +159,100 @@ export function readyCard({ app, host = false } = {}) {
           else if (!S.locTest) setLoc('asking');
           paint();
         };
-        st.onchange = apply;
+        st.onchange = () => {
+          S.perms.location = st.state;
+          // (allowed in Settings since: an old "blocked" test result no longer counts)
+          if (st.state === 'granted' && S.locTest && S.locTest.why === 'denied') S.locTest = null;
+          apply();
+        };
+        S.perms.location = st.state;
         apply();
       }, () => {});
     }
   } catch { /* not here */ }
   if (!(globalThis.navigator && navigator.geolocation)) setLoc('none');
+  // v1.6.2 PERMS: the microphone's and camera's word too (blocked for good -> Fix it, else Allow)
+  try {
+    const perms = globalThis.navigator && navigator.permissions;
+    for (const part of ['mic', 'camera']) {
+      if (!perms || !perms.query) break;
+      Promise.resolve(perms.query({ name: PERM_NAMES[part] })).then((st) => {
+        if (S.dead || !st) return;
+        S.perms[part] = st.state;
+        S.statuses.push(st);
+        st.onchange = () => { S.perms[part] = st.state; paint(); };
+        paint();
+      }, () => {});
+    }
+  } catch { /* not here */ }
 
-  testBtn.addEventListener('click', async () => {
-    const loc = app && app.location;
-    if (!loc || typeof loc.test !== 'function' || S.testing) return;
-    S.testing = true;
-    testBtn.disabled = true;
-    text(testLine, 'Finding you...');
-    const r = await loc.test();
-    S.testing = false;
-    testBtn.disabled = false;
-    if (S.dead) return;
+  // v1.6.2 PERMS: an answer from anywhere (this card, a Fix it sheet, the gear check): the location row follows it
+  function tookLoc(a, { line = false } = {}) {
+    const r = testOf(a);
+    if (!r) return;
     S.locTest = r;
     setLoc(r.ok ? 'ok' : r.why);
+    if (!line && !testLine.textContent) return;
     if (r.ok) text(testLine, r.acc <= GOOD_ACC_M ? `Found you to ${r.acc} m.` : `Found you, but only to ${r.acc} m. Go outside or turn on Precise Location.`);
-    else text(testLine, r.why === 'denied' ? 'Location is blocked. Tap Fix it.' : r.why === 'off' ? 'Location is off. Tap Fix it.' : "Couldn't find you. Tap Fix it.");
+    else if (r.why === 'denied') text(testLine, r.blocked ? 'Location is blocked. Tap Fix it.' : "Location isn't allowed yet. Tap Allow.");
+    else text(testLine, r.why === 'off' ? 'Location is off. Tap Fix it.' : r.why === 'none' ? "This browser can't share a location." : "Couldn't find you. Tap Fix it.");
     testLine.dataset.kind = r.ok ? (r.acc <= GOOD_ACC_M ? 'good' : 'weak') : 'bad';
+  }
+  const offAnswers = onAnswer((a) => {
+    if (S.dead) return;
+    if (a.part === 'location') tookLoc(a);
     paint();
     if (app && app.syncNow) app.syncNow();
   });
 
+  testBtn.addEventListener('click', () => {
+    if (S.testing) return;
+    S.testing = true;
+    testBtn.disabled = true;
+    text(testLine, 'Finding you...');
+    testLine.dataset.kind = '';
+    // (from the tap itself: the browser may show its Allow box)
+    askLocation({ waitFix: true }).then((a) => {
+      S.testing = false;
+      testBtn.disabled = false;
+      if (S.dead) return;
+      tookLoc(a, { line: true });
+      paint();
+    });
+  });
+
   function fixIt(row) {
-    const media = app && app.media;
     let onTry = null;
-    if (row.part === 'location') onTry = async () => { const r = await app.location.test(); S.locTest = r; setLoc(r.ok ? 'ok' : r.why); paint(); return r.ok ? `Found you to ${r.acc} m.` : 'Still not working.'; };
-    else if (row.part === 'camera' || row.part === 'mic') onTry = async () => { const r = media ? await media.test(row.part) : 'none'; paint(); return r === 'ok' ? 'Working.' : 'Still not working.'; };
+    if (row.part === 'location') onTry = async () => { const a = await askLocation({ waitFix: true }); tookLoc(a); paint(); return a.result === 'granted' && a.acc !== null ? `Found you to ${a.acc} m.` : 'Still not working.'; };
+    else if (row.part === 'camera' || row.part === 'mic') onTry = async () => { const a = await ask(row.part); paint(); return a.result === 'granted' ? 'Working.' : 'Still not working.'; };
     else onTry = () => { const ok = playTestTone(); if (app) app.soundOk = ok; paint(); return ok ? 'Did you hear it?' : "This phone can't make sound."; };
-    openHelp({ part: row.part, why: row.why, kind, onTry });
+    const why = row.part === 'location' && S.locTest && !S.locTest.ok && S.locTest.why ? S.locTest.why : row.why;
+    openHelp({
+      part: row.part, why, kind, onTry,
+      ask: row.part === 'location' ? () => askLocation({ waitFix: true }) : undefined,
+      perm: S.perms[row.part] || null,
+    });
   }
 
-  async function test(row) {
-    const media = app && app.media;
+  // v1.6.2 PERMS: "Allow": ask the browser from this tap; only a block for good opens the steps
+  function allow(row) {
+    if (S.asking) return;
+    S.asking = row.part;
+    paint();
+    if (row.part === 'location') text(testLine, 'Finding you...');
+    const p = row.part === 'location' ? askLocation({ waitFix: true }) : ask(row.part);
+    p.then((a) => {
+      S.asking = '';
+      if (S.dead) return;
+      if (row.part === 'location') tookLoc(a, { line: true });
+      paint();
+      if (a.blocked || a.result === 'unavailable') fixIt({ ...row, why: a.why || 'denied' });
+    });
+  }
+
+  function test(row) {
     if (row.part === 'sound') { const ok = playTestTone(); if (app) app.soundOk = ok; paint(); return; }
-    if (row.part === 'location') { testBtn.click(); return; }
-    if (media) { await media.test(row.part); paint(); }
+    allow(row);
   }
 
   function paint() {
@@ -183,11 +261,16 @@ export function readyCard({ app, host = false } = {}) {
     const rows = myRows({ view: S.view, loc: S.locWord, media, soundOk: !!(app && app.soundOk), locTest: S.locTest });
     fill(list, rows.map((r) => {
       const dot = h('span.rd-dot', { 'data-k': r.ok ? (r.weak ? 'weak' : 'ok') : (r.untested ? 'wait' : 'bad'), 'aria-hidden': 'true' });
-      const action = r.ok && !r.weak ? null
-        : r.untested ? h('button.btn.small.rd-do', { type: 'button', onclick: () => test(r) }, 'Test')
-          : h('button.btn.small.rd-do.rd-fix', { type: 'button', onclick: () => fixIt(r) }, 'Fix it');
-      return h('li.rd-row', { 'data-part': r.part, 'data-ok': r.ok ? '1' : '0' },
-        dot, icon(ICON[r.part], 18), h('span.rd-label', LABEL[r.part]), h('span.rd-words', r.ok && !r.weak ? 'Ready' : r.words), action);
+      // v1.6.2 PERMS: Allow (asks from the tap) / Fix it (the steps) / Test (the alarm sound)
+      const what = rowAction(r, S.perms[r.part] || 'unknown', lastAnswer(r.part));
+      const busy = S.asking === r.part;
+      const action = what === 'allow'
+        ? h('button.btn.small.rd-do.rd-allow', { type: 'button', disabled: busy, onclick: () => allow(r) }, busy ? 'Asking...' : S.perms[r.part] === 'granted' ? 'Test' : 'Allow')
+        : what === 'test' ? h('button.btn.small.rd-do', { type: 'button', onclick: () => test(r) }, 'Test')
+          : what === 'fix' ? h('button.btn.small.rd-do.rd-fix', { type: 'button', onclick: () => fixIt(r) }, 'Fix it') : null;
+      const words = r.ok && !r.weak ? 'Ready' : what === 'allow' && !r.untested ? 'Not allowed yet' : r.words;
+      return h('li.rd-row', { 'data-part': r.part, 'data-ok': r.ok ? '1' : '0', 'data-do': what || '' },
+        dot, icon(ICON[r.part], 18), h('span.rd-label', LABEL[r.part]), h('span.rd-words', words), action);
     }));
     const good = rows.every((r) => r.ok);
     const left = rows.filter((r) => !r.ok).length;
@@ -210,6 +293,12 @@ export function readyCard({ app, host = false } = {}) {
   return {
     el,
     update(view) { S.view = view; paint(); },
-    destroy() { S.dead = true; offMedia(); if (S.perm) S.perm.onchange = null; },
+    destroy() {
+      S.dead = true;
+      offMedia();
+      offAnswers(); // v1.6.2 PERMS
+      if (S.perm) S.perm.onchange = null;
+      for (const st of S.statuses) st.onchange = null;
+    },
   };
 }

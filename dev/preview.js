@@ -402,3 +402,24 @@ if (params.help) {
   }), 600)).catch((e) => console.error(e));
 }
 // v1.4 end PAGE-DEVICES
+
+// v1.6.4: the vote show's explainer for a mode, from a moment in it: &show=classic|checkpoints|loot&at=<ms into the
+// explain stage> (the clock runs on from there; &n=<players> how many are watching, 12 at most). The page shows
+// it over whatever screen is open.
+if (params.show) {
+  Promise.all([import('../js/screens/voteshow.js'), import('../shared/vote.js')]).then(([vs, V]) => {
+    const names = ['Ava', 'Sam', 'Mia', 'Leo', 'Priya', 'Jordan', 'Evan', 'Reid', 'Owen', 'Sergio', 'Harrison', 'Elliott'];
+    const n = Math.max(1, Math.min(12, Number(params.n) || 6));
+    const players = names.slice(0, n).map((name, i) => ({ id: `p${i + 1}`, name, status: 'in', faceV: 0 }));
+    const mode = ['classic', 'checkpoints', 'loot'].includes(params.show) ? params.show : 'loot';
+    const into = Math.max(0, Number(params.at) || 0);
+    const v = V.newVote({ now: 0, id: 7, checkpoints: 3, keep: { mode } });
+    v.ballots.mode = Object.fromEntries(players.map((p) => [p.id, mode]));
+    v.at = Date.now() - (v.introMs + v.gearMs + v.voteMs + into);
+    const show = vs.createVoteShow({ cmd: async () => ({}), faces: new Map() });
+    const view = () => ({ now: Date.now(), me: { id: 'p1', host: params.host !== '0' }, players, settings: {}, vote: V.voteView(v, 'p1') });
+    show.update(view());
+    setInterval(() => show.update(view()), 1000);
+    window.__show = { show, vote: v };
+  }).catch((e) => console.error(e));
+}

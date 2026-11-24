@@ -3,18 +3,19 @@
 // `rand()` in [0, 1), so every test is exact. The state given is never changed: changes are made on a copy.
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
+import { winnerAt } from './vote.js?v=176'; // v1.6.4: the vote's winner as every phone works it out
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
-} from './geo.js?v=175';
+} from './geo.js?v=176';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=175';
-import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=175'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=175'; // v1.6: Loot drops
+} from './rules.js?v=176';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=176'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=176'; // v1.6: Loot drops
 
 export const ENGINE_V = 1;
 
@@ -863,6 +864,7 @@ function takePing(s, n, clock, ctx) {
   const r = pingRadiusAt(s.settings, clock);
   const R = ctx.rand;
   const spots = {};
+  const fakes = {}; // (whose spot was a Decoy's or Sprint's start: only the pro edit reads it, after the game)
   const results = [];
   const quiet = [];
   let count = 0;
@@ -913,12 +915,13 @@ function takePing(s, n, clock, ctx) {
         const d = Math.sqrt(R()) * rr;
         const b = R() * 360;
         spots[p.id] = { p: rr > 0 ? moveM(spot, d, b) : spot, r: rr, ...(smoke ? { smoke: true } : {}) };
+        if (result === 'decoy' || result === 'sprint') fakes[p.id] = result;
         count++;
       }
     }
     results.push([p, result]);
   }
-  s.pings.push({ n, clock, at: t.at, spots });
+  s.pings.push({ n, clock, at: t.at, spots, ...(Object.keys(fakes).length ? { fakes } : {}) });
   let hunters = count === 0 ? 'Ping! Nobody showed up on the map.'
     : count === 1 ? 'Ping! 1 hider on the map.' : `Ping! ${count} hiders on the map.`;
   // A phone that sends no location is named (the hunters should know who isn't playing fair or has a
@@ -1127,7 +1130,7 @@ function runDue(s, item, ctx) {
       const made = lootDrop(s, ringAt(s, item.clock), item.clock, ctx.rand, freeHiders(s).length);
       if (made.length) {
         emit(s, t, 'loot', 'all', made.length === 1 ? 'A loot box dropped! Check the map.' : `${made.length} loot boxes dropped! Check the map.`, { n: made.length });
-        note(s, { kind: 'loot-drop', clock: t.clock, boxes: made.map((b) => ({ id: b.id, p: [b.p[0], b.p[1]], until: b.until })) }); // (the pro edit)
+        note(s, { kind: 'loot-drop', clock: t.clock, boxes: made.map((b) => ({ id: b.id, p: [b.p[0], b.p[1]], until: b.until, r: LOOT_PICK_M })) }); // (the pro edit; r: the pickup circle, metres)
         addMoment(s, t, 'loot', [], { data: { n: made.length } });
       }
       break;
@@ -1226,8 +1229,9 @@ export function onPosition(state, playerId, pos, { now } = {}) {
     }
   }
 
-  // v1.6: Loot drops: a free hider holding nothing grabs a box they reach (while the clock runs)
-  if (lootGame(s) && (isFree(p) || isHunter(p)) && !isDriver(s, p) && !p.loot && s.pausedAt === null && acc <= LOOT_PICK_M * 3) {
+  // v1.6: Loot drops: a free hider (or a hunter) holding nothing grabs a box once their fix's spot is inside its
+  // 5 m circle, from a fix no vaguer than LOOT_ACC_MAX_M (loot.js says why), while the clock runs
+  if (lootGame(s) && (isFree(p) || isHunter(p)) && !isDriver(s, p) && !p.loot && s.pausedAt === null && acc <= LOOT_ACC_MAX_M) {
     const clock = clockOf(s, now);
     const sch = schedule(s.settings);
     if (clock >= sch.headStartMs && clock < sch.endMs) {
@@ -1545,7 +1549,8 @@ function cmdPower(s, actor, cmd, t) {
     actor.stats.powers.push(name);
     const text = `${actor.name} used ${name}.`;
     emit(s, t, 'power', 'hiders', text, { power, by: actor.id });
-    note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text });
+    // (until: Sprint's end, for the pro edit's glowing stretch where the pings stayed behind)
+    note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text, ...(power === 'sprint' ? { until: actor.sprintUntil } : {}) });
     addMoment(s, t, 'power', [actor.id], { data: { power } });
     return null;
   }
@@ -1594,6 +1599,7 @@ function cmdPower(s, actor, cmd, t) {
       if (spot) spots[h.id] = spot;
     }
     s.exposure = { by: actor.id, at: t.clock, spots };
+    note(s, { kind: 'exposure', clock: t.clock, by: actor.id, spots: copy(spots), jammed: jammed.slice() }); // (the pro edit: every Exposure's dots)
     const count = Object.keys(spots).length;
     emit(s, t, 'exposure', 'hunters', 'Exposure: exact spots!', missed ? { count, missed } : { count });
     emit(s, t, 'exposure', 'hiders', 'The hunters used Exposure.');
@@ -2024,7 +2030,7 @@ function startLootFx(s, t, power, actor, target) {
   const until = P.ms ? t.clock + P.ms : null;
   const text = `${actor.name} used ${P.name}.`;
   if (actor.stats && Array.isArray(actor.stats.powers)) actor.stats.powers.push(P.name);
-  note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text, loot: true });
+  note(s, { kind: 'power', power, by: actor.id, clock: t.clock, text, loot: true, ...(until !== null ? { until } : {}), ...(target ? { target: target.id } : {}) }); // (until, target: the pro edit)
   const them = (team) => (team === 'hider' ? freeHiders(s) : ordered(s).filter((p) => isHunter(p) && !isDriver(s, p))).map((p) => p.id);
   switch (power) {
     case 'smoke': case 'ghost': {
@@ -2032,6 +2038,9 @@ function startLootFx(s, t, power, actor, target) {
       if (power === 'smoke') actor.lootFx.smoke = true;
       else actor.lootFx.ghost = (actor.lootFx.ghost || 0) + GHOST_PINGS;
       emit(s, t, 'lootfx', actor.id, power === 'smoke' ? 'Smoke is ready: your next ping is a big cloud.' : "Ghost: you're invisible on the next 2 pings.", { power, by: actor.id });
+      // v1.6.3: the other hiders see the card played (as with Sprint, Decoy and Jammer); the hunters never do, and
+      // a spectator only once the game is over (viewFor's 'power' to 'hiders' rule).
+      emit(s, t, 'power', 'hiders', text, { power, by: actor.id, loot: true });
       addMoment(s, t, 'power', [actor.id], { data: { power, loot: true } });
       return;
     }
@@ -2061,7 +2070,7 @@ function startLootFx(s, t, power, actor, target) {
     default: {
       f[power] = { until, by: actor.id };
       const W = {
-        glitch: [null, `${actor.name} glitched the hunters' phones for a minute!`],
+        glitch: ['GLITCH! Your phones will act buggy for a minute.', `${actor.name} glitched the hunters' phones for a minute!`],
         storm: ['Static Storm! Your map is static for 2 minutes.', `${actor.name} hit the hunters with a Static Storm!`],
         blackout: ['BLACKOUT! Your screen is dark for 5 minutes. Your walkie still works.', `${actor.name} blacked out the hunters for 5 minutes!`],
         compass: [`${actor.name} used Compass: follow the arrow for 30 seconds.`, null],
@@ -2118,7 +2127,8 @@ function cmdVoteStart(s, actor, cmd, t) {
   const n = Array.isArray(s.checkpoints) ? s.checkpoints.length : 0;
   s.nextVoteId = (Number.isInteger(s.nextVoteId) ? s.nextVoteId : 0) + 1;
   const canDrive = !!s.settings.driver && s.settings.mode !== 'infection' && countIn(s) >= 3;
-  s.vote = newVote({ now: t.now, id: s.nextVoteId, checkpoints: n, skipIntro: cmd.skipIntro === true, driver: canDrive });
+  const keep = Object.fromEntries(QUESTIONS.map((q) => [q, keepFor(q, s.settings)]).filter(([, k]) => typeof k === 'string'));
+  s.vote = newVote({ now: t.now, id: s.nextVoteId, checkpoints: n, skipIntro: cmd.skipIntro === true, driver: canDrive, keep });
   emit(s, { now: t.now, clock: 0, at: t.now }, 'vote', 'all', `${actor.name} started the vote!`);
   return null;
 }
@@ -2150,12 +2160,17 @@ function cmdGear(s, actor, cmd) {
   return null;
 }
 
-// The host skips Static's rules for everyone: the intro ends now (everyone's phone jumps to the gear check).
+// The host skips Static's rules for everyone: the intro ends now (everyone's phone jumps to the gear check); or
+// (v1.6.4) the winner's explainer ends now (everyone's phone jumps to the driver or the recap).
 function cmdVoteSkip(s, actor, cmd, t) {
   const v = s.vote;
   if (!v || v.applied) return err('vote_closed', 'The vote is over.');
-  if (stageAt(v, t.now).stage !== 'intro') return null;
-  v.introMs = Math.max(0, t.now - v.at);
+  const at = stageAt(v, t.now);
+  if (at.stage === 'intro') v.introMs = Math.max(0, t.now - v.at);
+  else if (at.stage === 'explain') {
+    if (!v.cut || typeof v.cut !== 'object') v.cut = {};
+    v.cut[at.i] = Math.max(0, Math.round(at.ms));
+  }
   return null;
 }
 
@@ -2187,7 +2202,8 @@ function voteDue(s, now) {
   let changed = false;
   v.questions.forEach((question, i) => {
     if (v.result[question.q] || !closed(v, i, now)) return;
-    v.result[question.q] = winner(question, v.ballots[question.q], v.id, keepFor(question.q, s.settings));
+    // (the picks and what was kept when the show began, as every phone has it; a vote from before v1.6.4: the settings now)
+    v.result[question.q] = v.keep ? winnerAt(v, i) : winner(question, v.ballots[question.q], v.id, keepFor(question.q, s.settings));
     changed = true;
   });
   const at = stageAt(v, now);

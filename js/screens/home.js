@@ -1,14 +1,15 @@
 // Night Ops: the home screen. Who you are (name + optional selfie), then Create a game or Join one with a
 // 6-letter code (typed, pasted, or from an invite link). A "How to play" sheet, and a note about location.
 // There's no game yet, so this screen renders from the App (app.me, app.args, app.savedGame), not a view.
-import { h, fill, face, text, listen } from '../dom.js?v=175';
-import { icon } from '../ui/icons.js?v=175';
-import { openSheet } from '../ui/sheet.js?v=175';
-import { linkSheet, linkedPc } from '../pcedit.js?v=175'; // v1.5: the PC edit
-import { pickFace } from '../face.js?v=175';
-import { cleanName } from '../identity.js?v=175';
-import { normalizeCode } from '../app.js?v=175';
-import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=175';
+import { h, fill, face, text, listen } from '../dom.js?v=176';
+import { icon } from '../ui/icons.js?v=176';
+import { openSheet } from '../ui/sheet.js?v=176';
+import { openCollection } from '../collection.js?v=176'; // v1.6.4
+import { linkSheet, linkedPc } from '../pcedit.js?v=176'; // v1.5: the PC edit
+import { pickFace } from '../face.js?v=176';
+import { cleanName } from '../identity.js?v=176';
+import { normalizeCode } from '../app.js?v=176';
+import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=176';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -537,6 +538,10 @@ export function mount(root, app, args = {}) {
     openSheet({ title: 'Link my PC', body: ui.el, actions: [{ label: 'Done', kind: 'ghost' }], className: 'pc-link-sheet' });
   });
 
+  // v1.6.4: the card collection (every card this phone has got in a game)
+  const cardsBtn = h('button.btn.ghost.home-cards-open', { type: 'button' }, icon('cards', 20), 'Card collection');
+  cardsBtn.addEventListener('click', () => openCollection());
+
   // v1.4 Your games: games this phone was in or watched, while the server still has them.
   const gamesCard = h('section.home-card.home-games', { 'aria-labelledby': 'home-games-title', hidden: true });
   async function drawGames() {
@@ -584,7 +589,7 @@ export function mount(root, app, args = {}) {
       gamesCard, // v1.4 Your games
       order,
       h('footer.home-foot',
-        h('div.home-foot-btns', howBtn, watchOpenBtn, pcBtn), // v1.1 PAGE-WATCH: Watch a game beside How to play; v1.5 Link my PC
+        h('div.home-foot-btns', howBtn, watchOpenBtn, cardsBtn, pcBtn), // v1.1 PAGE-WATCH: Watch a game beside How to play; v1.5 Link my PC
         h('p.home-note', icon('pin', 18), h('span', 'Night Ops uses your location while a game is on, so the map works. Your phone asks when the game starts.')))));
 
   drawFace();

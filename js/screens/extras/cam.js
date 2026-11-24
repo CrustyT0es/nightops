@@ -3,10 +3,11 @@
 // The host: the switch, and when it's on, Highlights or Everything. Everyone else: the setting in words.
 // When it's on, every player has "I'm OK being recorded" (a switch; its first tap also asks for the camera and
 // microphone once and shows a small mirror for 3 s). The host sees how many said OK and who isn't filmed.
-import { h, text, cls, fill } from '../../dom.js?v=175';
-import { icon } from '../../ui/icons.js?v=175';
-import { EXTRAS_UI, CAM_MODES_UI } from '../../../shared/rules.js?v=175';
-import { CONSTRAINTS } from '../../camera.js?v=175';
+import { h, text, cls, fill } from '../../dom.js?v=176';
+import { icon } from '../../ui/icons.js?v=176';
+import { EXTRAS_UI, CAM_MODES_UI } from '../../../shared/rules.js?v=176';
+import { CONSTRAINTS } from '../../camera.js?v=176';
+import { classify, permState, reportGranted } from '../../permissions.js?v=176'; // v1.6.2 PERMS
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'cam') || {
   key: 'cam', label: 'Camera', hint: 'Phones film clips with the selfie camera for the replay. Only people who say OK are filmed.',
@@ -22,7 +23,9 @@ export const WORDS = {
   again: 'Everyone needs to say OK again.',
   ok: "I'm OK being recorded",
   okLine: 'Your selfie camera and microphone film clips during the game. Only for the replay of this game.',
-  blocked: "The camera is blocked on this phone. Allow it in your browser's settings. You can still say OK.",
+  // v1.6.2 PERMS: the button asks the browser again; the steps only once it's blocked for good
+  blocked: "The camera didn't start. Tap Allow camera, then tap Allow. You can still say OK.",
+  allow: 'Allow camera',
   none: 'Nobody has said OK yet.',
 };
 
@@ -115,7 +118,10 @@ export function extraRow(ctx = {}) {
     h('div.x-cam-ok-text', h('span.x-cam-ok-title', WORDS.ok), h('span.x-cam-ok-line', WORDS.okLine)),
     okSwitch);
   const mirror = h('div.x-cam-mirror', { hidden: true, 'aria-hidden': 'true' });
-  const blocked = h('p.x-cam-blocked', { hidden: true, role: 'status' }, WORDS.blocked);
+  // v1.6.2 PERMS: "Allow camera" asks again from its own tap (camera and microphone in one box)
+  const allowBtn = h('button.btn.small.x-cam-allow', { type: 'button' }, icon('camera', 18), WORDS.allow);
+  allowBtn.addEventListener('click', () => tryCamera());
+  const blocked = h('div.x-cam-blocked-box', { hidden: true }, h('p.x-cam-blocked', { role: 'status' }, WORDS.blocked), allowBtn);
   okSwitch.addEventListener('click', () => {
     const st = camRowState(S.view, pending());
     const next = !st.mine;
@@ -142,12 +148,24 @@ export function extraRow(ctx = {}) {
     const media = globalThis.navigator && navigator.mediaDevices;
     if (!media || typeof media.getUserMedia !== 'function') return;
     let stream = null;
+    const t0 = Date.now();
     try {
       stream = await media.getUserMedia(CONSTRAINTS);
     } catch (e) {
-      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) blocked.hidden = false;
+      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+        blocked.hidden = false;
+        // v1.6.2 PERMS: blocked for good (no box showed): why, and the steps for this phone
+        const ms = Date.now() - t0;
+        permState('camera').then((state) => {
+          if (!classify({ part: 'camera', outcome: 'no', state, ms }).blocked) return;
+          import('../../ui/fixit.js?v=176').then((m) => m.openHelp({ part: 'camera', why: 'denied', perm: 'denied' })).catch(() => {});
+        }).catch(() => {});
+      }
       return;
     }
+    // (the ready check and media.js hear it: the camera and microphone rows go green)
+    reportGranted('camera');
+    reportGranted('mic');
     blocked.hidden = true;
     const v = h('video', { muted: true, playsinline: true, autoplay: true });
     v.muted = true;

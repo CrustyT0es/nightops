@@ -506,6 +506,14 @@ function withLoot(view, params) {
     held: params.loot === 'held', next: 130000, last: null, grabbed: 1,
     stash: view.me && view.me.team === 'hunter' ? { compass: 1, tracker: 1, eye: 1 } : { smoke: 2, ghost: 1, blackout: 1 },
   };
+  // v1.6.3: &lootat=<metres>: one more box that far north-east of this phone (2 = inside its 5 m circle)
+  const at = Number(params.lootat);
+  const mine = (view.marks || []).find((m) => view.me && m.id === view.me.id && (m.kind === 'self' || m.kind === 'hunter'));
+  if (Number.isFinite(at) && at >= 0 && mine) {
+    const d = at / Math.SQRT2;
+    view.loot.boxes.push({ id: 'L3', p: offsetM(mine.p, d, d), left: 120000 });
+  }
+  for (const b of view.loot.boxes) b.r = 5;
   // &fx=blackout|storm|glitch|compass|eye|freeze|tracked|smoke: what a loot power does to this phone
   const fx = { blackout: { blackout: 287000 }, storm: { storm: 104000 }, glitch: { glitch: 52000 }, compass: { compass: { left: 24000, bearing: 40 } },
     eye: { eye: 98000 }, freeze: { freeze: 150000 }, tracked: { tracked: 95000 }, smoke: { smoke: true, ghost: 2, queued: ['blackout'] } }[params.fx];
