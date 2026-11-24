@@ -11,12 +11,12 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=176';
-import { chest, chestModel } from '../chest.js?v=176';
-import { cardEl, tiltFrom } from '../cards.js?v=176'; // v1.6.3: one card look everywhere
-import { POWERS, fmtClock } from '../../shared/rules.js?v=176';
-import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=176';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=176';
+import { h, text } from '../dom.js?v=177';
+import { chest, chestModel } from '../chest.js?v=177';
+import { cardEl, tiltFrom } from '../cards.js?v=177'; // v1.6.3: one card look everywhere
+import { POWERS, fmtClock } from '../../shared/rules.js?v=177';
+import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=177';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=177';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -176,7 +176,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=176').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=177').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Get within 5 m of one to grab it (zoom in to see the real circle).${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -453,7 +453,8 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
     const fx = (view && view.phase === 'live' && view.fx) || {};
     const gone = Number.isFinite(clock) && Number.isFinite(view && view.clock) ? Math.max(0, clock - view.clock) : 0;
     const left = (k) => (Number.isFinite(fx[k]) ? Math.max(0, fx[k] - gone) : 0);
-    const bo = left('blackout');
+    const onHunters = !!(view && view.me && view.me.team === 'hunter'); // Blackout and Static Storm only hit the hunters' phones
+    const bo = onHunters ? left('blackout') : 0;
     // v1.6.3: a fresh Blackout switches the screen off like an old TV (once; never again after a reload)
     if (bo && blackout.hidden && bo > (LOOT_POWERS.blackout.ms || 0) - 10000) {
       blackout.classList.remove('arrive');
@@ -468,7 +469,7 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
       text(clockTxt, fmtClock(bo));
       if (!S.crackle) { crackle(); S.crackle = setInterval(() => { if (Math.random() < 0.6) crackle(); }, 1800); }
     } else if (S.crackle) { clearInterval(S.crackle); S.crackle = null; }
-    const st = left('storm');
+    const st = onHunters ? left('storm') : 0;
     const stormWas = !storm.hidden;
     storm.hidden = !st;
     stormTxt.hidden = !st;
@@ -520,4 +521,4 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
 }
 
 // ---- v1.6.1: your cards: v1.6.3 moved them to js/cards.js (the collection, one card look everywhere) ----------
-export { cardsOf, createCardDeck } from '../cards.js?v=176';
+export { cardsOf, createCardDeck } from '../cards.js?v=177';

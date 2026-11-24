@@ -15,13 +15,13 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=176'; // v1.6.4: how each mode plays
-import { h, fill, text, face } from '../dom.js?v=176';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=176';
-import { pickFace } from '../face.js?v=176';
-import { chest } from '../chest.js?v=176';
-import { askAll, ask as askPart, answerWords } from '../permissions.js?v=176'; // v1.6.2 PERMS: the gear check's Allow
-import { openHelp } from '../ui/fixit.js?v=176'; // v1.6.2 PERMS
+import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=177'; // v1.6.4: how each mode plays
+import { h, fill, text, face } from '../dom.js?v=177';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=177';
+import { pickFace } from '../face.js?v=177';
+import { chest } from '../chest.js?v=177';
+import { askAll, ask as askPart, answerWords } from '../permissions.js?v=177'; // v1.6.2 PERMS: the gear check's Allow
+import { openHelp } from '../ui/fixit.js?v=177'; // v1.6.2 PERMS
 
 // (from this file, not the page: the dev preview pages live in web/dev/)
 const AUDIO = new URL('../../audio/narrator/', import.meta.url).href;

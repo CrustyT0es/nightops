@@ -3,19 +3,19 @@
 // `rand()` in [0, 1), so every test is exact. The state given is never changed: changes are made on a copy.
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
-import { winnerAt } from './vote.js?v=176'; // v1.6.4: the vote's winner as every phone works it out
+import { winnerAt } from './vote.js?v=177'; // v1.6.4: the vote's winner as every phone works it out
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
-} from './geo.js?v=176';
+} from './geo.js?v=177';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=176';
-import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=176'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=176'; // v1.6: Loot drops
+} from './rules.js?v=177';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=177'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=177'; // v1.6: Loot drops
 
 export const ENGINE_V = 1;
 
@@ -1454,6 +1454,7 @@ function cmdStart(s, actor, cmd, t) {
   }
 
   for (const p of Object.values(s.players)) resetForGame(p);
+  s.loot = null; s.lootTeam = {}; s.fx = {}; // a new round: no boxes, cards or card effects carried over from the last one
   const hiderPowers = HIDER_POWERS.filter((k) => s.settings.powers[k]);
   for (const p of hunters) { p.team = 'hunter'; p.startTeam = 'hunter'; }
   for (const p of hiders) {
