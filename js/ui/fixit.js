@@ -13,11 +13,11 @@
 // one big "Allow location" button whose tap asks the browser itself (permissions.js), so its own Allow box shows.
 // Only when the browser has blocked it for good ('denied', or a "no" with no box) does it say why and show the
 // steps for this phone (with Try again, which asks again).
-import { h, fill, text } from '../dom.js?v=181';
-import { icon } from './icons.js?v=181';
-import { holdInert } from './inert.js?v=181';
-import { helpFor, stepParts, deviceKind } from '../help.js?v=181';
-import { permState, lastAnswer, blockedWords, answerWords, LABELS, askLocation, askMic, askCamera } from '../permissions.js?v=181';
+import { h, fill, text } from '../dom.js?v=182';
+import { icon } from './icons.js?v=182';
+import { holdInert } from './inert.js?v=182';
+import { helpFor, stepParts, deviceKind } from '../help.js?v=182';
+import { permState, lastAnswer, blockedWords, answerWords, LABELS, askLocation, askMic, askCamera } from '../permissions.js?v=182';
 
 export const STALE_SHOUT_MS = 30000;
 export const LOST = ['denied', 'off'];

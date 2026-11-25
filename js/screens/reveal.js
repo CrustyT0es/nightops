@@ -1,10 +1,10 @@
 // Night Ops: the role reveal, once per game at the start. Full screen in your side's colour: YOUR ROLE, a huge
 // HUNTER or HIDER, one line on what to do, your teammates' faces, and Got it (or a tap anywhere) for the game.
 // Its styles live at the end of css/lobby.css.
-import { h, fill, face, text } from '../dom.js?v=181';
-import { fmtClock } from '../../shared/rules.js?v=181';
-import { icon } from '../ui/icons.js?v=181';
-import { driverReveal } from './drive.js?v=181'; // v1.1 PAGE-DRIVER
+import { h, fill, face, text } from '../dom.js?v=182';
+import { fmtClock } from '../../shared/rules.js?v=182';
+import { icon } from '../ui/icons.js?v=182';
+import { driverReveal } from './drive.js?v=182'; // v1.1 PAGE-DRIVER
 
 const NS = 'http://www.w3.org/2000/svg';
 const TAP_GUARD_MS = 700;   // a second tap on Start mustn't skip the reveal straight away

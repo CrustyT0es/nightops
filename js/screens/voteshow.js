@@ -16,14 +16,14 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=181'; // v1.6.4: how each mode plays
-import { h, fill, text, face } from '../dom.js?v=181';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf, asked } from '../../shared/vote.js?v=181';
-import { planeEl } from '../fx.js?v=181'; // v1.7: the drop plane in the Drops explainer
-import { pickFace } from '../face.js?v=181';
-import { chest } from '../chest.js?v=181';
-import { askAll, ask as askPart, answerWords } from '../permissions.js?v=181'; // v1.6.2 PERMS: the gear check's Allow
-import { openHelp } from '../ui/fixit.js?v=181'; // v1.6.2 PERMS
+import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=182'; // v1.6.4: how each mode plays
+import { h, fill, text, face } from '../dom.js?v=182';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf, asked } from '../../shared/vote.js?v=182';
+import { planeEl } from '../fx.js?v=182'; // v1.7: the drop plane in the Drops explainer
+import { pickFace } from '../face.js?v=182';
+import { chest } from '../chest.js?v=182';
+import { askAll, ask as askPart, answerWords } from '../permissions.js?v=182'; // v1.6.2 PERMS: the gear check's Allow
+import { openHelp } from '../ui/fixit.js?v=182'; // v1.6.2 PERMS
 
 // (from this file, not the page: the dev preview pages live in web/dev/)
 const AUDIO = new URL('../../audio/narrator/', import.meta.url).href;

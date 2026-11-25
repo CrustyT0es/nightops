@@ -3,26 +3,26 @@
 // `rand()` in [0, 1), so every test is exact. The state given is never changed: changes are made on a copy.
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
-import { winnerAt } from './vote.js?v=181'; // v1.6.4: the vote's winner as every phone works it out
+import { winnerAt } from './vote.js?v=182'; // v1.6.4: the vote's winner as every phone works it out
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
   ringAcrossM, ringCenter,
-} from './geo.js?v=181';
+} from './geo.js?v=182';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=181';
-import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=181'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, edgesFor, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=181'; // v1.6: Loot drops
+} from './rules.js?v=182';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=182'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, edgesFor, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=182'; // v1.6: Loot drops
 import {
   LOOT_TABLE, BOOST, COUNTS, boostRoll, boostedMs, boostedCount, boostable, sideOfCard, cardBase, BOTH_SIDES,
   HEADSUP_M, HEADSUP_GAP_MS, STALL_MS, QUICK_MS, QUICK_LEAST_MS, SCOUT_M, HOUND_LOOK_MS, EAVESDROP_SHOW_MS,
   DECOY_BOOST_MS, WALK_MPS, SNITCH_CALL_MS, SNITCH_FLASH_MS, SNITCH_OFFERS, PLANE_LEAD_MS, PLANE_PAD_M, PLANE_OFFSET_M,
   PLANE_LAND_MS, DROPS, DROPS_DEFAULT, dropEveryMs,
-} from './loot.js?v=181'; // v1.7: the card overhaul
+} from './loot.js?v=182'; // v1.7: the card overhaul
 
 export const ENGINE_V = 1;
 
@@ -2605,6 +2605,8 @@ function startLootFx(s, t, power, actor, target, o = {}) {
       const list = LOOT_TABLE[side].common.filter((k) => cardBase(k) !== 'grabbag' && ok(k));
       const got = list.length ? list[Math.min(list.length - 1, Math.floor(t.rand() * list.length))] : null;
       if (got) addCard(actor, got);
+      // a Grab bag is a card pull like a box: the reveal plays and the collection counts it (the owner, Nov 2026)
+      if (got) actor.lootLast = { power: got, rarity: 'common', at: t.clock, via: 'grabbag' };
       entry.got = got;
       if (side === 'hider') {
         mine(got ? `Grab bag: you got ${cardName(got)}!` : 'Grab bag: it was empty.', { got, rarity: 'common' });

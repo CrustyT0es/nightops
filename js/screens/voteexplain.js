@@ -15,12 +15,12 @@
 //   syncScene(root, ms)            .on on each [data-at] part whose time has come, .now while ms is in
 //                                  [data-at, data-until), the ph-<name> classes of [data-phases] roots, the counts
 // Its styles are css/vote.css (.vx-*). Everything moves by transform and opacity; less motion = each move's end.
-import { h } from '../dom.js?v=181';
-import { cardEl, cardInfo } from '../cards.js?v=181';
-import { chest } from '../chest.js?v=181';
-import { POWERS } from '../../shared/rules.js?v=181';
-import { LOOT_TABLE, ALL_CARDS } from '../../shared/loot.js?v=181';
-import { planeEl } from '../fx.js?v=181';
+import { h } from '../dom.js?v=182';
+import { cardEl, cardInfo } from '../cards.js?v=182';
+import { chest } from '../chest.js?v=182';
+import { POWERS } from '../../shared/rules.js?v=182';
+import { LOOT_TABLE, ALL_CARDS } from '../../shared/loot.js?v=182';
+import { planeEl } from '../fx.js?v=182';
 
 // How long each of Static's lines is (ms, the mp3 rounded up; tests/vote-explain.test.mjs reads the files).
 export const LINE_MS = {
