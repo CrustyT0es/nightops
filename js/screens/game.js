@@ -11,27 +11,27 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=179';
-import { icon } from '../ui/icons.js?v=179';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=179';
-import { banner, clearBanners } from '../ui/banner.js?v=179';
-import { moment } from '../ui/moment.js?v=179';
-import { startPocket } from '../ui/pocket.js?v=179';
-import { createMap, fmtAgo, closingFrom, ringFlash } from '../map.js?v=179';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=179';
-import { distanceM, isPoint } from '../../shared/geo.js?v=179';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=179';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=179'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=179'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=179'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=179'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=179'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=179'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=179'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=179'; // v1.6: Loot drops
-import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=179'; // v1.6.3: your collection and the card-played effects
-import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=179'; // v1.6.4: the card collection
-import { createCardPlay, chipsOf } from './cardplay.js?v=179'; // v1.7 WIRING: every card's UI, the plane, paws, the Snitch call
+import { h, fill, text, cls, face, listen } from '../dom.js?v=180';
+import { icon } from '../ui/icons.js?v=180';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=180';
+import { banner, clearBanners } from '../ui/banner.js?v=180';
+import { moment } from '../ui/moment.js?v=180';
+import { startPocket } from '../ui/pocket.js?v=180';
+import { createMap, fmtAgo, closingFrom, ringFlash } from '../map.js?v=180';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=180';
+import { distanceM, isPoint } from '../../shared/geo.js?v=180';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=180';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=180'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=180'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=180'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=180'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=180'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=180'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=180'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=180'; // v1.6: Loot drops
+import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=180'; // v1.6.3: your collection and the card-played effects
+import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=180'; // v1.6.4: the card collection
+import { createCardPlay, chipsOf } from './cardplay.js?v=180'; // v1.7 WIRING: every card's UI, the plane, paws, the Snitch call
 const localStore = () => { try { return globalThis.localStorage; } catch { return null; } }; // v1.6.4 (may throw)
 
 export const TICK_MS = 250;

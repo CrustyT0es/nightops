@@ -11,7 +11,7 @@
 // every card is as likely as the others. Grab bag, Multiplier and Duplicator come in a hider version and a hunter
 // version (two keys each, two slots in the collection). This file is the cards' data: the tables, the odds, the
 // words and the numbers every lane shares. What a card does is the engine's (engine.js), as the contract says.
-import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=179';
+import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=180';
 
 export const LOOT_FIRST_MS = 60000;     // the first drop, this long after the head start
 export const LOOT_EVERY_MS = 240000;    // then one every 4 minutes
@@ -35,15 +35,23 @@ export function lootGame(s) { return !!s && s.settings && s.settings.mode === 'l
 // How many boxes a drop has: one for every three hiders still free, at least one.
 export function lootCount(hidersFree) { return Math.max(1, Math.min(LOOT_MOST, Math.ceil(hidersFree / 3))); }
 
-// A random spot well inside the ring (rejection sampling in its bounds), or null.
+// A random spot well inside the ring (rejection sampling in its bounds), or null. Fix (Nov 2026, the owner's live game:
+// a 50 m ring made no boxes at all): the margin from the edge shrinks with the ring (LOOT_EDGE_M, then 20, 8, 0 m),
+// so a small ring still gets its boxes; null only when there is no ring.
+export const LOOT_EDGES_M = Object.freeze([LOOT_EDGE_M, 20, 8, 0]);
+export function spotFits(ring, p, edge = 0) {
+  return !!ring && !!p && ringContains(ring, p) && outsideByM(ring, p) <= -edge;
+}
 export function lootSpot(ring, rand) {
   if (!ring) return null;
   const b = ringBounds(ring); // [[w, s], [e, n]]
   if (!b) return null;
   const [[w, so], [e, n]] = b;
-  for (let i = 0; i < 60; i++) {
-    const p = [w + (e - w) * rand(), so + (n - so) * rand()];
-    if (ringContains(ring, p) && outsideByM(ring, p) <= -LOOT_EDGE_M) return [Number(p[0].toFixed(6)), Number(p[1].toFixed(6))];
+  for (const edge of LOOT_EDGES_M) {
+    for (let i = 0; i < 80; i++) {
+      const p = [w + (e - w) * rand(), so + (n - so) * rand()];
+      if (spotFits(ring, p, edge)) return [Number(p[0].toFixed(6)), Number(p[1].toFixed(6))];
+    }
   }
   return null;
 }
@@ -62,10 +70,10 @@ export function lootOf(s, headStartMs) {
 export function lootDrop(s, ring, clock, rand, hidersFree, { spots = null, every = LOOT_EVERY_MS } = {}) {
   const L = s.loot;
   const made = [];
-  const n = Array.isArray(spots) ? spots.length : lootCount(hidersFree);
+  const n = Array.isArray(spots) && spots.length ? spots.length : lootCount(hidersFree); // (never zero boxes)
   for (let i = 0; i < n; i++) {
     const planned = Array.isArray(spots) ? spots[i] : null;
-    const fits = planned && ring && ringContains(ring, planned) && outsideByM(ring, planned) <= -LOOT_EDGE_M;
+    const fits = planned && spotFits(ring, planned, 0); // (the plane picked it inside the ring 10 s ago)
     const p = fits ? [planned[0], planned[1]] : lootSpot(ring, rand);
     if (!p) continue;
     L.n += 1;

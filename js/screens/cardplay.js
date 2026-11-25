@@ -28,14 +28,14 @@
 //   event(e)     plays the moments (headsup, mirror, snitched, deal, bounced, pinged, ping-in, ring-soon,
 //                ring-shrinking) through createGameFx -> momentOf's answer + played (false: it didn't show)
 //   sos          what the call screen's own SOS button does (shown only while a Blackout covers the screen)
-import { h, text } from '../dom.js?v=179';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=179';
-import { banner } from '../ui/banner.js?v=179';
-import { cardInfo } from '../cards.js?v=179';
-import { LOOT_POWERS, SNITCH_OFFERS, boostable, sideOfCard } from '../../shared/loot.js?v=179';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=179';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=179';
-import { createGameFx, createCallScreen, planeEl, crateChuteEl, pawEl, dustEl, frost } from '../fx.js?v=179';
+import { h, text } from '../dom.js?v=180';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=180';
+import { banner } from '../ui/banner.js?v=180';
+import { cardInfo } from '../cards.js?v=180';
+import { LOOT_POWERS, SNITCH_OFFERS, boostable, sideOfCard } from '../../shared/loot.js?v=180';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=180';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=180';
+import { createGameFx, createCallScreen, planeEl, crateChuteEl, pawEl, dustEl, frost } from '../fx.js?v=180';
 
 export const PLANE_FROM_MS = 8000;  // the plane starts across the map this long before the crates land...
 export const PLANE_TO_MS = 1000;    // ...and is past the drop this long before

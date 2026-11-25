@@ -37,10 +37,10 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=179';
-import { icon } from './ui/icons.js?v=179';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=179';
-import { classify, permState } from './permissions.js?v=179'; // v1.6.2 PERMS
+import { h, text, cls } from './dom.js?v=180';
+import { icon } from './ui/icons.js?v=180';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=180';
+import { classify, permState } from './permissions.js?v=180'; // v1.6.2 PERMS
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
@@ -543,7 +543,7 @@ export function createRadio({
   function showSteps() {
     const d = globalThis.document;
     if (!d || d.querySelector('.fx-sheet')) return;
-    import('./ui/fixit.js?v=179').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
+    import('./ui/fixit.js?v=180').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
   }
 
   // v1.6.2 PERMS: the microphone was allowed (an Allow tap anywhere): a blocked walkie-talkie is ready again

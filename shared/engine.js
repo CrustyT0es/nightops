@@ -3,26 +3,26 @@
 // `rand()` in [0, 1), so every test is exact. The state given is never changed: changes are made on a copy.
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
-import { winnerAt } from './vote.js?v=179'; // v1.6.4: the vote's winner as every phone works it out
+import { winnerAt } from './vote.js?v=180'; // v1.6.4: the vote's winner as every phone works it out
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
   ringAcrossM, ringCenter,
-} from './geo.js?v=179';
+} from './geo.js?v=180';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=179';
-import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=179'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=179'; // v1.6: Loot drops
+} from './rules.js?v=180';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=180'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, LOOT_EDGES_M, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=180'; // v1.6: Loot drops
 import {
   LOOT_TABLE, BOOST, COUNTS, boostRoll, boostedMs, boostedCount, boostable, sideOfCard, cardBase, BOTH_SIDES,
   HEADSUP_M, HEADSUP_GAP_MS, STALL_MS, QUICK_MS, QUICK_LEAST_MS, SCOUT_M, HOUND_LOOK_MS, EAVESDROP_SHOW_MS,
   DECOY_BOOST_MS, WALK_MPS, SNITCH_CALL_MS, SNITCH_FLASH_MS, SNITCH_OFFERS, PLANE_LEAD_MS, PLANE_PAD_M, PLANE_OFFSET_M,
   PLANE_LAND_MS, DROPS, DROPS_DEFAULT, dropEveryMs,
-} from './loot.js?v=179'; // v1.7: the card overhaul
+} from './loot.js?v=180'; // v1.7: the card overhaul
 
 export const ENGINE_V = 1;
 
@@ -2248,47 +2248,52 @@ function due17(s, sch, offer) {
   }
 }
 
-// The drop plane, PLANE_LEAD_MS before a drop: the spots are picked now and kept secret; the path crosses the ring
-// at a random place (never placed from the spots) and no spot is within PLANE_OFFSET_M[0] (40 m) of it.
+// The drop plane, PLANE_LEAD_MS before a drop. Fix (Nov 2026, the owner: "the plane places not on its path, and
+// sometimes doesn't show up"): the path comes first (a random heading through a random point near the ring's middle),
+// then the crates are spread along the part of it inside the ring, so they fall straight out of the plane. The margin
+// from the edge shrinks with the ring (LOOT_EDGES_M) and the ring's middle is the last resort, so there is always a
+// plane and always crates. The path is a line across the whole area: it tells where along it, not which spot.
 function lootPlane(s, t, ctx) {
   const sch = schedule(s.settings);
   const L = lootOf(s, sch.headStartMs);
   const at = L.next;
   const ring = ringAt(s, at);
   const R = ctx.rand;
+  const want = lootCount(freeHiders(s).length);
+  const centre = ring ? ringCenter(ring) : null;
+  if (!centre) { L.planned = { at, spots: [] }; return; } // (no ring: the drop picks its own spots)
+  const across = ringAcrossM(ring) || 600;
+  const half = across / 2 + PLANE_PAD_M;
+  const STEPS = 60;
+  let best = null;
+  for (const edge of LOOT_EDGES_M) {
+    for (let tries = 0; tries < 12 && !best; tries++) {
+      const heading = R() * 360;
+      const c = moveM(centre, R() * across * 0.2, R() * 360);
+      const inside = [];
+      for (let k = -STEPS; k <= STEPS; k++) {
+        const p = moveM(c, (k / STEPS) * half, heading);
+        if (spotFits(ring, p, edge)) inside.push(p);
+      }
+      if (inside.length) best = { c, heading, inside };
+    }
+    if (best) break;
+  }
+  if (!best) { const heading = R() * 360; best = { c: centre, heading, inside: [centre] }; }
+  // the crates: one in each equal stretch of the inside part, at random within it (so they're spread out)
   const spots = [];
-  for (let i = 0; i < lootCount(freeHiders(s).length); i++) {
-    const p = lootSpot(ring, R);
-    if (p) spots.push(p);
+  const n = Math.max(1, want);
+  for (let i = 0; i < n; i++) {
+    const lo = Math.floor((i * best.inside.length) / n);
+    const hi = Math.max(lo, Math.floor(((i + 1) * best.inside.length) / n) - 1);
+    const p = best.inside[Math.min(best.inside.length - 1, lo + Math.floor(R() * (hi - lo + 1)))];
+    spots.push([Number(p[0].toFixed(6)), Number(p[1].toFixed(6))]);
   }
   L.planned = { at, spots };
-  if (!spots.length) return;
-  // The line is placed from the ring, never from the crates: a random heading and a random sideways offset from the
-  // ring's centre, so where it runs (and its middle) tells nothing of where a crate lands; tried again while any spot
-  // is closer to it than PLANE_OFFSET_M[0]. Last resort: past every spot on one side, its middle slid at random.
-  const centre = ringCenter(ring) || spots[0];
-  const across = ringAcrossM(ring) || 600;
-  const half = across / 2 + PLANE_PAD_M + across / 2;
-  const sideOf = (from, p, side) => distanceM(from, p) * Math.cos(((bearingDeg(from, p) - side) * Math.PI) / 180);
-  let best = null;
-  for (let tries = 0; tries < 24 && !best; tries++) {
-    const heading = R() * 360;
-    const side = heading + 90;
-    const c = moveM(moveM(centre, (R() - 0.5) * across * 0.8, side), (R() - 0.5) * across * 0.5, heading);
-    if (spots.every((p) => Math.abs(sideOf(c, p, side)) >= PLANE_OFFSET_M[0])) {
-      best = { a: moveM(c, half, heading + 180), b: moveM(c, half, heading) };
-    }
-  }
-  if (!best) {
-    const heading = R() * 360;
-    const side = heading + 90;
-    const off = PLANE_OFFSET_M[0] + R() * (PLANE_OFFSET_M[1] - PLANE_OFFSET_M[0]);
-    const c = moveM(moveM(centre, Math.max(0, ...spots.map((p) => sideOf(centre, p, side))) + off, side), (R() - 0.5) * across, heading);
-    best = { a: moveM(c, half, heading + 180), b: moveM(c, half, heading) };
-  }
+  const a = moveM(best.c, half, best.heading + 180);
+  const b = moveM(best.c, half, best.heading);
   const r6 = (x) => Number(x.toFixed(6));
-  const flip = R() < 0.5;
-  const path = (flip ? [best.b, best.a] : [best.a, best.b]).map((p) => [r6(p[0]), r6(p[1])]);
+  const path = (R() < 0.5 ? [b, a] : [a, b]).map((p) => [r6(p[0]), r6(p[1])]);
   L.plane = { path, at, n: spots.length };
   emit(s, t, 'loot-plane', 'all', 'Drop incoming! Watch the sky.', { at, path: copy(path), n: spots.length });
   note(s, { kind: 'loot-plane', clock: t.clock, at, path: copy(path), n: spots.length });

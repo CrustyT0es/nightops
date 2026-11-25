@@ -9,24 +9,24 @@
 //
 // Pure helpers (no DOM, tested in Node): overFacts(view), playerLines(row, facts), shareText(facts), listNames,
 // ticksFor(facts, endS), captionAt(events, clockMs), phaseAt(facts, clockMs), defaultSpeed(endS), facesSig.
-import { h, fill, face, text, cls, listen } from '../dom.js?v=179';
-import { icon } from '../ui/icons.js?v=179';
-import { banner } from '../ui/banner.js?v=179';
-import { openSheet } from '../ui/sheet.js?v=179';
-import { createMap, cleanRoute, routeAt, toBounds } from '../map.js?v=179';
-import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js?v=179';
-import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js?v=179';
-import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js?v=179'; // v1.1 PAGE-RADIO
-import { createTray } from '../ui/tray.js?v=179'; // v1.2 PAGE-MAP
-import { attachCamParts, confirmAgain } from './camparts.js?v=179'; // v1.2 PAGE-CAM
-import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js?v=179'; // v1.3 PAGE-AFTER
+import { h, fill, face, text, cls, listen } from '../dom.js?v=180';
+import { icon } from '../ui/icons.js?v=180';
+import { banner } from '../ui/banner.js?v=180';
+import { openSheet } from '../ui/sheet.js?v=180';
+import { createMap, cleanRoute, routeAt, toBounds } from '../map.js?v=180';
+import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js?v=180';
+import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js?v=180';
+import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js?v=180'; // v1.1 PAGE-RADIO
+import { createTray } from '../ui/tray.js?v=180'; // v1.2 PAGE-MAP
+import { attachCamParts, confirmAgain } from './camparts.js?v=180'; // v1.2 PAGE-CAM
+import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js?v=180'; // v1.3 PAGE-AFTER
 // v1.4 PAGE-REEL: the map camera, the scene player, the Movies card, the close calls' mini maps
-import { createMapCam } from '../mapcam.js?v=179';
-import { openReel } from './reelplayer.js?v=179';
-import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js?v=179';
-import { scenes as reelScenes } from '../scenes.js?v=179';
-import { keepRow } from './keeprow.js?v=179'; // v1.4 PAGE-RENDER
-import { proRows, linkSheet, linkedPc } from '../pcedit.js?v=179'; // v1.5: the PC edit
+import { createMapCam } from '../mapcam.js?v=180';
+import { openReel } from './reelplayer.js?v=180';
+import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js?v=180';
+import { scenes as reelScenes } from '../scenes.js?v=180';
+import { keepRow } from './keeprow.js?v=180'; // v1.4 PAGE-RENDER
+import { proRows, linkSheet, linkedPc } from '../pcedit.js?v=180'; // v1.5: the PC edit
 // v1.4 end PAGE-REEL
 
 // v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
@@ -1263,7 +1263,7 @@ export function mount(root, app) {
     if (S.chat || S.dead) return;
     S.chat = 'opening';
     try {
-      const mod = await import('./chat.js?v=179');
+      const mod = await import('./chat.js?v=180');
       if (S.dead) { S.chat = null; return; }
       S.unread = 0;
       paintChat();
@@ -1506,7 +1506,7 @@ export function mount(root, app) {
     const r = reel || movies.reel(kind);
     if (!r) return;
     let mod = null;
-    try { mod = await import('../render.js?v=179'); } catch { mod = null; }
+    try { mod = await import('../render.js?v=180'); } catch { mod = null; }
     if (!mod || typeof mod.downloadReel !== 'function') {
       banner("Downloads aren't ready on this phone yet. Watch it here for now.", 'warn', 5000);
       return;

@@ -13,10 +13,10 @@
 // Counting never doubles on reloads or redraws: each time a card comes is an occurrence id kept in `seen` (the
 // newest SEEN_MOST): "<code>#<round>|L|<box opened at>|<card>" for a box, "<code>#<round>|C|<card>" for a classic card.
 // A round is told apart by its clock going back (a new round starts from 0), as the binder does.
-import { h, text } from './dom.js?v=179';
-import { POWERS } from '../shared/rules.js?v=179';
-import { LOOT_TABLE } from '../shared/loot.js?v=179';
-import { RARITY_ORDER, RARITY_WORD, cardInfo, cardEl, cardsOf, createHolder } from './cards.js?v=179';
+import { h, text } from './dom.js?v=180';
+import { POWERS } from '../shared/rules.js?v=180';
+import { LOOT_TABLE } from '../shared/loot.js?v=180';
+import { RARITY_ORDER, RARITY_WORD, cardInfo, cardEl, cardsOf, createHolder } from './cards.js?v=180';
 
 export const COLLECTION_KEY = 'nightops-collection';
 export const SEEN_MOST = 400;

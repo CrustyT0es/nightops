@@ -7,17 +7,17 @@
 //   live   the map (every mark in the view), a "2 MIN BEHIND" tag, the time left as of then, the play-by-play,
 //          N watching, Stop watching
 // The end screen is the normal over screen (app.js sends a spectator there).
-import { h, fill, face, text, cls, listen } from '../dom.js?v=179';
-import { icon } from '../ui/icons.js?v=179';
-import { createMap, closingFrom, ringFlash } from '../map.js?v=179';
-import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=179'; // v1.2 PAGE-MAP
-import { openSheet } from '../ui/sheet.js?v=179'; // v1.2 PAGE-MAP: the menu
-import { MODES, fmtClock } from '../../shared/rules.js?v=179';
-import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=179'; // v1.3 PAGE-AFTER
-import { createMapCam } from '../mapcam.js?v=179'; // v1.4 PAGE-REEL
-import { followRow } from './reelparts.js?v=179'; // v1.4 PAGE-REEL
-import { createCardPlay, spectatorFx } from './cardplay.js?v=179'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
-import { createCardFx } from '../cards.js?v=179'; // v1.7
+import { h, fill, face, text, cls, listen } from '../dom.js?v=180';
+import { icon } from '../ui/icons.js?v=180';
+import { createMap, closingFrom, ringFlash } from '../map.js?v=180';
+import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=180'; // v1.2 PAGE-MAP
+import { openSheet } from '../ui/sheet.js?v=180'; // v1.2 PAGE-MAP: the menu
+import { MODES, fmtClock } from '../../shared/rules.js?v=180';
+import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=180'; // v1.3 PAGE-AFTER
+import { createMapCam } from '../mapcam.js?v=180'; // v1.4 PAGE-REEL
+import { followRow } from './reelparts.js?v=180'; // v1.4 PAGE-REEL
+import { createCardPlay, spectatorFx } from './cardplay.js?v=180'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
+import { createCardFx } from '../cards.js?v=180'; // v1.7
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
