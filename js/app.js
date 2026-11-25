@@ -30,21 +30,21 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=182';
-import { h, fill } from './dom.js?v=182';
-import { icon } from './ui/icons.js?v=182';
-import { banner as defaultBanner } from './ui/banner.js?v=182';
-import { closeSheets } from './ui/sheet.js?v=182';
-import { backButton } from './ui/back.js?v=182';
-import { ApiError, toApiError, WORDS } from './api.js?v=182';
-import { cleanName, cleanFace } from './identity.js?v=182';
-import { createRadio, fromBase64 } from './radio.js?v=182'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=182'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=182'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=182'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=182'; // v1.4 PAGE-DEVICES
-import { deviceSecret, rememberPc } from './pcedit.js?v=182'; // v1.5: the PC edit
-import { onAnswer as onPermAnswer } from './permissions.js?v=182'; // v1.6.2 PERMS
+import { TIMING, LIMITS } from '../shared/rules.js?v=183';
+import { h, fill } from './dom.js?v=183';
+import { icon } from './ui/icons.js?v=183';
+import { banner as defaultBanner } from './ui/banner.js?v=183';
+import { closeSheets } from './ui/sheet.js?v=183';
+import { backButton } from './ui/back.js?v=183';
+import { ApiError, toApiError, WORDS } from './api.js?v=183';
+import { cleanName, cleanFace } from './identity.js?v=183';
+import { createRadio, fromBase64 } from './radio.js?v=183'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=183'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=183'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=183'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=183'; // v1.4 PAGE-DEVICES
+import { deviceSecret, rememberPc } from './pcedit.js?v=183'; // v1.5: the PC edit
+import { onAnswer as onPermAnswer } from './permissions.js?v=183'; // v1.6.2 PERMS
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)

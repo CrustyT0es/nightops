@@ -13,11 +13,11 @@
 // one big "Allow location" button whose tap asks the browser itself (permissions.js), so its own Allow box shows.
 // Only when the browser has blocked it for good ('denied', or a "no" with no box) does it say why and show the
 // steps for this phone (with Try again, which asks again).
-import { h, fill, text } from '../dom.js?v=182';
-import { icon } from './icons.js?v=182';
-import { holdInert } from './inert.js?v=182';
-import { helpFor, stepParts, deviceKind } from '../help.js?v=182';
-import { permState, lastAnswer, blockedWords, answerWords, LABELS, askLocation, askMic, askCamera } from '../permissions.js?v=182';
+import { h, fill, text } from '../dom.js?v=183';
+import { icon } from './icons.js?v=183';
+import { holdInert } from './inert.js?v=183';
+import { helpFor, stepParts, deviceKind } from '../help.js?v=183';
+import { permState, lastAnswer, blockedWords, answerWords, LABELS, askLocation, askMic, askCamera } from '../permissions.js?v=183';
 
 export const STALE_SHOUT_MS = 30000;
 export const LOST = ['denied', 'off'];
@@ -125,21 +125,24 @@ function askView({ part, why, kind, ask, perm, onAnswer, onLater, onReload, late
     text(word, S.mode === 'ask' ? LABELS[part] : 'Try again');
     allowBtn.hidden = S.mode === 'done';
     if (S.mode === 'done') { hint.hidden = true; fill(how); after.hidden = true; }
-    if (reloadBtn) reloadBtn.hidden = S.mode !== 'blocked';
+    // (iPhones: once it said no, a reload is often the only way to get the box again)
+    if (reloadBtn) reloadBtn.hidden = !(S.mode === 'blocked' || (S.mode === 'steps' || S.refused) && S.mode !== 'done');
   }
 
+  // (Nov 2026, the owner's iPhone: Allow / Try again must ask the browser afresh on EVERY tap, first thing in the
+  // tap, never waiting on an earlier ask: an iPhone may leave one unanswered. The newest tap's answer counts.)
   allowBtn.addEventListener('click', () => {
-    if (S.busy) return;
-    S.busy = true;
-    allowBtn.disabled = true;
-    const blockedBefore = S.mode === 'blocked';
-    fill(status, S.mode === 'ask' ? 'Asking your phone...' : 'Trying...');
+    const seq = (S.seq = (S.seq || 0) + 1);
     let p;
     try { p = ask(); } catch (e) { p = Promise.reject(e); } // (called in the tap itself: that shows the box)
+    S.busy = true;
+    const blockedBefore = S.mode === 'blocked';
+    fill(status, S.mode === 'ask' ? 'Asking your phone...' : 'Trying...');
     Promise.resolve(p).then((a) => {
+      if (seq !== S.seq) return;
       S.busy = false;
-      allowBtn.disabled = false;
       if (!a) return;
+      if (a.result !== 'granted') S.refused = true;
       if (a.result === 'granted') S.mode = 'done';
       else if (a.blocked) { S.mode = 'blocked'; S.why = a.why || 'denied'; }
       else if (a.result === 'unavailable') { S.mode = 'steps'; S.why = a.why || 'off'; }
@@ -150,8 +153,8 @@ function askView({ part, why, kind, ask, perm, onAnswer, onLater, onReload, late
       fill(status, a.blocked && !blockedBefore ? '' : answerWords(a, { blockedBefore }));
       if (onAnswer) { try { onAnswer(a); } catch (e) { console.error(e); } }
     }, () => {
+      if (seq !== S.seq) return;
       S.busy = false;
-      allowBtn.disabled = false;
       fill(status, "Couldn't ask. Tap the button again.");
     });
   });

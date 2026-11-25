@@ -11,7 +11,7 @@
 // every card is as likely as the others. Grab bag, Multiplier and Duplicator come in a hider version and a hunter
 // version (two keys each, two slots in the collection). This file is the cards' data: the tables, the odds, the
 // words and the numbers every lane shares. What a card does is the engine's (engine.js), as the contract says.
-import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=182';
+import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=183';
 
 export const LOOT_FIRST_MS = 60000;     // the first drop, this long after the head start
 export const LOOT_EVERY_MS = 240000;    // then one every 4 minutes

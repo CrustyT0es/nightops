@@ -16,14 +16,14 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=182'; // v1.6.4: how each mode plays
-import { h, fill, text, face } from '../dom.js?v=182';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf, asked } from '../../shared/vote.js?v=182';
-import { planeEl } from '../fx.js?v=182'; // v1.7: the drop plane in the Drops explainer
-import { pickFace } from '../face.js?v=182';
-import { chest } from '../chest.js?v=182';
-import { askAll, ask as askPart, answerWords } from '../permissions.js?v=182'; // v1.6.2 PERMS: the gear check's Allow
-import { openHelp } from '../ui/fixit.js?v=182'; // v1.6.2 PERMS
+import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=183'; // v1.6.4: how each mode plays
+import { h, fill, text, face } from '../dom.js?v=183';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf, asked } from '../../shared/vote.js?v=183';
+import { planeEl } from '../fx.js?v=183'; // v1.7: the drop plane in the Drops explainer
+import { pickFace } from '../face.js?v=183';
+import { chest } from '../chest.js?v=183';
+import { askAll, ask as askPart, answerWords } from '../permissions.js?v=183'; // v1.6.2 PERMS: the gear check's Allow
+import { openHelp } from '../ui/fixit.js?v=183'; // v1.6.2 PERMS
 
 // (from this file, not the page: the dev preview pages live in web/dev/)
 const AUDIO = new URL('../../audio/narrator/', import.meta.url).href;
@@ -326,9 +326,11 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       const stuck = st === false && !!a && (a.blocked || a.result === 'unavailable');
       const word = st === true ? 'Ready' : st === 'busy' ? 'Asking…' : st === 'off' ? 'Not this game'
         : st === false ? (stuck ? (a.blocked ? 'Blocked' : a.why === 'none' ? 'Not found' : 'Not working') : 'Tap Allow') : '—';
-      const act = st !== false ? null
-        : stuck ? h('button.btn.vs-gear-act.fix', { type: 'button', disabled: !!S.gearRun, onclick: () => gearFix(k) }, 'Fix it')
-          : h('button.btn.vs-gear-act', { type: 'button', disabled: !!S.gearRun, onclick: () => gearOne(k) }, 'Allow');
+      // (never disabled: a tap always asks afresh; while it asks, "Ask again" stays for an iPhone that never answered)
+      const act = st === 'busy' ? h('button.btn.vs-gear-act.again', { type: 'button', onclick: () => gearOne(k) }, 'Ask again')
+        : st !== false ? null
+          : stuck ? h('button.btn.vs-gear-act.fix', { type: 'button', onclick: () => gearFix(k) }, 'Fix it')
+            : h('button.btn.vs-gear-act', { type: 'button', onclick: () => gearOne(k) }, 'Allow');
       return h(`div.vs-gear-row${act ? '.has-act' : ''}`, { 'data-k': k }, gearIcon(st, e, label), h('span', label), h('strong', word), act);
     }));
     const allOk = !!mineNow && mineNow.loc === true && mineNow.mic === true && (mineNow.cam === true || !wantsCam());
@@ -390,15 +392,18 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     try { await S.gearRun; } finally { S.gearRun = null; S.gearSig = ''; paintGear(); }
   }
   // A part's own Allow (a tap of its own: iPhones want one per ask).
+  // (Nov 2026: every tap asks afresh, first thing in the tap, even while an earlier ask an iPhone left unanswered
+  // still waits; the newest answer counts.)
   function gearOne(k) {
-    if (S.gearRun) return;
+    const p = askPart(PART_OF[k], { waitFix: false }); // (in the tap itself)
+    const seq = (S.gearSeq = (S.gearSeq || 0) + 1);
     if (!S.gear) S.gear = { loc: null, mic: null, cam: null };
     S.gear[k] = 'busy';
     S.gearSig = '';
     paintGear();
-    const p = askPart(PART_OF[k], { waitFix: false }); // (in the tap itself)
-    S.gearRun = p.then((a) => { gearTook(k, a); return sendGear(); });
-    S.gearRun.finally(() => { S.gearRun = null; S.gearSig = ''; paintGear(); });
+    const run = p.then((a) => { if (seq === S.gearSeq) { gearTook(k, a); return sendGear(); } return null; });
+    S.gearRun = run;
+    run.finally(() => { if (S.gearRun === run) { S.gearRun = null; S.gearSig = ''; paintGear(); } });
   }
   // Blocked for good (or not working): the steps for this phone, over the show; its Try again asks again.
   function gearFix(k) {

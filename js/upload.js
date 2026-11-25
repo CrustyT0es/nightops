@@ -12,8 +12,8 @@
 // A dropped connection or a failed PUT tries that clip again after 2, 5, 10 and 30 s (5 tries in all), then goes
 // on with the next and comes back to it at the end. A refusal says its sentence and stops (a "bad clip" only skips
 // that one). The screen is kept on while sending.
-import { uploadMeta, clipShape } from './camera.js?v=182';
-import { heldOf } from './camstore.js?v=182';
+import { uploadMeta, clipShape } from './camera.js?v=183';
+import { heldOf } from './camstore.js?v=183';
 
 export const RETRY_MS = [2000, 5000, 10000, 30000];
 export const PUT_TIMEOUT_MS = 10 * 60 * 1000;

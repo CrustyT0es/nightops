@@ -186,14 +186,28 @@ export function createMedia({
   }
 
   // Ask for what's wanted. byTap: from a tap (a refusal then is final until the next tap).
-  function acquire(byTap = false) {
+  function acquire(byTap = false, fresh = false) {
     if (!can || M.dead) return Promise.resolve(null);
-    if (M.asking) return M.asking;
+    // (Nov 2026, the owner's iPhone: after a "Don't Allow", Allow did nothing. fresh (restore(): an Allow tap) always
+    // asks afresh, in the tap itself: an ask still waiting from before (iOS may never answer it) never swallows it.)
+    if (M.asking && !fresh) return M.asking;
     const want = { ...M.want };
     if (!want.video && !want.audio) return Promise.resolve(null);
+    const seq = (M.askSeq = (M.askSeq || 0) + 1);
+    if (fresh && M.stream && !healthy(M.stream)) {
+      // a dead stream's tracks let go first, so the fresh ask isn't sharing a broken capture
+      const old = M.stream;
+      M.stream = null;
+      unlisten();
+      stopStream(old);
+      emit('stream', null, old);
+    }
+    let call;
+    try { call = media.getUserMedia(constraintsFor(want)); } catch (e) { call = Promise.reject(e); } // (in the tap)
     M.asking = (async () => {
       try {
-        const s = await media.getUserMedia(constraintsFor(want));
+        const s = await call;
+        if (seq !== M.askSeq) { stopStream(s); return M.stream; } // a newer tap asked since: its answer counts
         if (M.dead || !needed()) { stopStream(s); return null; }
         const old = M.stream;
         M.stream = s;
@@ -210,6 +224,7 @@ export function createMedia({
         emit('stream', s, old || null);
         return s;
       } catch (e) {
+        if (seq !== M.askSeq) return M.stream;
         const w = failWord(e);
         M.lastFail = w;
         if (want.video) M.camKnown = w;
@@ -221,7 +236,7 @@ export function createMedia({
         if (w === 'off' && !byTap) later();
         return null;
       } finally {
-        M.asking = null;
+        if (seq === M.askSeq) M.asking = null;
       }
     })();
     return M.asking;
@@ -347,7 +362,7 @@ export function createMedia({
         throw e;
       }
     },
-    restore() {
+    restore(fresh = true) {
       M.tries = 0;
       M.needsTap = false;
       M.lastFail = null;
@@ -356,7 +371,7 @@ export function createMedia({
       if (M.retryTimer !== null) { cancelAfter(M.retryTimer); M.retryTimer = null; }
       judge();
       if (!needed()) return Promise.resolve(null);
-      return acquire(true);
+      return acquire(true, fresh); // (an Allow / tap-to-turn-back-on tap: always a fresh ask, in the tap)
     },
     reacquire() {
       if (!needed()) return;
@@ -369,7 +384,7 @@ export function createMedia({
       if (M.dead) return Promise.resolve(null);
       const w = ['ok', 'denied', 'none', 'off'].includes(word) ? word : 'off';
       if (kind === 'camera') M.camKnown = w; else M.micKnown = w;
-      if (w === 'ok' && needed() && !(M.stream && healthy(M.stream) && !M.needsTap)) return m.restore();
+      if (w === 'ok' && needed() && !(M.stream && healthy(M.stream) && !M.needsTap)) return m.restore(false); // (not a tap: shares an ask already going)
       judge();
       return Promise.resolve(M.stream);
     },

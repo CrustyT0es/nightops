@@ -1,10 +1,10 @@
 // Night Ops: the role reveal, once per game at the start. Full screen in your side's colour: YOUR ROLE, a huge
 // HUNTER or HIDER, one line on what to do, your teammates' faces, and Got it (or a tap anywhere) for the game.
 // Its styles live at the end of css/lobby.css.
-import { h, fill, face, text } from '../dom.js?v=182';
-import { fmtClock } from '../../shared/rules.js?v=182';
-import { icon } from '../ui/icons.js?v=182';
-import { driverReveal } from './drive.js?v=182'; // v1.1 PAGE-DRIVER
+import { h, fill, face, text } from '../dom.js?v=183';
+import { fmtClock } from '../../shared/rules.js?v=183';
+import { icon } from '../ui/icons.js?v=183';
+import { driverReveal } from './drive.js?v=183'; // v1.1 PAGE-DRIVER
 
 const NS = 'http://www.w3.org/2000/svg';
 const TAP_GUARD_MS = 700;   // a second tap on Start mustn't skip the reveal straight away
@@ -114,11 +114,12 @@ export function mount(root, app) {
   const code = h('span');
   const count = h('span');
 
+  const main = h('div.reveal-main', kicker, title, sub, line, keep, team);
   const layer = h('div.reveal',
     h('div.reveal-bg', { 'aria-hidden': 'true' }, scope()),
     h('div.reveal-frame', { 'aria-hidden': 'true' }, h('span'), h('span'), h('span'), h('span')),
     h('div.reveal-head', { 'aria-hidden': 'true' }, code, count),
-    h('div.reveal-main', kicker, title, sub, line, keep, team),
+    main,
     h('div.reveal-foot', go, h('p.reveal-tap', { 'aria-hidden': 'true' }, 'Or tap anywhere')));
   fill(root, layer);
 
@@ -193,14 +194,19 @@ export function mount(root, app) {
   }
 
   // The title shrinks until the word fits (a narrow phone, a big system font).
+  // (Nov 2026, the owner's Samsung: HUNTER ran off the right edge. The grid column used to grow with the word, so
+  // the title never looked too wide; now the column is the screen's width and the word is measured against it.)
   function fitTitle() {
     if (S.destroyed) return;
     titleWord.style.fontSize = '';
-    let size = parseFloat(getComputedStyle(title).fontSize) || 80;
-    let guard = 24;
-    while (title.scrollWidth > title.clientWidth + 1 && size > 36 && guard-- > 0) {
-      size -= 4;
+    const room = main.clientWidth || title.clientWidth;
+    let size = parseFloat(getComputedStyle(titleWord).fontSize) || 80;
+    for (let guard = 0; guard < 8 && room > 0; guard++) {
+      const wide = titleWord.scrollWidth;
+      if (wide <= room) break;
+      size = Math.max(24, Math.floor(size * (room / wide) * 0.98));
       titleWord.style.fontSize = `${size}px`;
+      if (size <= 24) break;
     }
   }
 

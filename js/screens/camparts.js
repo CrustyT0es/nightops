@@ -8,18 +8,18 @@
 //   confirmAgain(app, view) -> Promise<boolean>   Play again's warning when this round has clips
 //
 // Pure helpers (tested in Node): fmtMB, progressWords, clipLabel, keptWords, camOf, stillComing, mineOf.
-import { h, fill, text, cls, face } from '../dom.js?v=182';
-import { icon } from '../ui/icons.js?v=182';
-import { openSheet } from '../ui/sheet.js?v=182';
-import { fmtClock } from '../../shared/rules.js?v=182';
-import { direct, fileTimeAt } from '../director.js?v=182';
-import { canMakeMovie, talkOf } from '../movie.js?v=182';
-import { scenes as reelScenes } from '../scenes.js?v=182';
-import { renderReel } from '../render.js?v=182';
-import { createUploader } from '../upload.js?v=182';
-import { heldOf } from '../camstore.js?v=182';
-import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=182'; // v1.4.7
-import { ask as askPart, answerWords as answerText } from '../permissions.js?v=182'; // v1.6.2 PERMS
+import { h, fill, text, cls, face } from '../dom.js?v=183';
+import { icon } from '../ui/icons.js?v=183';
+import { openSheet } from '../ui/sheet.js?v=183';
+import { fmtClock } from '../../shared/rules.js?v=183';
+import { direct, fileTimeAt } from '../director.js?v=183';
+import { canMakeMovie, talkOf } from '../movie.js?v=183';
+import { scenes as reelScenes } from '../scenes.js?v=183';
+import { renderReel } from '../render.js?v=183';
+import { createUploader } from '../upload.js?v=183';
+import { heldOf } from '../camstore.js?v=183';
+import { createNetGate, uploadStep, leftWords, untilOf, NET_WORDS } from '../netgate.js?v=183'; // v1.4.7
+import { ask as askPart, answerWords as answerText } from '../permissions.js?v=183'; // v1.6.2 PERMS
 
 export const POLL_MS = 10000;
 export const URL_KEEP_MS = 13 * 60 * 1000;   // signed links last 15 min; asked again a little before
@@ -893,7 +893,7 @@ export function gameCamParts({ app }) {
     askPart(part).then((a) => {
       if (S.dead || !a) return;
       if (a.blocked || a.result === 'unavailable') {
-        import('../ui/fixit.js?v=182').then((m) => m.openHelp({ part, why: a.why || 'denied', perm: a.blocked ? 'denied' : null, onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still not working.')) })).catch(() => {});
+        import('../ui/fixit.js?v=183').then((m) => m.openHelp({ part, why: a.why || 'denied', perm: a.blocked ? 'denied' : null, onTry: () => media.restore().then((x) => (x ? 'Working.' : 'Still not working.')) })).catch(() => {});
       } else if (a.result !== 'granted') app.banner(answerText(a), 'warn', 6000);
     });
   }

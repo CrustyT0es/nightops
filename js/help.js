@@ -38,7 +38,7 @@ export function deviceKind(nav = globalThis.navigator, win = globalThis.window) 
   return 'other';
 }
 
-import { silentSwitchMutes } from './alerts.js?v=182';
+import { silentSwitchMutes } from './alerts.js?v=183';
 
 const TRY = 'Tap **Try again**.';
 export const RELOAD = 'If **Try again** still says no, tap **Reload Night Ops** (Safari only takes the new setting after a reload).';
@@ -107,13 +107,15 @@ const LOCATION = {
 function media(what, word) {
   // what: 'Camera' | 'Microphone'; word: 'camera' | 'microphone'
   return {
+    // (Nov 2026: an iPhone that heard "Don't Allow" often won't ask again until the page reloads: RELOAD says so,
+    // and the screen shows a Reload Night Ops button on iPhones.)
     'ios-safari': {
-      denied: [`Tap the **aA** (or **...**) button next to the address, then **Website Settings**, and set **${what}** to **Allow**.`,
-        `If it isn't there: **Settings** app > **Apps** > **Safari** > **${what}** > **Allow** (on older iPhones **Settings** > **Safari**).`, TRY],
+      denied: [`Tap the **aA** (or **...**) button next to the address, then **Website Settings**, and set **${what}** to **Allow** (or **Ask**).`,
+        `If it isn't there: **Settings** app > **Apps** > **Safari** > **${what}** > **Allow** (on older iPhones **Settings** > **Safari** > **${what}**).`, TRY, RELOAD],
     },
     'ios-app': {
-      denied: [`Open the **Settings** app and allow the **${what}** for Safari (**Apps** > **Safari** > **${what}**).`,
-        'If it still says no, open Night Ops in Safari once, allow it there, then come back to this app.', TRY],
+      denied: [`Open the **Settings** app: **Apps** > **Safari** > **${what}** > **Allow** (on older iPhones **Settings** > **Safari** > **${what}**). A Home Screen app uses Safari's website settings.`,
+        'If it still says no, open Night Ops in Safari once, allow it there (**aA** > **Website Settings**), then come back to this app.', TRY, RELOAD],
     },
     'ios-chrome': { denied: [...iosApp(what).slice(0, 1), `Tap **Privacy & Security** > **${what}** and turn **Chrome** on.`, TRY] },
     'ios-other': { denied: iosApp(what).concat(TRY) },

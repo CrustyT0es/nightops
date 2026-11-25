@@ -11,12 +11,12 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=182';
-import { chest, chestModel } from '../chest.js?v=182';
-import { cardEl, tiltFrom } from '../cards.js?v=182'; // v1.6.3: one card look everywhere
-import { POWERS, fmtClock } from '../../shared/rules.js?v=182';
-import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=182';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=182';
+import { h, text } from '../dom.js?v=183';
+import { chest, chestModel } from '../chest.js?v=183';
+import { cardEl, tiltFrom } from '../cards.js?v=183'; // v1.6.3: one card look everywhere
+import { POWERS, fmtClock } from '../../shared/rules.js?v=183';
+import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=183';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=183';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic' }; // (v1.7: epic)
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -181,7 +181,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=182').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=183').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Get within ${LOOT_PICK_M} m of one to grab it (zoom in to see the real circle).${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -529,4 +529,4 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, m
 }
 
 // ---- v1.6.1: your cards: v1.6.3 moved them to js/cards.js (the collection, one card look everywhere) ----------
-export { cardsOf, createCardDeck } from '../cards.js?v=182';
+export { cardsOf, createCardDeck } from '../cards.js?v=183';

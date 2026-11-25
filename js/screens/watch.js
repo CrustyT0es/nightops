@@ -1,23 +1,23 @@
 // Night Ops: the spectator's screen (v1.1, PAGE-WATCH). mount(root, app) -> { update(view), destroy() }
 //
-// A spectator watches a game they don't play in. Everything they get is the server's watchView: 2 minutes
-// behind the game (marks, pings, the play-by-play and the ring as they were then), never a chat, never one
+// A spectator watches a game they don't play in. Everything they get is the server's watchView: live
+// (marks, pings, the play-by-play and the ring as they were then), never a chat, never one
 // player's own news. This screen never asks for a location.
 //   lobby  the code, who's in, the mode and rules, the ring, "Waiting for the host to start.", Stop watching
-//   live   the map (every mark in the view), a "2 MIN BEHIND" tag, the time left as of then, the play-by-play,
+//   live   the map (every mark in the view), a "LIVE" tag, the time left as of then, the play-by-play,
 //          N watching, Stop watching
 // The end screen is the normal over screen (app.js sends a spectator there).
-import { h, fill, face, text, cls, listen } from '../dom.js?v=182';
-import { icon } from '../ui/icons.js?v=182';
-import { createMap, closingFrom, ringFlash } from '../map.js?v=182';
-import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=182'; // v1.2 PAGE-MAP
-import { openSheet } from '../ui/sheet.js?v=182'; // v1.2 PAGE-MAP: the menu
-import { MODES, fmtClock } from '../../shared/rules.js?v=182';
-import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=182'; // v1.3 PAGE-AFTER
-import { createMapCam } from '../mapcam.js?v=182'; // v1.4 PAGE-REEL
-import { followRow } from './reelparts.js?v=182'; // v1.4 PAGE-REEL
-import { createCardPlay, spectatorFx } from './cardplay.js?v=182'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
-import { createCardFx } from '../cards.js?v=182'; // v1.7
+import { h, fill, face, text, cls, listen } from '../dom.js?v=183';
+import { icon } from '../ui/icons.js?v=183';
+import { createMap, closingFrom, ringFlash } from '../map.js?v=183';
+import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=183'; // v1.2 PAGE-MAP
+import { openSheet } from '../ui/sheet.js?v=183'; // v1.2 PAGE-MAP: the menu
+import { MODES, fmtClock } from '../../shared/rules.js?v=183';
+import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=183'; // v1.3 PAGE-AFTER
+import { createMapCam } from '../mapcam.js?v=183'; // v1.4 PAGE-REEL
+import { followRow } from './reelparts.js?v=183'; // v1.4 PAGE-REEL
+import { createCardPlay, spectatorFx } from './cardplay.js?v=183'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
+import { createCardFx } from '../cards.js?v=183'; // v1.7
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
@@ -32,9 +32,10 @@ export function watchingWords(n) {
   return k > 0 ? `${k} watching` : '';
 }
 
-// How far behind the spectator is, in words ("2 MIN BEHIND").
+// How far behind the spectator is, in words: "live" (spectators are live since Nov 2026), else "2 min behind".
 export function behindWords(view) {
-  const ms = isObj(view) && isObj(view.watch) && Number.isFinite(view.watch.delayMs) ? view.watch.delayMs : 120000;
+  const ms = isObj(view) && isObj(view.watch) && Number.isFinite(view.watch.delayMs) ? view.watch.delayMs : 0;
+  if (ms < 30000) return 'live';
   const min = Math.max(1, Math.round(ms / 60000));
   return `${min} min behind`;
 }
@@ -179,7 +180,7 @@ export function mount(root, app) {
       h('section.w-card.w-status-card', { 'aria-label': 'The game' },
         h('span.label', 'Game code'), code,
         h('div.w-wait-row', h('span.w-pulse', { 'aria-hidden': 'true' }), status),
-        h('p.w-hint', "You'll see the game 2 minutes behind. You don't play and you don't see the chats."),
+        h('p.w-hint', "You'll see the game live. You don't play and you don't see the chats."),
         watching),
       h('section.w-card', { 'aria-labelledby': 'w-players-title' },
         h('h2#w-players-title.label.w-card-title', 'Players ', count), players),
@@ -223,7 +224,7 @@ export function mount(root, app) {
     }
   }
 
-  // ---- the game, 2 minutes behind ----
+  // ---- the game, live ----
 
   // v1.2 PAGE-MAP: the big map's frame, as on the game screen: the map edge to edge, a slim HUD on top ("2 MIN
   // BEHIND", the time left as of then, N watching, the menu with Stop watching) and the tray at the bottom (the newest

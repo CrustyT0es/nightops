@@ -3,26 +3,26 @@
 // `rand()` in [0, 1), so every test is exact. The state given is never changed: changes are made on a copy.
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
-import { winnerAt } from './vote.js?v=182'; // v1.6.4: the vote's winner as every phone works it out
+import { winnerAt } from './vote.js?v=183'; // v1.6.4: the vote's winner as every phone works it out
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
   ringAcrossM, ringCenter,
-} from './geo.js?v=182';
+} from './geo.js?v=183';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=182';
-import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=182'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, edgesFor, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=182'; // v1.6: Loot drops
+} from './rules.js?v=183';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=183'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, edgesFor, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=183'; // v1.6: Loot drops
 import {
   LOOT_TABLE, BOOST, COUNTS, boostRoll, boostedMs, boostedCount, boostable, sideOfCard, cardBase, BOTH_SIDES,
   HEADSUP_M, HEADSUP_GAP_MS, STALL_MS, QUICK_MS, QUICK_LEAST_MS, SCOUT_M, HOUND_LOOK_MS, EAVESDROP_SHOW_MS,
   DECOY_BOOST_MS, WALK_MPS, SNITCH_CALL_MS, SNITCH_FLASH_MS, SNITCH_OFFERS, PLANE_LEAD_MS, PLANE_PAD_M, PLANE_OFFSET_M,
   PLANE_LAND_MS, DROPS, DROPS_DEFAULT, dropEveryMs,
-} from './loot.js?v=182'; // v1.7: the card overhaul
+} from './loot.js?v=183'; // v1.7: the card overhaul
 
 export const ENGINE_V = 1;
 
@@ -3345,7 +3345,7 @@ export function removeWatcher(state, wid, { now, status = 'left' } = {}) {
   return { state: s };
 }
 
-// The delayed clock a spectator sees: never newer than now minus SPECTATOR_DELAY_MS of game time.
+// The clock a spectator sees: now minus SPECTATOR_DELAY_MS of game time (0 since the owner asked for live).
 function watchClock(s, now) {
   return Math.max(0, clockOf(s, now) - TIMING.SPECTATOR_DELAY_MS);
 }
@@ -3382,9 +3382,9 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
   const lobby = !live && !over;
   const T = live ? watchClock(s, now) : clockOf(s, now);
   const sch = schedule(s.settings);
-  // An SOS pause stops the game clock at a clock newer than T (T is always 2 minutes behind it), so as of T
-  // the game was never paused: a spectator sees the SOS only as its event, once that is 2 minutes old.
-  const paused = false;
+  // v1.7.x (the owner: "see everything in real time, it'd be hard to cheat"): spectators are live
+  // (SPECTATOR_DELAY_MS 0), so an SOS pause shows as it happens: who sent it, never where they are.
+  const paused = live && s.pausedAt !== null && s.pausedAt !== undefined;
   const hostThen = live ? hostAt(s, T) : s.hostId;
   const sinceId = Number.isFinite(Number(since)) ? Number(since) : 0;
   const driverId = driverIdOf(s);
@@ -3432,7 +3432,7 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
       if (!newest[tp.pid] || tp.clock > newest[tp.pid].clock) newest[tp.pid] = tp;
     }
     // (Only the hunters' dots: a free hider is seen only as the hunters saw them, their ping circles. A player
-    // can watch their own game on a second phone, and a hider's exact spot, even 2 minutes old, would beat
+    // can watch their own game on a second phone, and a hider's exact spot would beat
     // every ping, Jammer, Sprint and Decoy. Everyone's route shows in the replay at the end.)
     for (const p of ordered(s)) {
       if (!p.startTeam || statusAt(p, T) !== 'in') continue;
@@ -3475,7 +3475,11 @@ export function watchView(state, wid, { now, positions = {}, trails = [], since 
     events.push(out);
   }
 
-  const sos = null;
+  let sos = null;
+  if (live && s.sos) {
+    const by = playerOf(s, s.sos.by);
+    sos = { by: s.sos.by, name: by ? by.name : '', p: null };
+  }
 
   return {
     v: s.v,

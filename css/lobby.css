@@ -399,6 +399,7 @@ button.lobby-mode { min-height: 88px; }
   min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr); /* (never wider than the screen: the word shrinks to fit instead) */
   padding: max(20px, calc(var(--safe-top) + 12px)) max(20px, var(--safe-right)) max(20px, calc(var(--safe-bottom) + 12px)) max(20px, var(--safe-left));
   cursor: pointer;
   -webkit-user-select: none;
@@ -480,6 +481,7 @@ button.lobby-mode { min-height: 88px; }
   justify-items: center;
   gap: 0;
   min-width: 0;
+  width: 100%;
   text-align: center;
   animation: reveal-in 420ms var(--ease) both;
 }
@@ -499,7 +501,8 @@ button.lobby-mode { min-height: 88px; }
 .reveal-title {
   max-width: 100%;
   margin-top: 10px;
-  font-size: clamp(56px, 23vw, 132px);
+  width: 100%;
+  font-size: clamp(36px, 19vw, 132px);
   line-height: 0.9;
   letter-spacing: -0.03em;
   text-transform: uppercase;
@@ -507,7 +510,7 @@ button.lobby-mode { min-height: 88px; }
   text-shadow: 0 0 36px var(--side-soft), 0 0 2px var(--side);
   overflow-wrap: normal;
 }
-.reveal-word { display: block; white-space: nowrap; }
+.reveal-word { display: block; width: max-content; max-width: none; margin: 0 auto; white-space: nowrap; }
 .reveal-title .reveal-bar {
   display: block;
   height: 6px;
@@ -541,6 +544,9 @@ button.lobby-mode { min-height: 88px; }
   align-items: flex-start;
   gap: 8px;
   max-width: min(100%, 36ch);
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
   margin-top: 14px;
   padding: 8px 12px;
   border: 1px solid var(--line-2);
@@ -597,7 +603,7 @@ button.lobby-mode { min-height: 88px; }
   .reveal-line { margin-top: 12px; font-size: 16px; }
   .reveal-keep { margin-top: 10px; padding: 6px 10px; font-size: 14px; }
   .reveal-team { margin-top: 16px; }
-  .reveal-title { font-size: clamp(56px, 22vw, 110px); }
+  .reveal-title { font-size: clamp(36px, 18vw, 110px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

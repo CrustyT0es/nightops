@@ -671,7 +671,7 @@ export function watchFixture(params = {}) {
     ...base,
     me: null,
     watcher: { id: WATCHER.id, name: WATCHER.name },
-    watch: { delayMs: TIMING.SPECTATOR_DELAY_MS || 120000 },
+    watch: { delayMs: TIMING.SPECTATOR_DELAY_MS || 0 },
     watching: 3,
     players,
     marks,

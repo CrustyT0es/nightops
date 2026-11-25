@@ -18,10 +18,10 @@
 //   createCardDeck({ app, onClassic, useLoot, doc }) -> { button, update(view), open(), close() }: the tray's cards
 //                                 button and your collection (a binder: every card of your side, the ones you haven't
 //                                 found yet as "?"; hold one to see it big; tap to pick it; Use it plays it).
-import { h, text } from './dom.js?v=182';
-import { POWERS } from '../shared/rules.js?v=182';
-import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=182';
-import { cardTheme, themeKey, fxSound } from './fx.js?v=182';
+import { h, text } from './dom.js?v=183';
+import { POWERS } from '../shared/rules.js?v=183';
+import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=183';
+import { cardTheme, themeKey, fxSound } from './fx.js?v=183';
 
 // (v1.7: the tiers come from shared/loot.js: common, rare, epic, legendary, mythic)
 export const RARITY_ORDER = [...RARITIES];
@@ -103,7 +103,9 @@ const THEM = {
   // v1.7: the hunters' cards the hiders are told about (Useless: only the hider it's on)
   hound: { title: 'SNIFFED OUT!' },
   quickping: { title: 'PING COMING SOONER!' },
-  useless: { title: 'USELESS!', line: "Your cards don't work for 5 minutes." },
+  // (Nov 2026, the owner: Useless looked like two notifications at once, the card's USELESS! title over the red
+  // USELESS stamp: `stamp` = the themed stamp is the title, so the overlay shows it once.)
+  useless: { title: 'USELESS!', line: "Your cards don't work for 5 minutes.", stamp: true },
 };
 
 const nameOf = (view, id) => {
@@ -176,7 +178,9 @@ export function cardFxOf(e, view) {
   // The hider Hacker or Wiretap is on has their own alarm or microphone screen.
   if (power === 'hacker' && alsoToMe('hacked')) return null;
   if (power === 'wiretap' && alsoToMe('tap')) return null;
-  return { ...base, who: 'them', tone: 'alert', small: !!T.small, kicker: by, title: T.title, line: T.line || String(e.text || info.line) };
+  const out = { ...base, who: 'them', tone: 'alert', small: !!T.small, kicker: by, title: T.title, line: T.line || String(e.text || info.line) };
+  if (T.stamp) out.stamp = true;
+  return out;
 }
 
 // ---- the cards a phone holds, and its collection ------------------------------------------------------------
@@ -270,7 +274,7 @@ export function createCardFx({ root, doc = globalThis.document } = {}) {
   let dead = false;
   let timer = null;
 
-  function build(fx) {
+  function build(fx, themed = false) {
     const r = fx.rarity || 'common';
     const s = fx.side === 'hunter' ? 'hunter' : 'hider';
     const words = (cls) => h(`div.${cls}`, h('p.cfx-k', fx.kicker || ''), h('p.cfx-t', fx.title || ''), fx.line ? h('p.cfx-l', fx.line) : null);
@@ -291,10 +295,12 @@ export function createCardFx({ root, doc = globalThis.document } = {}) {
       return h(`div.cfx-team.s-${s}.r-${r}.t-${fx.tone || 'play'}${fx.who === 'them' ? '.on-me' : ''}`,
         h('div.cfx-mini', cardEl(fx.power, { rarity: r })), words('cfx-team-w'));
     }
-    return h(`div.cfx-them.s-${s}.r-${r}.t-${fx.tone || 'alert'}`, h('div.cfx-dim'), h('div.cfx-edge'),
+    // A card whose themed effect is a stamp (Useless): the stamp is the title, so the words don't say it again.
+    const stampOnly = !!fx.stamp && themed;
+    return h(`div.cfx-them.s-${s}.r-${r}.t-${fx.tone || 'alert'}${stampOnly ? '.stamped' : ''}`, h('div.cfx-dim'), h('div.cfx-edge'),
       h('div.cfx-tape.top'), h('div.cfx-tape.bot'),
-      h('div.cfx-them-in', h('p.cfx-k', fx.kicker || ''), h('p.cfx-t', fx.title || ''),
-        h('div.cfx-spin', cardEl(fx.power, { back: true, rarity: r })), fx.line ? h('p.cfx-l', fx.line) : null));
+      h('div.cfx-them-in', h('p.cfx-k', fx.kicker || ''), stampOnly ? null : h('p.cfx-t', fx.title || ''),
+        stampOnly ? null : h('div.cfx-spin', cardEl(fx.power, { back: true, rarity: r })), fx.line ? h('p.cfx-l', fx.line) : null));
   }
 
   function next() {
@@ -303,10 +309,10 @@ export function createCardFx({ root, doc = globalThis.document } = {}) {
     busy = true;
     const still = stillMotion(doc);
     const kind = fx.who === 'self' ? 'self' : fx.who === 'team' ? 'team' : fx.small ? 'small' : 'them';
-    const el = build(fx);
-    if (still) el.classList.add('still');
     // v1.7: the card's own themed effect (fx.js) under the card and its words
     const theme = cardTheme(fx, doc, { card: (k) => (cardInfo(k) ? cardEl(k) : null) });
+    const el = build(fx, !!theme);
+    if (still) el.classList.add('still');
     if (theme) { el.classList.add('themed'); el.prepend(theme.el); fxSound(theme.sound, doc); }
     layer.append(el);
     text(live, [fx.kicker, fx.title, fx.line].filter(Boolean).join(' '));

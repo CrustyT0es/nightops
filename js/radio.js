@@ -37,10 +37,10 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=182';
-import { icon } from './ui/icons.js?v=182';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=182';
-import { classify, permState } from './permissions.js?v=182'; // v1.6.2 PERMS
+import { h, text, cls } from './dom.js?v=183';
+import { icon } from './ui/icons.js?v=183';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=183';
+import { classify, permState } from './permissions.js?v=183'; // v1.6.2 PERMS
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
@@ -466,6 +466,9 @@ export function createRadio({
     R.holding = true;
     R.byClick = by === 'click';
     if (!R.stream && R.stepsDue && R.state === 'denied') { R.holding = false; R.stepsDue = false; showSteps(); return; }
+    // (Nov 2026, iPhones: after a "Don't Allow" the ask again must come from a real tap, and to an iPhone a touch's
+    // pointerdown isn't one: "Allow microphone" asks on the finger's release instead, still inside the tap.)
+    if (!R.stream && R.state === 'denied' && by === 'pointer') { R.askOnUp = true; return; }
     if (!R.stream) { ask(); return; }
     record();
   }
@@ -473,6 +476,10 @@ export function createRadio({
   function release(by) {
     if (by === 'pointer' || by === 'key') R.pressAt = now();
     unlock(); // a touch's release is a real tap (its pointerdown isn't, to an iPhone)
+    if (R.askOnUp) {
+      R.askOnUp = false;
+      if (by === 'pointer' && !R.dead && R.on && R.state === 'denied' && !R.stream) { R.holding = false; ask(); return; }
+    }
     if (!R.holding) return;
     if (R.byClick && by !== 'click') return;
     R.holding = false;
@@ -543,7 +550,7 @@ export function createRadio({
   function showSteps() {
     const d = globalThis.document;
     if (!d || d.querySelector('.fx-sheet')) return;
-    import('./ui/fixit.js?v=182').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
+    import('./ui/fixit.js?v=183').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
   }
 
   // v1.6.2 PERMS: the microphone was allowed (an Allow tap anywhere): a blocked walkie-talkie is ready again

@@ -39,15 +39,15 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=182';
-import { icon } from './ui/icons.js?v=182';
+import { h, face as makeFace, text, listen } from './dom.js?v=183';
+import { icon } from './ui/icons.js?v=183';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
   scaleRing, // v1.7 (Owen's bug): the ring closing in, drawn here frame by frame
-} from '../shared/geo.js?v=182';
-import { TIMING, fmtDistance, schedule } from '../shared/rules.js?v=182';
-import { LOOT_PICK_M } from '../shared/loot.js?v=182'; // v1.6.3: a loot box's pickup circle
+} from '../shared/geo.js?v=183';
+import { TIMING, fmtDistance, schedule } from '../shared/rules.js?v=183';
+import { LOOT_PICK_M } from '../shared/loot.js?v=183'; // v1.6.3: a loot box's pickup circle
 
 // v1.7 (Owen's bug): the ring closing in
 export const CLOSING_COLOR = '#ffb020';
@@ -1507,7 +1507,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=182');
+      lib = await import('../vendor/maplibre-gl.mjs?v=183');
     } catch {
       cancel(deadline);
       giveUp();

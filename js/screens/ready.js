@@ -8,12 +8,12 @@
 //
 // v1.6.2 PERMS: a row the browser can still ask about has an "Allow" button that asks it straight from the tap
 // (permissions.js); "Fix it" (the steps) only once it's blocked for good, or for what a tap can't fix.
-import { h, fill, text } from '../dom.js?v=182';
-import { icon } from '../ui/icons.js?v=182';
-import { openHelp, ASKABLE, ASK_WHYS } from '../ui/fixit.js?v=182';
-import { deviceKind } from '../help.js?v=182';
-import { soundFor } from '../hack.js?v=182';
-import { ask, askLocation, onAnswer, lastAnswer, PERM_NAMES } from '../permissions.js?v=182';
+import { h, fill, text } from '../dom.js?v=183';
+import { icon } from '../ui/icons.js?v=183';
+import { openHelp, ASKABLE, ASK_WHYS } from '../ui/fixit.js?v=183';
+import { deviceKind } from '../help.js?v=183';
+import { soundFor } from '../hack.js?v=183';
+import { ask, askLocation, onAnswer, lastAnswer, PERM_NAMES } from '../permissions.js?v=183';
 
 export const AWAY_MS = 120000;     // "hasn't opened the game for 2 min"
 export const GOOD_ACC_M = 30;
@@ -206,13 +206,14 @@ export function readyCard({ app, host = false } = {}) {
   });
 
   testBtn.addEventListener('click', () => {
-    if (S.testing) return;
+    // (from the tap itself, every tap: the browser may show its Allow box)
+    const p = askLocation({ waitFix: true });
+    const seq = (S.testSeq = (S.testSeq || 0) + 1);
     S.testing = true;
-    testBtn.disabled = true;
     text(testLine, 'Finding you...');
     testLine.dataset.kind = '';
-    // (from the tap itself: the browser may show its Allow box)
-    askLocation({ waitFix: true }).then((a) => {
+    p.then((a) => {
+      if (seq !== S.testSeq) return;
       S.testing = false;
       testBtn.disabled = false;
       if (S.dead) return;
@@ -236,12 +237,14 @@ export function readyCard({ app, host = false } = {}) {
 
   // v1.6.2 PERMS: "Allow": ask the browser from this tap; only a block for good opens the steps
   function allow(row) {
-    if (S.asking) return;
+    // (every tap asks afresh, first thing: an earlier ask an iPhone left unanswered never swallows it)
+    const p = row.part === 'location' ? askLocation({ waitFix: true }) : ask(row.part);
+    const seq = (S.askSeq = (S.askSeq || 0) + 1);
     S.asking = row.part;
     paint();
     if (row.part === 'location') text(testLine, 'Finding you...');
-    const p = row.part === 'location' ? askLocation({ waitFix: true }) : ask(row.part);
     p.then((a) => {
+      if (seq !== S.askSeq) return;
       S.asking = '';
       if (S.dead) return;
       if (row.part === 'location') tookLoc(a, { line: true });
@@ -265,7 +268,7 @@ export function readyCard({ app, host = false } = {}) {
       const what = rowAction(r, S.perms[r.part] || 'unknown', lastAnswer(r.part));
       const busy = S.asking === r.part;
       const action = what === 'allow'
-        ? h('button.btn.small.rd-do.rd-allow', { type: 'button', disabled: busy, onclick: () => allow(r) }, busy ? 'Asking...' : S.perms[r.part] === 'granted' ? 'Test' : 'Allow')
+        ? h('button.btn.small.rd-do.rd-allow', { type: 'button', onclick: () => allow(r) }, busy ? 'Asking...' : S.perms[r.part] === 'granted' ? 'Test' : 'Allow')
         : what === 'test' ? h('button.btn.small.rd-do', { type: 'button', onclick: () => test(r) }, 'Test')
           : what === 'fix' ? h('button.btn.small.rd-do.rd-fix', { type: 'button', onclick: () => fixIt(r) }, 'Fix it') : null;
       const words = r.ok && !r.weak ? 'Ready' : what === 'allow' && !r.untested ? 'Not allowed yet' : r.words;

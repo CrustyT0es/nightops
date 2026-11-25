@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=182';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=183';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -61,7 +61,7 @@ export const TIMING = {
   CLOSING_RADIUS: 0.5,         // ping circles shrink to this share in the closing minutes
   CLOSING_WARN_MS: 60000,      // v1.7: everyone is warned this long before the ring starts shrinking
   // v1.1: spectators, the driver, the walkie-talkie
-  SPECTATOR_DELAY_MS: 120000,  // spectators see the game this far behind (game clock)
+  SPECTATOR_DELAY_MS: 0,  // spectators see the game live (the owner, Nov 2026: "hard to cheat" anyway)
   SPECTATOR_SPOT_MS: 60000,    // a spectator's dot: the newest route point within this before the delayed clock
   WATCH_SYNC_MS: 5000,         // a spectator's page asks for news this often
   WATCH_SEEN_EVERY_MS: 30000,  // a spectator's lastSeen is saved at most this often
@@ -156,7 +156,7 @@ export const DEFAULTS = Object.freeze({
   custom: Object.freeze([]), // settings the host changed by hand (recommendations leave them alone)
   // v1.1 extras: never in `custom`, presets or recommendations
   driver: false,           // one hunter drives and gives rides
-  spectators: true,        // friends may watch, 2 minutes behind
+  spectators: true,        // friends may watch, live
   radioSave: true,         // the walkie-talkie is kept for the replay
   // v1.2 extras
   radioHiders: false,      // hiders get their own walkie-talkie
@@ -183,7 +183,7 @@ const EXTRA_ALL = [...EXTRA_KEYS, ...Object.keys(EXTRA_CHOICES)];
 // The lobby's "Extras" card, in this order.
 export const EXTRAS_UI = [
   { key: 'driver', label: 'Driver', hint: 'One hunter drives a car and gives the others rides. The driver never tags.' },
-  { key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game 2 minutes behind. They never see chats.' },
+  { key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game live. They never see chats.' },
   { key: 'radioSave', label: 'Save the walkie-talkie for the replay', hint: 'The walkie-talkie is saved for the end-of-game replay.' },
   { key: 'radioHiders', label: 'Walkie-talkie for hiders too', hint: 'Hiders get their own walkie-talkie. Each team only hears its own.' },
   { key: 'cam', label: 'Camera', hint: 'Phones film clips with the selfie camera for the replay. Only people who say OK are filmed.' },

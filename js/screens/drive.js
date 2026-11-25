@@ -16,18 +16,18 @@
 //   driverReveal(words, view)                  the reveal screen's words for the driver (and the others)
 //
 // Pure helpers are exported for tests (tests/page-driver.test.mjs, tests/page-play14.test.mjs).
-import { h, fill, text, cls, listen } from '../dom.js?v=182';
-import { icon } from '../ui/icons.js?v=182';
-import { holdInert } from '../ui/inert.js?v=182';
-import { fmtClock, fmtDistance } from '../../shared/rules.js?v=182';
-import { directionWords, isPoint } from '../../shared/geo.js?v=182';
-import { speechReady } from '../alerts.js?v=182';
-import { cpSpeech, cpDriveLine } from './cpplay.js?v=182'; // v1.3 PAGE-PLAY
-import { createMap, closingFrom } from '../map.js?v=182';
-import { createMapCam } from '../mapcam.js?v=182';
-import { openSheet } from '../ui/sheet.js?v=182';
-import { pinsFor, createPinTool } from './pins.js?v=182';
-import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=182'; // v1.4.8
+import { h, fill, text, cls, listen } from '../dom.js?v=183';
+import { icon } from '../ui/icons.js?v=183';
+import { holdInert } from '../ui/inert.js?v=183';
+import { fmtClock, fmtDistance } from '../../shared/rules.js?v=183';
+import { directionWords, isPoint } from '../../shared/geo.js?v=183';
+import { speechReady } from '../alerts.js?v=183';
+import { cpSpeech, cpDriveLine } from './cpplay.js?v=183'; // v1.3 PAGE-PLAY
+import { createMap, closingFrom } from '../map.js?v=183';
+import { createMapCam } from '../mapcam.js?v=183';
+import { openSheet } from '../ui/sheet.js?v=183';
+import { pinsFor, createPinTool } from './pins.js?v=183';
+import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=183'; // v1.4.8
 
 export const VOICE_KEY = 'nightops-drive-voice';   // 'off' = the driver muted the voice
 export const DRIVE_STALE_MS = 120000;              // events older than this aren't spoken (a phone that slept)

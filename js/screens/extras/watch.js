@@ -2,15 +2,15 @@
 //   ctx = { app, host, setSetting(key, value), cmd(cmd) -> Promise }
 // The host: the switch. When on (everyone sees this): the watch link with Copy, Share and a QR code, and
 // "N watching"; the host also gets each spectator with Remove. Not the host: the setting in words.
-import { h, fill, text } from '../../dom.js?v=182';
-import { icon } from '../../ui/icons.js?v=182';
-import { openSheet } from '../../ui/sheet.js?v=182';
-import { banner } from '../../ui/banner.js?v=182';
-import { qrSvg } from '../../qr.js?v=182';
-import { EXTRAS_UI } from '../../../shared/rules.js?v=182';
+import { h, fill, text } from '../../dom.js?v=183';
+import { icon } from '../../ui/icons.js?v=183';
+import { openSheet } from '../../ui/sheet.js?v=183';
+import { banner } from '../../ui/banner.js?v=183';
+import { qrSvg } from '../../qr.js?v=183';
+import { EXTRAS_UI } from '../../../shared/rules.js?v=183';
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'spectators') || {
-  key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game 2 minutes behind. They never see chats.',
+  key: 'spectators', label: 'Spectators', hint: 'Friends can watch the game live. They never see chats.',
 };
 
 // ---- pure helpers (tested in Node) ------------------------------------------------------------------------
@@ -115,7 +115,7 @@ export function extraRow(ctx = {}) {
     if (!l) return;
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'Night Ops', text: `Watch our Night Ops game (2 minutes behind). The code is ${code()}.`, url: l });
+        await navigator.share({ title: 'Night Ops', text: `Watch our Night Ops game (live). The code is ${code()}.`, url: l });
         return;
       } catch (e) {
         if (e && e.name === 'AbortError') return;
@@ -133,7 +133,7 @@ export function extraRow(ctx = {}) {
       className: 'lobby-qr-sheet',
       body: h('div.lobby-qr',
         h('div.lobby-qr-box', qrSvg(l, { size, label: `QR code to watch game ${code()}` })),
-        h('p', 'Point another phone camera at the code. It opens Night Ops to watch this game, 2 minutes behind.'),
+        h('p', 'Point another phone camera at the code. It opens Night Ops to watch this game live.'),
         h('p.lobby-qr-link', l)),
       actions: [{
         label: 'Copy the link',

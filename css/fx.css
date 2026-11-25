@@ -596,3 +596,8 @@
 }
 .w-them.fxt-hound .fx-paws-row { top: 84%; }
 @keyframes fx-trot { from { translate: -30vw 0; } to { translate: 105vw 0; } }
+
+/* Useless on the hider it is on (Nov 2026): the red stamp IS the title, at once, with the kicker and line under it
+   (cards.js THEM.stamp: no second title or spinning card, so it is one notification, not two). */
+.cfx-them.stamped .fx-word.stamp-red { animation-delay: .15s, 2.2s; }
+.cfx-them.stamped .cfx-them-in { margin-top: 34vh; }

@@ -1,15 +1,15 @@
 // Night Ops: the home screen. Who you are (name + optional selfie), then Create a game or Join one with a
 // 6-letter code (typed, pasted, or from an invite link). A "How to play" sheet, and a note about location.
 // There's no game yet, so this screen renders from the App (app.me, app.args, app.savedGame), not a view.
-import { h, fill, face, text, listen } from '../dom.js?v=182';
-import { icon } from '../ui/icons.js?v=182';
-import { openSheet } from '../ui/sheet.js?v=182';
-import { openCollection } from '../collection.js?v=182'; // v1.6.4
-import { linkSheet, linkedPc } from '../pcedit.js?v=182'; // v1.5: the PC edit
-import { pickFace } from '../face.js?v=182';
-import { cleanName } from '../identity.js?v=182';
-import { normalizeCode } from '../app.js?v=182';
-import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=182';
+import { h, fill, face, text, listen } from '../dom.js?v=183';
+import { icon } from '../ui/icons.js?v=183';
+import { openSheet } from '../ui/sheet.js?v=183';
+import { openCollection } from '../collection.js?v=183'; // v1.6.4
+import { linkSheet, linkedPc } from '../pcedit.js?v=183'; // v1.5: the PC edit
+import { pickFace } from '../face.js?v=183';
+import { cleanName } from '../identity.js?v=183';
+import { normalizeCode } from '../app.js?v=183';
+import { LIMITS, TIMING, fmtClock } from '../../shared/rules.js?v=183';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -441,7 +441,7 @@ export function mount(root, app, args = {}) {
     watchCard = h('section.home-card.home-watch', { 'aria-label': 'Watch this game' },
       h('span.label', 'Watch a game'),
       watchBtn,
-      h('p.home-hint', "You see the game 2 minutes behind, from the side. You don't play and you don't see the chats."),
+      h('p.home-hint', "You see the game live, from the side. You don't play and you don't see the chats."),
       watchError);
   }
 
@@ -489,7 +489,7 @@ export function mount(root, app, args = {}) {
       body: h('div.home-watch-sheet',
         h('label.home-field-label', { for: 'home-watch-code' }, 'Game code'),
         box,
-        h('p#home-watch-sheet-hint.home-hint', "You see the game 2 minutes behind. You don't play and you don't see the chats."),
+        h('p#home-watch-sheet-hint.home-hint', "You see the game live. You don't play and you don't see the chats."),
         err),
       actions: [{ label: 'Watch', kind: 'primary', keepOpen: true, onClick: (close) => go(close) }],
     });
