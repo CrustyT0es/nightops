@@ -1,6 +1,6 @@
 // Night Ops v1.6.3: the cards. One look for every card in the game (your collection, the loot box's opening, the
 // card-played effects), so it all feels like one game: a collectible card in the night-sticker style, its frame in
-// the rarity's colour (common silver, rare violet, legendary gold, mythic rainbow), the art tinted by its side
+// the rarity's colour (common silver, rare violet, v1.7 epic emerald, legendary gold, mythic rainbow), the art tinted by its side
 // (hiders blue, hunters red), a foil shine that follows your finger or the phone's tilt.
 //
 //   cardInfo(key)                 { key, team, name, line, emoji, rarity } or null
@@ -18,23 +18,34 @@
 //   createCardDeck({ app, onClassic, useLoot, doc }) -> { button, update(view), open(), close() }: the tray's cards
 //                                 button and your collection (a binder: every card of your side, the ones you haven't
 //                                 found yet as "?"; hold one to see it big; tap to pick it; Use it plays it).
-import { h, text } from './dom.js?v=177';
-import { POWERS } from '../shared/rules.js?v=177';
-import { LOOT_POWERS, LOOT_TABLE, rarityOfPower } from '../shared/loot.js?v=177';
+import { h, text } from './dom.js?v=178';
+import { POWERS } from '../shared/rules.js?v=178';
+import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=178';
+import { cardTheme, themeKey, fxSound } from './fx.js?v=178';
 
-export const RARITY_ORDER = ['common', 'rare', 'legendary', 'mythic'];
-export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
+// (v1.7: the tiers come from shared/loot.js: common, rare, epic, legendary, mythic)
+export const RARITY_ORDER = [...RARITIES];
+export const RARITY_WORD = { common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic' };
 const EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
 export const HOLD_MS = 280;         // hold a card this long and it comes up big
-export const FX_MS = { self: 1750, team: 2700, them: 2500, small: 2600, bug: 650 };
+export const FX_MS = { self: 2600, team: 2700, them: 2600, small: 2600, bug: 650 };
 const STILL_MS = { self: 1400, team: 2400, them: 2200, small: 2400 };
+// v1.7: the two versions of the cards both sides have, each in its own words (the hider one blue, the hunter one red).
+const OWN_LINE = {
+  grabbag_hider: 'Get a random common hider card right now.',
+  grabbag_hunter: 'Get a random common hunter card right now.',
+  multiplier_hider: 'Boost one of your hider cards by 25% to 100%: it lasts longer.',
+  multiplier_hunter: 'Boost one of your hunter cards by 25% to 100%: it lasts longer.',
+  duplicator_hider: 'Get a second copy of one of your hider cards.',
+  duplicator_hunter: 'Get a second copy of one of your hunter cards.',
+};
 
 export function cardInfo(key) {
   const P = Object.prototype.hasOwnProperty.call(POWERS, key) ? POWERS[key] : null;
   const L = Object.prototype.hasOwnProperty.call(LOOT_POWERS, key) ? LOOT_POWERS[key] : null;
   if (!P && !L) return null;
   const team = (P || L).team;
-  return { key, team, name: (P || L).name, line: P ? P.desc : L.line, emoji: L ? L.emoji : EMOJI[key] || '⭐', rarity: rarityOfPower(team, key) || 'rare' };
+  return { key, team, name: (P || L).name, line: OWN_LINE[key] || (P ? P.desc : L.line), emoji: L ? L.emoji : EMOJI[key] || '⭐', rarity: rarityOfPower(team, key) || 'rare', art: themeKey(key) };
 }
 
 // What a teammate's card does, said about them (the card's own words say "you").
@@ -56,6 +67,26 @@ const TEAM_LINE = {
   freeze: "The hiders' powers are frozen for 3 min.",
   tracker: (t) => (t ? `${t}'s spot updates every 20 s, for 2 min.` : "A hider's spot updates every 20 s, for 2 min."),
   eye: 'Every hider shows live for 2 min.',
+  // v1.7
+  lucky: 'Their next loot box gives 2 cards.',
+  headsup: 'Their phone buzzes when a hunter is near, for 3 min.',
+  stall: 'Their next ping comes 1 minute late.',
+  eavesdrop: "They peeked at the hunters' cards.",
+  grabbag_hider: 'They got a random common card.',
+  swap: (t) => (t ? `They swapped a card with ${t}.` : 'They swapped a card with a teammate.'),
+  lookout: 'They can see every hunter for 15 s.',
+  mirror: 'For 3 min, cards aimed at them bounce off.',
+  multiplier_hider: 'They boosted one of their cards.',
+  duplicator_hider: 'They copied one of their cards.',
+  hound: "Every hider's trail shows as paw prints for 2 min.",
+  quickping: 'The next ping comes 1 minute sooner.',
+  scout: 'They counted the hiders near them.',
+  rewind: 'The ping before last is back for 30 s.',
+  grabbag_hunter: 'They got a random common card.',
+  useless: (t) => (t ? `${t}'s cards don't work for 5 min.` : "A hider's cards don't work for 5 min."),
+  snitch: 'Calling a hider with a deal...',
+  multiplier_hunter: 'They boosted one of their cards.',
+  duplicator_hunter: 'They copied one of their cards.',
 };
 // The cards the other side is meant to notice, and what their phones say (the event's own words are the line).
 const THEM = {
@@ -69,6 +100,10 @@ const THEM = {
   storm: { title: 'STATIC STORM!' },
   glitch: { title: 'GLITCH INCOMING!' },
   blackout: { title: 'BLACKOUT!' },
+  // v1.7: the hunters' cards the hiders are told about (Useless: only the hider it's on)
+  hound: { title: 'SNIFFED OUT!' },
+  quickping: { title: 'PING COMING SOONER!' },
+  useless: { title: 'USELESS!', line: "Your cards don't work for 5 minutes." },
 };
 
 const nameOf = (view, id) => {
@@ -92,7 +127,12 @@ export function cardFxOf(e, view) {
   const info = typeof power === 'string' ? cardInfo(power) : null;
   if (!info) return null;
   const at = Number.isFinite(e.clock) ? e.clock : 0;
-  const base = { power, card: info, side: info.team, rarity: info.rarity, key: `${power}|${d.by || ''}|${at}` };
+  const data = { ...d };
+  if (d.got && cardInfo(d.got)) data.gotName = cardInfo(d.got).name;
+  if (d.with) data.withName = nameOf(view, d.with);
+  if (Array.isArray(d.hands)) data.hands = d.hands.map((x) => ({ ...x, name: x && x.id ? nameOf(view, x.id) : 'Hunter' }));
+  data.meName = me.name || 'You';
+  const base = { power, card: info, side: info.team, rarity: info.rarity, data, key: `${power}|${d.by || ''}|${at}` };
   const others = Array.isArray(view.events) ? view.events : [];
   const alsoToMe = (kind, extra = () => true) => others.some((x) => x && x.kind === kind && x.to === me.id && x.clock === e.clock && extra(x));
   if (e.kind === 'loot-queued') {
@@ -101,19 +141,27 @@ export function cardFxOf(e, view) {
   // (a Hacker or Wiretap a Jammer stopped: its own words say so, "...but it was blocked.")
   const blockedWords = d.blocked && e.text ? String(e.text) : '';
   if (d.by && d.by === me.id) {
-    return { ...base, who: 'self', tone: 'play', kicker: 'You played', title: `${upper(info.name)}!`, line: blockedWords || info.line };
+    let line = blockedWords || info.line;
+    if (!blockedWords && Number.isFinite(d.pct) && d.card && cardInfo(d.card)) line = `${cardInfo(d.card).name} +${Math.round(d.pct)}%!`;
+    else if (!blockedWords && d.got && cardInfo(d.got)) line = `You got ${cardInfo(d.got).name}!`;
+    else if (!blockedWords && power === 'scout' && Number.isFinite(d.n)) line = `${d.n} ${d.n === 1 ? 'hider' : 'hiders'} within ${d.m || 200} m of you.`;
+    return { ...base, who: 'self', tone: 'play', kicker: 'You played', title: `${upper(info.name)}!`, line };
   }
   const myTeam = me.team === 'hunter' ? 'hunter' : 'hider';
   if (info.team === myTeam) {
     if (!d.by) return null;
     const who = nameOf(view, d.by) || 'Your teammate';
     const tl = TEAM_LINE[power];
-    return { ...base, who: 'team', tone: 'play', kicker: `${who} played`, title: upper(info.name), line: blockedWords || (typeof tl === 'function' ? tl(nameOf(view, d.target)) : tl || info.line) };
+    let line = blockedWords || (typeof tl === 'function' ? tl(nameOf(view, d.target || d.with)) : tl || info.line);
+    if (!blockedWords && Number.isFinite(d.pct) && d.card && cardInfo(d.card)) line = `${cardInfo(d.card).name} +${Math.round(d.pct)}%!`;
+    else if (!blockedWords && power === 'scout' && Number.isFinite(d.n)) line = `${d.n} ${d.n === 1 ? 'hider' : 'hiders'} within ${d.m || 200} m of them.`;
+    else if (!blockedWords && power === 'swap' && d.with === me.id && d.gave && d.got && cardInfo(d.gave) && cardInfo(d.got)) line = `They swapped with you: you gave ${cardInfo(d.gave).name} and got ${cardInfo(d.got).name}.`;
+    return { ...base, who: 'team', tone: 'play', kicker: `${who} played`, title: upper(info.name), line };
   }
   // On me (the other side's card). Only the ones meant to be noticed: everything else never even reaches this phone.
   const T = THEM[power];
   if (!T) return null;
-  if (power === 'tracker' && d.target !== me.id) return null;
+  if ((power === 'tracker' || power === 'useless') && d.target !== me.id) return null;
   if ((power === 'radar' || power === 'exposure') && e.kind === 'power') return null; // they come by their own events
   if (e.kind === 'power' && d.blocked) return null;
   const by = info.team === 'hunter' ? 'The hunters played' : 'The hiders played';
@@ -134,16 +182,23 @@ export function cardsOf(view) {
   const out = [];
   if (!view || !view.me) return out;
   const hunter = view.me.team === 'hunter';
-  if (hunter) {
+  const L7 = view.phase === 'live' && view.loot && typeof view.loot === 'object' && view.loot.hand && typeof view.loot.hand === 'object' ? view.loot : null;
+  if (L7) { // v1.7: every card I hold, classic ones too, with their boosts
+    for (const [k, n] of Object.entries(L7.hand)) {
+      if (!cardInfo(k) || !(n > 0)) continue;
+      const b = L7.boosts && Array.isArray(L7.boosts[k]) ? L7.boosts[k].filter(Number.isFinite) : [];
+      out.push({ key: k, n, classic: !!POWERS[k] && !LOOT_POWERS[k], boost: b.length ? Math.max(...b) : 0 });
+    }
+  } else if (hunter) {
     for (const k of ['radar', 'exposure', 'hacker', 'wiretap']) if (view.team && view.team[k] === 'ready') out.push({ key: k, n: 1, classic: true });
   } else {
     for (const [k, v] of Object.entries(view.me.powers || {})) if (v === 'ready' && POWERS[k]) out.push({ key: k, n: 1, classic: true });
   }
-  const l = view.phase === 'live' && view.loot && typeof view.loot === 'object' ? view.loot : null;
+  const l = !L7 && view.phase === 'live' && view.loot && typeof view.loot === 'object' ? view.loot : null;
   for (const [k, n] of Object.entries((l && l.stash) || {})) if (LOOT_POWERS[k] && n > 0) out.push({ key: k, n, classic: false });
-  const order = { mythic: 0, legendary: 1, rare: 2, common: 3 };
+  const order = (r) => RARITY_ORDER.length - 1 - Math.max(0, RARITY_ORDER.indexOf(r)); // mythic first
   for (const c of out) c.rarity = (cardInfo(c.key) || {}).rarity || 'common';
-  return out.sort((a, b) => order[a.rarity] - order[b.rarity] || a.key.localeCompare(b.key));
+  return out.sort((a, b) => order(a.rarity) - order(b.rarity) || a.key.localeCompare(b.key));
 }
 
 // Every card of your side in rarity order (the rarest last), whether you've found it, and how many you hold.
@@ -155,17 +210,18 @@ export function binderOf(view, found = []) {
   for (const k of held.keys()) if (!keys.includes(k)) keys.push(k);
   const slots = keys.map((key) => {
     const c = held.get(key);
-    return { key, rarity: (cardInfo(key) || {}).rarity || 'common', n: c ? c.n : 0, classic: c ? c.classic : !LOOT_POWERS[key], found: !!c || seen.has(key) };
+    return { key, rarity: (cardInfo(key) || {}).rarity || 'common', n: c ? c.n : 0, boost: c && c.boost ? c.boost : 0, classic: c ? c.classic : !LOOT_POWERS[key], found: !!c || seen.has(key) };
   });
   return { side, slots, found: slots.filter((s) => s.found).length, of: slots.length, held: slots.reduce((a, s) => a + s.n, 0) };
 }
 
 // ---- one card ---------------------------------------------------------------------------------------------------
 
-export function cardEl(key, { n = 0, full = false, back = false, empty = false, spent = false, rarity = null } = {}) {
+export function cardEl(key, { n = 0, full = false, back = false, empty = false, spent = false, rarity = null, boost = 0 } = {}) {
   const info = cardInfo(key) || { key, team: 'hider', name: String(key || '?'), line: '', emoji: '⭐', rarity: 'common' };
   const r = RARITY_WORD[rarity] ? rarity : info.rarity;
-  const el = h(`div.nc.r-${r}.s-${info.team}${full ? '.full' : ''}${empty ? '.empty' : ''}${spent ? '.spent' : ''}`, { 'data-card': info.key, 'aria-hidden': 'true' });
+  const longest = Math.max(...String(info.name).split(/\s+/).map((w) => w.length));
+  const el = h(`div.nc.r-${r}.s-${info.team}.a-${info.art || themeKey(info.key)}${longest >= 9 ? '.long' : ''}${full ? '.full' : ''}${empty ? '.empty' : ''}${spent ? '.spent' : ''}`, { 'data-card': info.key, 'aria-hidden': 'true' });
   const inner = h('div.nc-in');
   if (empty) {
     inner.append(h('div.nc-face.nc-blank', h('span.nc-sil'), h('span.nc-q', '?'), h('span.nc-rw', RARITY_WORD[r])));
@@ -176,7 +232,7 @@ export function cardEl(key, { n = 0, full = false, back = false, empty = false, 
     }
     inner.append(h('div.nc-face.nc-front',
       h('span.nc-mythic'),
-      h('div.nc-art', h('span.nc-stars'), h('span.nc-halo'), h('span.nc-emoji', info.emoji)),
+      h('div.nc-art', h('span.nc-bg'), h('span.nc-stars'), h('span.nc-halo'), h('span.nc-deco'), h('span.nc-emoji', info.emoji)),
       h('span.nc-gem'),
       h('strong.nc-name', info.name),
       full ? h('p.nc-line', info.line) : null,
@@ -186,6 +242,7 @@ export function cardEl(key, { n = 0, full = false, back = false, empty = false, 
   el.append(inner);
   if (spent && !empty) el.append(h('span.nc-used', 'Used'));
   if (n > 1) el.append(h('span.nc-n', `×${n}`));
+  if (boost > 0 && !empty) el.append(h('span.nc-boost', `+${Math.round(boost)}%`));
   return el;
 }
 
@@ -245,9 +302,12 @@ export function createCardFx({ root, doc = globalThis.document } = {}) {
     const kind = fx.who === 'self' ? 'self' : fx.who === 'team' ? 'team' : fx.small ? 'small' : 'them';
     const el = build(fx);
     if (still) el.classList.add('still');
+    // v1.7: the card's own themed effect (fx.js) under the card and its words
+    const theme = cardTheme(fx, doc, { card: (k) => (cardInfo(k) ? cardEl(k) : null) });
+    if (theme) { el.classList.add('themed'); el.prepend(theme.el); fxSound(theme.sound, doc); }
     layer.append(el);
     text(live, [fx.kicker, fx.title, fx.line].filter(Boolean).join(' '));
-    if (fx.who === 'self') vibrate([30, 40, 90]);
+    if (theme && theme.buzz) vibrate(theme.buzz); else if (fx.who === 'self') vibrate([30, 40, 90]);
     timer = setTimeout(() => { el.remove(); next(); }, still ? STILL_MS[kind] : FX_MS[kind]);
   }
 
@@ -437,7 +497,8 @@ export function createHolder({ doc = globalThis.document, layer, onPick = null }
 
 const FOUND_KEY = 'nightops-cards-found';
 
-export function createCardDeck({ app, onClassic = null, useLoot = null, doc = globalThis.document } = {}) {
+export function createCardDeck({ app, onClassic = null, useLoot = null, below = null, doc = globalThis.document } = {}) {
+  // v1.7: `below(view)` -> an element under your cards (the hunters' team deck), drawn again with them
   const W = doc.defaultView || globalThis;
   const count = h('span.cd-n', { 'aria-hidden': 'true' });
   const stack = h('span.cd-stack', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i'));
@@ -473,6 +534,8 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     const info = cardInfo(slot.key);
     if (info && info.team === 'hider' && fx.freeze) return 'Frozen: the hunters froze your cards.';
     if (info && info.team === 'hunter' && fx.blackout) return 'Blackout: no cards until it ends.';
+    if (S.view && S.view.me && S.view.me.driver) return "The driver can't use cards. They wait for you."; // v1.7
+    if (Number.isFinite(fx.useless) && fx.useless > 0) return `Useless: your cards don't work for ${Math.ceil(fx.useless / 60000)} min.`; // v1.7
     return '';
   }
 
@@ -494,7 +557,7 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     if (!slot) { text(nameEl, S.binder.held ? 'Pick a card' : 'No cards yet'); text(lineEl, S.binder.held ? 'Tap a card to pick it. Hold it to see it big.' : 'Race to a loot box on the map. Every card comes out of one.'); }
     else if (!slot.found) { text(nameEl, 'Not found yet'); text(lineEl, `A ${RARITY_WORD[slot.rarity].toLowerCase()} card. Grab loot boxes to find it.`); }
     else {
-      text(nameEl, `${info.name}${slot.n > 1 ? ` ×${slot.n}` : ''}`);
+      text(nameEl, `${info.name}${slot.n > 1 ? ` ×${slot.n}` : ''}${slot.boost ? ` · +${Math.round(slot.boost)}%` : ''}`); // v1.7: a boost
       why = slot.n ? frozenWhy(slot) : '';
       text(lineEl, !slot.n ? 'Used. Find another in a loot box.' : why || info.line);
     }
@@ -569,11 +632,18 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     S.grid.replaceChildren(...b.slots.map((slot, i) => {
       const btn = h(`button.cd-slot.r-${slot.rarity}${slot.found ? '' : '.unfound'}${slot.found && !slot.n ? '.spent' : ''}`, {
         type: 'button', 'data-key': slot.key, 'aria-pressed': 'false', 'aria-label': slotLabel(slot),
-      }, cardEl(slot.key, { n: slot.n, empty: !slot.found, spent: slot.found && !slot.n, rarity: slot.rarity }));
+      }, cardEl(slot.key, { n: slot.n, empty: !slot.found, spent: slot.found && !slot.n, rarity: slot.rarity, boost: slot.boost }));
       btn.style.setProperty('--i', String(i));
       bindSlot(btn, slot);
       return btn;
     }));
+    const team = S.layer.querySelector('.cd-team');
+    if (team) {
+      let el = null;
+      try { el = below ? below(S.view) : null; } catch (e) { console.error(e); }
+      team.replaceChildren(...(el ? [el] : []));
+      team.hidden = !el;
+    }
     const held = b.slots.filter((x) => x.n > 0);
     const keep = b.slots.find((x) => x.key === S.sel && x.found);
     select(keep ? keep.key : held.length ? held[0].key : null);
@@ -594,7 +664,7 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     const L = h(`div.cd.side-${side}`, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cd-title' },
       h('div.cd-back', { 'aria-hidden': 'true' }),
       h('header.cd-head', h('div.cd-head-w', title, sub), shut),
-      h('div.cd-scroll', grid, h('p.cd-tip')),
+      h('div.cd-scroll', grid, h('p.cd-tip'), h('div.cd-team', { hidden: true })),
       bar);
     L.querySelector('.cd-back').addEventListener('click', () => close());
     // A finger on a big card shouldn't scroll the binder underneath it.
@@ -625,7 +695,10 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     remember(view);
     const cards = cardsOf(view);
     const n = cards.reduce((a, c) => a + c.n, 0);
-    const sig = cards.map((c) => `${c.key}${c.n}`).join(',');
+    let sig = cards.map((c) => `${c.key}${c.n}+${c.boost || 0}`).join(',');
+    if (below && view && view.loot && Array.isArray(view.loot.deck)) sig += `|${JSON.stringify(view.loot.deck)}`; // v1.7: the team deck changed
+    const fx = (view && view.fx) || {};
+    sig += `|${!!fx.freeze}${!!fx.blackout}${!!fx.useless}`;
     text(count, String(n));
     count.hidden = !n;
     button.classList.toggle('some', n > 0);
@@ -633,7 +706,7 @@ export function createCardDeck({ app, onClassic = null, useLoot = null, doc = gl
     button.hidden = !loot;
     button.setAttribute('aria-label', n ? `Your cards: ${n}` : 'Your cards: none yet');
     if (sig !== S.sig) {
-      if (S.sig && n > 0) { button.classList.remove('new'); void button.offsetWidth; button.classList.add('new'); }
+      if (S.sig && n > 0 && S.sig.split('|')[0] !== sig.split('|')[0]) { button.classList.remove('new'); void button.offsetWidth; button.classList.add('new'); }
       S.sig = sig;
       // Open and the hand changed (a teammate played a card from the team's hand): draw it again where it was.
       if (S.layer) fill();

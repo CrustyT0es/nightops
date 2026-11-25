@@ -6,7 +6,8 @@
 //             (live location outside it), powers, loot, the walkie and the driver, the ground rules (public
 //             property only, SOS) and pocket mode; a channel-change between scenes
 //   gear      everyone checks location, mic (and camera) together; anyone without a picture snaps one
-//   question  the one vote: the game mode (Classic, Checkpoints, Loot drops); everyone's faces on their pick
+//   question  the game mode (Classic, Checkpoints, Loot drops); everyone's faces on their pick; (v1.7) then, only
+//             when Loot drops won, how often the loot drops (Few, Normal, Lots)
 //   explain   a drum roll, the winner slams in, then (v1.6.4) Static shows how that mode plays, scene by scene
 //             (js/screens/voteexplain.js: Classic's pings, tags and powers; Checkpoints' race; every Loot drops
 //             card and a demo); the host can skip it
@@ -15,13 +16,14 @@
 //
 //   const show = createVoteShow(app);   show.update(view)   show.destroy()
 // Its styles are css/vote.css (CSS 3D only; less motion = no movement).
-import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=177'; // v1.6.4: how each mode plays
-import { h, fill, text, face } from '../dom.js?v=177';
-import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf } from '../../shared/vote.js?v=177';
-import { pickFace } from '../face.js?v=177';
-import { chest } from '../chest.js?v=177';
-import { askAll, ask as askPart, answerWords } from '../permissions.js?v=177'; // v1.6.2 PERMS: the gear check's Allow
-import { openHelp } from '../ui/fixit.js?v=177'; // v1.6.2 PERMS
+import { explainBeat, explainScene as modeScene, syncScene, X_LINES } from './voteexplain.js?v=178'; // v1.6.4: how each mode plays
+import { h, fill, text, face } from '../dom.js?v=178';
+import { OPTIONS, PROMPTS, EXPLAIN, stageAt, winner, driverOf, asked } from '../../shared/vote.js?v=178';
+import { planeEl } from '../fx.js?v=178'; // v1.7: the drop plane in the Drops explainer
+import { pickFace } from '../face.js?v=178';
+import { chest } from '../chest.js?v=178';
+import { askAll, ask as askPart, answerWords } from '../permissions.js?v=178'; // v1.6.2 PERMS: the gear check's Allow
+import { openHelp } from '../ui/fixit.js?v=178'; // v1.6.2 PERMS
 
 // (from this file, not the page: the dev preview pages live in web/dev/)
 const AUDIO = new URL('../../audio/narrator/', import.meta.url).href;
@@ -64,8 +66,13 @@ export const LINES = {
   e_mode_classic: "Classic it is! Hunters chase, hiders hide. Last one standing wins it for the hiders.",
   e_mode_checkpoints: "Checkpoints! One opens at a time. Get there, snap the photo. Most checkpoints wins.",
   e_mode_loot: "Loot drops! Boxes fall around the ring. Grab one, crack it open, and get a power. Common, rare... or legendary!",
+  // v1.7: the Drops question (only after Loot drops wins)
+  q_drops: 'How often should the loot drop?',
+  e_drops_few: 'Few drops! A plane every five minutes. Make every crate count.',
+  e_drops_normal: 'Normal drops! Every four minutes, and faster with more players.',
+  e_drops_lots: 'Lots of drops! A plane every two minutes. Go, go, go!',
 };
-const EMOJI = { target: '🎯', flag: '🚩', gift: '🎁' };
+const EMOJI = { target: '🎯', flag: '🚩', gift: '🎁', chute: '🪂', crate: '📦', planes: '✈️' };
 const LATE_MS = 2500; // a line whose moment passed this long ago is only shown, not played (a phone that caught up)
 export const TAGS = ['hide and seek, but your phone snitches', 'cardio, but make it sneaky', 'the bushes are your best friend now', 'trust nobody.'];
 
@@ -249,7 +256,7 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
     loot: () => h('div.vs-scene', ...head('Loot drops', 'warn', ['Grab a box.', h('br'), 'Crack it open.']),
       h('div.vs-lootshow', { 'aria-hidden': 'true' },
         chest('show'),
-        h('span.vs-rarities', ...['COMMON', 'RARE', 'LEGENDARY', 'MYTHIC'].map((w, n) => setVar(h(`span.r${n}`, w), '--i', n))))),
+        h('span.vs-rarities', ...['COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC'].map((w, n) => setVar(h(`span.r${n}`, w), '--i', n))))),
     walkie: () => h('div.vs-scene', ...head('Walkie + driver', 'hunter', ['Hold to talk.', h('br'), 'Hop in the car.']),
       plane('road', h('span.vs-road'), h('span.vs-car', '🚗'), dot('hunter', 'waiting')),
       h('div.vs-walkies.solo', { 'aria-hidden': 'true' }, h('span.vs-wt.t-hunter', '📻', h('i.vs-wave'), h('i.vs-wave.late')))),
@@ -464,6 +471,13 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       case 'classic': return plane('', dot('hider', 'flee'), dot('hunter', 'chase1'), dot('hunter', 'chase2'));
       case 'checkpoints': return plane('', ...[0, 1, 2].map((n) => setVar(h('span.vs-flag', '🚩'), '--i', n)), h('span.vs-flash'));
       case 'loot': return SCENES.loot().lastChild;
+      case 'drops': {
+        // v1.7: the plane crosses, its crates come down: one for Few, two for Normal, four for Lots
+        const k = winnerOf(S.view.vote.questions.findIndex((x) => x.q === 'drops'));
+        const n = k === 'lots' ? 4 : k === 'few' ? 1 : 2;
+        return h('div.vs-drops', { 'aria-hidden': 'true', 'data-k': k }, h('div.vs-drops-plane', planeEl()),
+          ...Array.from({ length: n }, (_, i) => setVar(setVar(h('div.vs-drops-crate', h('i.vs-drops-chute'), chest('map')), '--i', i), '--n', n)));
+      }
       default: return h('div');
     }
   }
@@ -538,7 +552,9 @@ export function createVoteShow(app, { doc = globalThis.document } = {}) {
       h('h1.vs-big.vs-slam', "Let's", h('br'), 'play!'),
       h('div.vs-wins',
         setVar(h('div.vs-win', h('span.vs-emoji', { 'aria-hidden': 'true' }, EMOJI[o.icon] || '⭐'), h('span.vs-opt-text', h('small', 'Game'), h('strong', o.label))), '--i', 0),
-        d !== undefined ? setVar(h('div.vs-win', h('span.vs-emoji', { 'aria-hidden': 'true' }, d ? '🚗' : '🚶'), h('span.vs-opt-text', h('small', 'Driver'), h('strong', d ? (byId(d).name || '?') : 'Nobody'))), '--i', 1) : null),
+        d !== undefined ? setVar(h('div.vs-win', h('span.vs-emoji', { 'aria-hidden': 'true' }, d ? '🚗' : '🚶'), h('span.vs-opt-text', h('small', 'Driver'), h('strong', d ? (byId(d).name || '?') : 'Nobody'))), '--i', 1) : null,
+        ...v.questions.map((q, i) => (q.q === 'drops' && asked(v, i) ? setVar(h('div.vs-win', h('span.vs-emoji', { 'aria-hidden': 'true' }, EMOJI[OPTIONS.drops[winnerOf(i)].icon] || '📦'),
+          h('span.vs-opt-text', h('small', 'Drops'), h('strong', OPTIONS.drops[winnerOf(i)].label))), '--i', 2) : null))),
       h('p.vs-sub', S.view.me && S.view.me.host ? 'Hit Start when everyone\'s ready!' : 'Waiting for the host to start the game.'));
   }
 

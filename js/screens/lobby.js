@@ -3,20 +3,21 @@
 // others see the same information read-only while they wait.
 // Everything is built once and then changed in place on each view, so a sync never moves the page or loses
 // focus. A setting the host just changed shows the new value at once (kept until the server answers).
-import { h, fill, add, face, text, cls, listen } from '../dom.js?v=177';
-import { icon } from '../ui/icons.js?v=177';
-import { openSheet } from '../ui/sheet.js?v=177';
-import { banner } from '../ui/banner.js?v=177';
-import { qrSvg } from '../qr.js?v=177';
-import { createMap } from '../map.js?v=177';
-import { ringProblem } from '../../shared/geo.js?v=177';
-import { cpCard } from './extras/cpcard.js?v=177'; // v1.3 PAGE-SETUP
-import { readyCard, notReady } from './ready.js?v=177'; // v1.4 PAGE-DEVICES
-import { createVoteShow } from './voteshow.js?v=177'; // v1.6: the Jackbox-style vote
+import { h, fill, add, face, text, cls, listen } from '../dom.js?v=178';
+import { icon } from '../ui/icons.js?v=178';
+import { openSheet } from '../ui/sheet.js?v=178';
+import { banner } from '../ui/banner.js?v=178';
+import { qrSvg } from '../qr.js?v=178';
+import { createMap } from '../map.js?v=178';
+import { ringProblem } from '../../shared/geo.js?v=178';
+import { DROPS_UI } from '../../shared/loot.js?v=178'; // v1.7: the Drops setting
+import { cpCard } from './extras/cpcard.js?v=178'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js?v=178'; // v1.4 PAGE-DEVICES
+import { createVoteShow } from './voteshow.js?v=178'; // v1.6: the Jackbox-style vote
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
-} from '../../shared/rules.js?v=177';
+} from '../../shared/rules.js?v=178';
 
 // v1.6: the browser checks written before the tabs and folds set localStorage 'nightops-show-all' = '1': every
 // tab's content shows at once and the folded cards start open (never set on a real phone).
@@ -130,6 +131,12 @@ function sameAsRecommended(settings, ring, n) {
   const rec = recommend(ring, n);
   return Object.entries(rec).every(([k, v]) => settings[k] === v);
 }
+
+// v1.7: the Loot drops card's "Drops" (how often boxes drop), only while Loot drops is the mode
+export const LOBBY_SETTINGS = [...SETTINGS_UI, {
+  key: 'drops', label: 'Drops', kind: 'options', options: DROPS_UI.map((d) => [d.value, d.label, d.value === 'normal' ? 'By players' : d.value === 'few' ? 'Every 5 min' : 'Every 2 min']),
+  show: (s) => s.mode === 'loot',
+}];
 
 // ---- small widgets ----------------------------------------------------------------------------------------
 
@@ -356,7 +363,7 @@ export function mount(root, app) {
     leave.addEventListener('click', () => confirmLeave());
     const how = h('button.btn.small.ghost.icon-only.lobby-how', { type: 'button', 'aria-label': 'How to play' }, icon('info', 20));
     how.addEventListener('click', () => {
-      import('./home.js?v=177').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
+      import('./home.js?v=178').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
     });
     return h('header.lobby-top',
       h('div.lobby-top-text', h('span.label', 'Lobby'), h('h1.lobby-title', 'Get ready')),
@@ -834,7 +841,7 @@ export function mount(root, app) {
     } else {
       parts.push(presetLine);
     }
-    const rows = SETTINGS_UI.map((item) => settingRow(item, host));
+    const rows = LOBBY_SETTINGS.map((item) => settingRow(item, host));
     parts.push(h('div.lobby-sets', rows.map((r) => r.el)));
     const el = card('Time and rules', parts);
     return {

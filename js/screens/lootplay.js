@@ -11,14 +11,14 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=177';
-import { chest, chestModel } from '../chest.js?v=177';
-import { cardEl, tiltFrom } from '../cards.js?v=177'; // v1.6.3: one card look everywhere
-import { POWERS, fmtClock } from '../../shared/rules.js?v=177';
-import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=177';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=177';
+import { h, text } from '../dom.js?v=178';
+import { chest, chestModel } from '../chest.js?v=178';
+import { cardEl, tiltFrom } from '../cards.js?v=178'; // v1.6.3: one card look everywhere
+import { POWERS, fmtClock } from '../../shared/rules.js?v=178';
+import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=178';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=178';
 
-export const RARITY_WORD = { common: 'Common', rare: 'Rare', legendary: 'Legendary', mythic: 'Mythic' };
+export const RARITY_WORD = { common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic' }; // (v1.7: epic)
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
 for (const [k, p] of Object.entries(LOOT_POWERS)) POWER_EMOJI[k] = p.emoji;
 export const powerInfo = (k) => POWERS[k] || (LOOT_POWERS[k] ? { name: LOOT_POWERS[k].name, desc: LOOT_POWERS[k].line } : { name: k, desc: '' });
@@ -121,14 +121,14 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
   doc.addEventListener('keydown', keys);
   done.then(() => doc.removeEventListener('keydown', keys));
 
-  function reveal(rarity, power) {
+  function reveal(rarity, power, more = null) {
     const r = RARITY_WORD[rarity] ? rarity : 'common';
     const wait = still ? 0 : Math.max(0, SHAKE_MS - (Date.now() - born));
     setTimeout(() => {
       if (closed) return;
       const p = powerInfo(power);
       layer.dataset.rarity = r;
-      text(word, r === 'mythic' ? 'MYTHIC!!' : r === 'legendary' ? 'LEGENDARY!' : RARITY_WORD[r].toUpperCase());
+      text(word, r === 'mythic' ? 'MYTHIC!!' : r === 'legendary' ? 'LEGENDARY!' : r === 'epic' ? 'EPIC!' : RARITY_WORD[r].toUpperCase());
       // It stays until OK (the owner: never gone before you've read it); a loot-only power can be used right away.
       const ok = h('button.btn.lb-ok', { type: 'button' }, 'OK');
       ok.addEventListener('click', (e) => { e.stopPropagation(); close(); });
@@ -143,11 +143,14 @@ export function burst({ doc = globalThis.document, useIt = null } = {}) {
       card.replaceChildren(nc);
       // A finger over the card moves its foil shine (the card itself keeps turning slowly).
       layer.addEventListener('pointermove', (e) => { tiltFrom(nc, card.getBoundingClientRect(), e.clientX, e.clientY); });
-      text(hint, 'It goes in your cards 🃏');
+      // v1.7: Lucky: more cards came out of the same box
+      const extra = Array.isArray(more) ? more.filter((m) => m && m.power) : [];
+      text(hint, extra.length ? `🍀 Lucky! Also: ${extra.map((m) => `${powerInfo(m.power).name} (${(RARITY_WORD[m.rarity] || 'Common').toLowerCase()})`).join(', ')}. All in your cards 🃏` : 'It goes in your cards 🃏');
+      if (extra.length) layer.classList.add('lucky');
       text(live, `${RARITY_WORD[r]} loot: ${p.name}. ${p.desc || ''}`);
       layer.dataset.stage = 'burst';
       // The card flips over a beat after the burst; the layer can be tapped away once it's showing.
-      setTimeout(() => { if (!closed) { layer.dataset.stage = 'card'; try { ok.focus({ preventScroll: true }); } catch { /* fine */ } } }, still ? 0 : (r === 'mythic' ? 1700 : r === 'legendary' ? 1150 : 800));
+      setTimeout(() => { if (!closed) { layer.dataset.stage = 'card'; try { ok.focus({ preventScroll: true }); } catch { /* fine */ } } }, still ? 0 : (r === 'mythic' ? 1700 : r === 'legendary' ? 1150 : r === 'epic' ? 950 : 800));
     }, wait);
   }
   function fail(msg = "Couldn't open it. Try again.") {
@@ -176,8 +179,8 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=177').then(({ banner }) => banner(n
-        ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Get within 5 m of one to grab it (zoom in to see the real circle).${when}`
+      import('../ui/banner.js?v=178').then(({ banner }) => banner(n
+        ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Get within ${LOOT_PICK_M} m of one to grab it (zoom in to see the real circle).${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
   });
@@ -190,7 +193,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const v = await app.cmd({ type: 'lootopen' }, { quiet: true });
       const last = v && v.loot && v.loot.last;
       if (last && last.at !== before) {
-        b.reveal(last.rarity, last.power);
+        b.reveal(last.rarity, last.power, last.more);
         if (onOpened) { try { onOpened(last); } catch (e) { console.error(e); } }
       } else b.fail(v && v.message ? v.message : undefined);
     } catch (e) {
@@ -323,7 +326,7 @@ export function nearWords(n, acc = null) {
   }
   // (Never "5 m" while outside a 5 m circle: just outside reads as the next metre up.)
   const m = n.d < 30 ? Math.max(Math.floor(n.r) + 1, Math.round(n.d)) : Math.round(n.d / 5) * 5;
-  return { big: `${m} m`, small: 'Get within 5 m' };
+  return { big: `${m} m`, small: `Get within ${LOOT_PICK_M} m` }; // (v1.7: the circle's own size, 10 m once the engine has it)
 }
 
 // ---- v1.6.1: what the loot powers do to this screen --------------------------------------------------------
@@ -339,7 +342,8 @@ export function nearWords(n, acc = null) {
 //   Compass    a chip with an arrow to the nearest hider; Eye a purple edge; Freeze frost on the hider's powers;
 //   Tracked    a red edge on the hider a dart hit; Smoke / Ghost chips for the hider who has them on
 export const POCKET_LOCK_MS = 10000;
-export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, doc = globalThis.document } = {}) {
+export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, moreChips = null, doc = globalThis.document } = {}) {
+  // v1.7: moreChips(view, gone) -> [{ cls, words }] (cardplay.js chipsOf) joins the same row of chips
   const S = { view: null, glitchOn: false, crackle: null, dead: false, raf: 0, timer: null, pocketDone: false, started: 0 };
   const strip = h('div.lx-chips', { 'aria-live': 'polite' });
   const compass = h('div.lx-compass', { hidden: true, role: 'img' }, h('span.lx-arrow', { 'aria-hidden': 'true' }, '➤'), h('span.lx-cword'));
@@ -501,6 +505,7 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
       if (left('storm')) chips.push(chip('mine', `📺 Hunters in a storm ${fmtClock(left('storm'))}`));
       if (left('glitch')) chips.push(chip('mine', `👾 Hunters glitched ${fmtClock(left('glitch'))}`));
     }
+    if (moreChips) { try { for (const c of moreChips(view, gone) || []) chips.push(chip(c.cls, c.words)); } catch (e) { console.error(e); } }
     const sig = chips.map((x) => x.textContent).join('|');
     if (strip.dataset.sig !== sig) { strip.dataset.sig = sig; strip.replaceChildren(...chips); }
     strip.hidden = !chips.length;
@@ -521,4 +526,4 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, d
 }
 
 // ---- v1.6.1: your cards: v1.6.3 moved them to js/cards.js (the collection, one card look everywhere) ----------
-export { cardsOf, createCardDeck } from '../cards.js?v=177';
+export { cardsOf, createCardDeck } from '../cards.js?v=178';

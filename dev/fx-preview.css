@@ -1,0 +1,29 @@
+/* v1.7 VISUALS: the FX preview page (dev/fx.html) only. */
+html, body { margin: 0; height: 100%; background: #05061a; overflow: hidden; }
+:root { --g-hud-bottom: 56px; }
+.g-root { position: fixed; inset: 0; }
+.pv-map { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, #1c2350, #0b0f2a 70%); }
+.pv-roads { position: absolute; inset: 0; opacity: .45; background: linear-gradient(28deg, transparent 47%, #3a4478 47% 49%, transparent 49%), linear-gradient(-62deg, transparent 60%, #3a4478 60% 61.5%, transparent 61.5%), repeating-linear-gradient(90deg, transparent 0 70px, rgba(58, 68, 120, .5) 70px 72px), repeating-linear-gradient(0deg, transparent 0 90px, rgba(58, 68, 120, .5) 90px 92px); }
+.pv-ringedge { position: absolute; left: 8%; right: 8%; top: 18%; bottom: 22%; border-radius: 50%; border: 3px dashed rgba(255, 79, 94, .7); }
+.pv-me { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%; border: 3px solid #fff; background: #3fa3ff; }
+.pv-hud { position: absolute; left: 0; right: 0; top: 0; height: 56px; z-index: 60; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #0f1338; border-bottom: 3px solid #0a0820; color: #fff; font: 700 14px/1 monospace; }
+.pv-hud span { margin-right: auto; }
+.pv-sos { min-width: 56px; height: 40px; border: 3px solid #0a0820; border-radius: 12px; background: #ff3048; color: #fff; font: 700 15px/1 monospace; }
+.pv-tray { position: absolute; left: 12px; right: 12px; bottom: 16px; z-index: 5; display: flex; gap: 12px; align-items: center; }
+.pv-tray .cd-btn { width: 60px; height: 60px; }
+.pv-tap { flex: 1; min-height: 48px; border: 3px solid #0a0820; border-radius: 14px; background: #3ff2a8; color: #0a0820; font: 700 15px/1 monospace; }
+.pv-layer { position: absolute; inset: 0; pointer-events: none; }
+.pv-controls { position: fixed; left: 0; right: 0; bottom: 84px; z-index: 30; max-height: 34vh; overflow: auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; background: rgba(5, 6, 26, .82); }
+.pv-controls h3 { flex-basis: 100%; margin: 4px 0 0; color: #ffd23f; font: 700 11px/1 monospace; text-transform: uppercase; }
+.pv-controls button { min-height: 30px; padding: 0 8px; border: 2px solid #0a0820; border-radius: 8px; background: #e9eef9; color: #0a0820; font: 600 11px/1 system-ui; }
+.clean .pv-controls { display: none; }
+/* the collection screens on this page */
+.pv-col { position: fixed; inset: 0; z-index: 70; overflow: auto; padding: 16px 12px 40px; background: linear-gradient(180deg, #121a4a, #05061a); }
+.pv-col h2 { margin: 6px 0 2px; color: #fff; font: 400 22px/1.1 'Bowlby One', system-ui; }
+.pv-col h4 { margin: 14px 0 6px; font: 700 12px/1 monospace; letter-spacing: .14em; text-transform: uppercase; }
+.pv-col .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; }
+.pv-col.big .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pv-col .r-common { color: #e9eef9; } .pv-col .r-rare { color: #b38bff; } .pv-col .r-epic { color: #2ee59d; } .pv-col .r-legendary { color: #ffd23f; } .pv-col .r-mythic { color: #ff5fd2; }
+body.scroll { overflow: auto; height: auto; }
+body.scroll .pv-col { position: absolute; bottom: auto; min-height: 100%; overflow: visible; }
+html:has(body.scroll) { overflow: auto; height: auto; }

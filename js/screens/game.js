@@ -11,26 +11,27 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=177';
-import { icon } from '../ui/icons.js?v=177';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=177';
-import { banner, clearBanners } from '../ui/banner.js?v=177';
-import { moment } from '../ui/moment.js?v=177';
-import { startPocket } from '../ui/pocket.js?v=177';
-import { createMap, fmtAgo } from '../map.js?v=177';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=177';
-import { distanceM, isPoint } from '../../shared/geo.js?v=177';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=177';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=177'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=177'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=177'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=177'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=177'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=177'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=177'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=177'; // v1.6: Loot drops
-import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=177'; // v1.6.3: your collection and the card-played effects
-import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=177'; // v1.6.4: the card collection
+import { h, fill, text, cls, face, listen } from '../dom.js?v=178';
+import { icon } from '../ui/icons.js?v=178';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=178';
+import { banner, clearBanners } from '../ui/banner.js?v=178';
+import { moment } from '../ui/moment.js?v=178';
+import { startPocket } from '../ui/pocket.js?v=178';
+import { createMap, fmtAgo, closingFrom, ringFlash } from '../map.js?v=178';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=178';
+import { distanceM, isPoint } from '../../shared/geo.js?v=178';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=178';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=178'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=178'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=178'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=178'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=178'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=178'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=178'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=178'; // v1.6: Loot drops
+import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=178'; // v1.6.3: your collection and the card-played effects
+import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=178'; // v1.6.4: the card collection
+import { createCardPlay, chipsOf } from './cardplay.js?v=178'; // v1.7 WIRING: every card's UI, the plane, paws, the Snitch call
 const localStore = () => { try { return globalThis.localStorage; } catch { return null; } }; // v1.6.4 (may throw)
 
 export const TICK_MS = 250;
@@ -757,8 +758,13 @@ export function mount(root, app) {
       });
     }),
   });
-  const lootBtn = createLootButton({ app, useIt: (k) => lootStash.use(k) }); // v1.6: Loot drops' Open button
-  const deck = createCardDeck({ app, onClassic: (k) => onPower(k), useLoot: (k) => lootStash.use(k) }); // v1.6.1: your cards
+  // v1.7 WIRING: a loot card from a v1.7 hand (view.loot.hand) plays through cardplay.js (aim, pick a card, the
+  // Snitch offer); a v1.6 server's view keeps the v1.6 ways
+  const handIn = () => !!(S.view && S.view.loot && S.view.loot.hand && typeof S.view.loot.hand === 'object');
+  const playCard = (k, classic = false) => (classic ? onPower(k) : handIn() && cardPlay ? cardPlay.use(k) : lootStash.use(k)); // (a classic card keeps its ask-first sheet; 'power' plays it from the hand)
+  const lootBtn = createLootButton({ app, useIt: (k) => playCard(k) }); // v1.6: Loot drops' Open button
+  const deck = createCardDeck({ app, onClassic: (k) => playCard(k, true), useLoot: (k) => playCard(k), below: (v) => (cardPlay ? cardPlay.teamDeck(v) : null) }); // v1.6.1: your cards (v1.7: the team deck)
+  let cardPlay = null; // v1.7 WIRING (made once the map's box is in place)
   // v1.6.3: the nearest box chip: "7 m / Get within 5 m", "Right here!" inside it; a tap shows you and the box
   // close up, so its 5 m circle shows at its real size
   const nearBig = h('span.lt-near-d');
@@ -854,7 +860,7 @@ export function mount(root, app) {
   fill(root, mapWrap, hud, panel, sosLayer); // v1.2 PAGE-MAP: the map under everything, edge to edge
   // v1.6.1: what loot powers do here; their chips, the compass and the nearest box stack under the lines over the map
   const lootFx = createLootFx({
-    app, root, slot: linesBox, sos: () => askSos(),
+    app, root, slot: linesBox, sos: () => askSos(), moreChips: (v, gone) => chipsOf(v, gone), // v1.7
     annoy: { // Glitch: the app does things by itself (never SOS, tags, powers or leaving)
       zoom: () => { if (map) map.zoomBy(Math.random() < 0.5 ? 1.5 : -1.5); },
       pan: () => { if (Math.random() < 0.5) fitEveryone(); else centerOnMe(); },
@@ -867,6 +873,7 @@ export function mount(root, app) {
   // v1.6.3: a card played: a short effect on the phones that should know (cards.js cardFxOf says which), under the
   // top bar (SOS stays in sight) and never in the way of a tap.
   const cardFx = createCardFx({ root });
+  cardPlay = createCardPlay({ app, root, slot: linesBox, getMap: () => map, deckButton: deck.button, pickRow: (o) => pickRow(o) }); // v1.7 WIRING
   linesBox.append(nearChip);
   hud.after(fixIt.tapBtn); // v1.4 PAGE-DEVICES
   linesBox.prepend(fixIt.bar); // v1.4 PAGE-DEVICES: the red bar leads the lines over the map
@@ -1001,9 +1008,11 @@ export function mount(root, app) {
       parts.push({ el: P.tagBtn, main: true, grow: true, order: 10 });
       parts.push({ el: P.drive.el, main: false, order: 10 });
       if (!lootOf(view)) parts.push({ el: P.powers, main: false, order: 20 }); // (v1.6.1: Loot drops' powers are cards)
+      if (view && view.settings && view.settings.driver) parts.push({ el: cardPlay.seatButton, main: false, order: 11 }); // v1.7: Become a driver
     } else if (role === 'driver') {
       parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
       parts.push({ el: P.drive.el, main: false, order: 10 });
+      if (lootOf(view)) parts.push({ el: deck.button, main: true, order: 16 }); // v1.7: a driver's cards, shown locked
     } else if (role === 'hider') {
       parts.push({ el: P.chip.btn, main: true, grow: true, order: 10 });
       parts.push({ el: P.status, main: false, order: 5 });
@@ -1237,6 +1246,7 @@ export function mount(root, app) {
     cpSwap(view, c); // v1.3 PAGE-PLAY
     try { lootBtn.update(view, c); } catch (e) { console.error(e); } // v1.6
     try { lootStash.update(view); deck.update(view); recordView(localStore(), view); lootFx.update(view, c); paintNear(view); } catch (e) { console.error(e); } // v1.6.1
+    try { cardPlay.update(view, c); } catch (e) { console.error(e); } // v1.7 WIRING
 
     // Top bar.
     text(teamSide, view.me && view.me.driver && mode === 'hunter' ? 'Driver' : teamWord(mode)); // v1.1 PAGE-DRIVER: Driver
@@ -1406,9 +1416,17 @@ export function mount(root, app) {
       S.ringKey = key;
       try { map.setRing(view.ring, view.ringNow); } catch (e) { console.error(e); }
     }
+    // v1.7 (Owen's bug): the edge closing in, moved smoothly by the map from this phone's own clock; once it
+    // starts (or the page opens while it's moving) the map shows the whole ring, so the edge is in sight.
+    try { map.setClosing(closingFrom(view, () => gclock.read())); } catch (e) { console.error(e); }
+    if (!(view.me && view.me.driver) && view.phase === 'live' && isClosing(view, gclock.read()) && view.settings && view.settings.shrink && !S.closingShown) {
+      S.closingShown = true;
+      fitRing(true);
+      ringFlash(mapBox);
+    }
     const hunter = S.mode === 'hunter';
     try {
-      map.setMarks(view.marks || [], {
+      map.setMarks([...(view.marks || []), ...cardPlay.marks(view)], { // (v1.7: Rewind's circles)
         faces: app.faces,
         players: view.players,
         meId: view.me ? view.me.id : null,
@@ -2214,6 +2232,10 @@ export function mount(root, app) {
     if (!view) return;
     let fx = effectOf(e, view);
     const age = ageOf(e);
+    // v1.7 WIRING: the FX library's moments (Heads up, Mirror, Snitch, the plane's countdown...)
+    if (age <= STALE_MOMENT_MS && !S.sosShown) {
+      try { const m = cardPlay.event(e); if (m && m.quiet) fx = { ...fx, banner: null }; } catch (err) { console.error(err); }
+    }
     // v1.6.3: a card played shows as its card effect instead of a moment or a banner (one effect per card: the
     // player's own phone hears some cards twice)
     const card = cardFxOf(e, view);
@@ -2289,9 +2311,11 @@ export function mount(root, app) {
     if (isNew) settleAway(view);
     const mode = modeOf(view);
     const lootOn = !!lootOf(view); // the tray's loot and cards buttons come with the panel: build it again when loot appears
-    if (mode !== S.mode || !P.mode || lootOn !== S.lootOn) {
+    const driving = !!(view.me && view.me.driver); // v1.7: a hunter who takes the second seat gets the driver's panel
+    if (mode !== S.mode || !P.mode || lootOn !== S.lootOn || driving !== S.driving) {
       S.mode = mode;
       S.lootOn = lootOn;
+      S.driving = driving;
       buildPanel(mode, view);
       if (S.tagSheet && mode !== 'hunter') S.tagSheet.sheet.close();
     }
@@ -2384,7 +2408,7 @@ export function mount(root, app) {
     try { if (pinTool) pinTool.destroy(); } catch { /* ignore */ } // v1.4 PAGE-PLAY
     try { cpp.destroy(); } catch { /* ignore */ } // v1.3 PAGE-PLAY
     try { lootBtn.destroy(); } catch { /* ignore */ } // v1.6
-    try { lootFx.destroy(); deck.close(); cardFx.destroy(); } catch { /* ignore */ } // v1.6.1 (v1.6.3: cardFx)
+    try { lootFx.destroy(); deck.close(); cardFx.destroy(); cardPlay.destroy(); } catch { /* ignore */ } // v1.6.1 (v1.6.3: cardFx, v1.7: cardPlay)
     if (S.pendingSheet) { try { S.pendingSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.tagSheet) { try { S.tagSheet.sheet.close(); } catch { /* ignore */ } }
     if (S.drive) { try { S.drive.destroy(); } catch { /* ignore */ } S.drive = null; } // v1.1 PAGE-DRIVER

@@ -4,9 +4,10 @@
 //   classic      the pings and the ring on a little map, the chase and the tag, who wins, then the powers as cards
 //   checkpoints  a checkpoint opens, hiders see it first, a photo counts only inside, the safe time runs out, then the
 //                next one opens and most checkpoints wins
-//   loot         every card, dealt in rarity order (the hiders', then the hunters'), each one said, shown big and
-//                doing its thing; then a demo: a box drops, a hider walks into its circle, the chest opens, Blackout
-//                is played and the hunters' screens go dark; and a box can be a trap
+//   loot         (v1.7) all 36 cards, a tier at a time (common, rare, epic, legendary, mythic: both sides' cards in
+//                one scene, blue hiders on top, red hunters under), each flipped big with its few words as Static
+//                names it; then the drop plane flies over and a crate lands with its 10 m circle, a hider walks in,
+//                the chest opens, Blackout is played and the hunters' screens go dark; and a box can be a trap
 //
 //   EXPLAINERS[mode]               the beats [{ at, scene, line, mood, host }] (at: ms into the explain stage)
 //   explainBeat(mode, ms)          the beat playing at ms (null before the first one)
@@ -14,22 +15,21 @@
 //   syncScene(root, ms)            .on on each [data-at] part whose time has come, .now while ms is in
 //                                  [data-at, data-until), the ph-<name> classes of [data-phases] roots, the counts
 // Its styles are css/vote.css (.vx-*). Everything moves by transform and opacity; less motion = each move's end.
-import { h } from '../dom.js?v=177';
-import { cardEl, cardInfo } from '../cards.js?v=177';
-import { chest } from '../chest.js?v=177';
-import { POWERS } from '../../shared/rules.js?v=177';
-import { LOOT_TABLE } from '../../shared/loot.js?v=177';
+import { h } from '../dom.js?v=178';
+import { cardEl, cardInfo } from '../cards.js?v=178';
+import { chest } from '../chest.js?v=178';
+import { POWERS } from '../../shared/rules.js?v=178';
+import { LOOT_TABLE, ALL_CARDS } from '../../shared/loot.js?v=178';
+import { planeEl } from '../fx.js?v=178';
 
 // How long each of Static's lines is (ms, the mp3 rounded up; tests/vote-explain.test.mjs reads the files).
 export const LINE_MS = {
   e_mode_classic: 5570, e_mode_checkpoints: 4500, e_mode_loot: 6950,
   x_classic_1: 8600, x_classic_2: 8870, x_classic_3: 8970,
   x_cp_1: 4790, x_cp_2: 4450, x_cp_3: 5470, x_cp_4: 3720,
-  x_loot_1: 2130, x_loot_2: 1530, x_loot_3: 4690, x_loot_4: 4420, x_loot_5: 5210,
-  x_card_sprint: 2540, x_card_smoke: 2330, x_card_decoy: 2600, x_card_jammer: 1580, x_card_glitch: 2280,
-  x_card_ghost: 2130, x_card_storm: 2880, x_card_blackout: 4560,
-  x_card_hacker: 1810, x_card_compass: 2130, x_card_radar: 2360, x_card_double: 2050, x_card_freeze: 2410,
-  x_card_exposure: 2100, x_card_tracker: 2410, x_card_eye: 4220,
+  x_loot_4: 4420, x_loot_5: 5210,
+  x_cards_intro: 3790, x_tier_common: 10300, x_tier_rare: 7080, x_tier_epic: 5490, x_tier_legendary: 5120,
+  x_card_blackout: 4560, x_card_eye: 4220, x_plane: 5360,
 };
 // What Static says in them (the captions match the words).
 export const X_LINES = {
@@ -40,25 +40,14 @@ export const X_LINES = {
   x_cp_2: "Run inside the circle and snap a photo. It only counts while you're in there.",
   x_cp_3: "Inside, you're safe for a few minutes. Stay too long, and the hunters see exactly where you are!",
   x_cp_4: 'Then the next checkpoint opens. Most checkpoints at the end wins!',
-  x_loot_1: "Here's every card in the deck. Hiders first!",
-  x_card_sprint: 'Sprint. Your pings stay where you started.',
-  x_card_smoke: 'Smoke. Your next ping is a big cloud.',
-  x_card_decoy: 'Decoy. Your next ping pops up somewhere else.',
-  x_card_jammer: 'Jammer. Skip the next ping.',
-  x_card_glitch: "Glitch. The hunters' phones go buggy.",
-  x_card_ghost: 'Ghost! Vanish from the next two pings.',
-  x_card_storm: 'Static Storm! Their map turns to TV static.',
+  x_cards_intro: 'Thirty-six cards! Blue ones for hiders, red ones for hunters.',
+  x_tier_common: 'Commons first. Sprint, Smoke, Lucky, Heads up, Stall, Eavesdrop, and a Grab bag for hiders. Hacker, Compass, Hound dog, Quick ping, Scout, Rewind, and a Grab bag for hunters.',
+  x_tier_rare: 'Rare cards! Decoy, Jammer, Swap, and Lookout for hiders. Radar, Double Double, Useless, and Wiretap for hunters.',
+  x_tier_epic: 'Now... EPIC! Glitch, Mirror, and Ghost for hiders. Snitch, Freeze, and Tracker dart for hunters.',
+  x_tier_legendary: 'Legendary! Static Storm, Exposure, and both sides get a Multiplier and a Duplicator.',
   x_card_blackout: "And the mythic one... Blackout! The hunters' screens go black for five minutes!",
-  x_loot_2: "Now, the hunters' cards!",
-  x_card_hacker: "Hacker. Set off a hider's phone.",
-  x_card_compass: 'Compass. An arrow to the nearest hider.',
-  x_card_radar: 'Radar. Every hider shows up live.',
-  x_card_double: 'Double Double. Pings come twice as fast.',
-  x_card_freeze: "Freeze. The hiders' powers stop working.",
-  x_card_exposure: 'Exposure! Exact spots, no warning.',
-  x_card_tracker: 'Tracker dart! Follow one hider for two minutes.',
   x_card_eye: 'And the mythic one... the All-Seeing Eye! Every hider, live. Nothing blocks it.',
-  x_loot_3: 'So how does it work? A box drops on the map. Walk right into its circle to grab it!',
+  x_plane: 'Every few minutes, a plane flies over and drops crates. Get within ten meters of one to grab it!',
   x_loot_4: "Crack it open... Blackout! Play it, and every hunter's screen goes dark.",
   x_loot_5: 'Hunters grab boxes too, and everyone sees them on the map. So a box... might be a trap!',
 };
@@ -75,15 +64,51 @@ function lay(items) {
   for (const [scene, line, more = {}] of items) {
     if (out.length) {
       const prev = out[out.length - 1];
-      at = prev.at + LINE_MS[prev.line] + (prev.scene === scene ? GAP : NEW_SCENE);
+      at = prev.at + LINE_MS[prev.line] + (prev.scene === scene ? GAP : NEW_SCENE) + (prev.pad || 0);
     }
     out.push({ at, scene, line, host: 'side', mood: '', ...more });
   }
   return out;
 }
+// v1.7: the tiers. Each tier is one scene: Static's line (two for the mythics) and, for each card, when he says its
+// name (ms into that line, from ElevenLabs' character times when the line was made). Every one of the 36 cards is in
+// exactly one tier, its LOOT_TABLE tier (tests check).
+export const TIERS = [
+  { r: 'common', lines: ['x_cards_intro', 'x_tier_common'], cards: [
+    ['x_tier_common', [['sprint', 1030], ['smoke', 1490], ['lucky', 1890], ['headsup', 2250], ['stall', 2650], ['eavesdrop', 2960], ['grabbag_hider', 4020],
+      ['hacker', 5460], ['compass', 5860], ['hound', 6290], ['quickping', 6910], ['scout', 7510], ['rewind', 7900], ['grabbag_hunter', 8650]]]] },
+  { r: 'rare', lines: ['x_tier_rare'], cards: [
+    ['x_tier_rare', [['decoy', 1060], ['jammer', 1650], ['swap', 2030], ['lookout', 2510], ['radar', 3860], ['double', 4390], ['useless', 4980], ['wiretap', 5570]]]] },
+  { r: 'epic', lines: ['x_tier_epic'], cards: [
+    ['x_tier_epic', [['glitch', 1080], ['mirror', 1440], ['ghost', 1920], ['snitch', 2970], ['freeze', 3400], ['tracker', 3970]]]] },
+  { r: 'legendary', lines: ['x_tier_legendary'], cards: [
+    ['x_tier_legendary', [['storm', 860], ['exposure', 1700], ['multiplier_hider', 3260], ['multiplier_hunter', 3700], ['duplicator_hider', 4130], ['duplicator_hunter', 4560]]]] },
+  { r: 'mythic', lines: ['x_card_blackout', 'x_card_eye'], cards: [['x_card_blackout', [['blackout', 1900]]], ['x_card_eye', [['eye', 1900]]]] },
+];
+// Each card's few words, short enough to read while it's up (the card itself carries its full line).
+export const SHORT = {
+  sprint: 'Pings stay where you started', smoke: 'Next ping: a smoke cloud', lucky: 'Next box gives 2 cards',
+  headsup: 'Buzzes when a hunter is near', stall: 'Your next ping comes late', eavesdrop: "See the hunters' cards",
+  grabbag_hider: 'A random common card', decoy: 'Next ping pops up elsewhere', jammer: 'Skip the next ping',
+  swap: 'Trade a card with a teammate', lookout: 'See every hunter for 15 s', glitch: "Hunters' phones go buggy",
+  mirror: 'If they see you, you see them', ghost: 'Vanish from 2 pings', storm: 'Their map turns to TV static',
+  multiplier_hider: 'Boost a card up to 100%', duplicator_hider: 'Copy one of your cards', blackout: "Hunters' screens go black",
+  hacker: "Set off a hider's alarm", compass: 'An arrow to the nearest hider', hound: "Hiders' trails as paw prints",
+  quickping: 'Next ping comes sooner', scout: 'How many hiders are close?', rewind: 'See the ping before last',
+  grabbag_hunter: 'A random common card', radar: 'Every hider live for 1 min', double: 'Pings come twice as fast',
+  useless: "One hider's cards stop working", wiretap: 'Listen in on a hider (with OK)', snitch: 'Call a hider, offer a deal',
+  freeze: "Hiders' powers freeze", tracker: 'Follow one hider for 2 min', exposure: 'Exact spots, no warning',
+  multiplier_hunter: 'Boost a card up to 100%', duplicator_hunter: 'Copy one of your cards', eye: 'Every hider live. Nothing blocks it.',
+};
+export const CARD_MIN_MS = 700; // a card stays up at least this long, so its few words can be read
+// x_cards_intro: "Blue ones for hiders" and "red ones for hunters" (ms into the line, from its pauses)
+export const INTRO_ROWS = { hider: [1400, 2450], hunter: [2450, 3700] };
+// Both sides' cards, in the order they're dealt
 export const DECK = { hider: [], hunter: [] };
-for (const side of ['hider', 'hunter']) for (const r of ['common', 'rare', 'legendary', 'mythic']) DECK[side].push(...LOOT_TABLE[side][r]);
-const cards = (side) => DECK[side].map((k) => [`deck-${side}`, `x_card_${k}`, { host: 'mini', mood: k === 'blackout' || k === 'eye' ? 'wow' : '' }]);
+for (const t of TIERS) for (const [, list] of t.cards) for (const [k] of list) DECK[LOOT_TABLE.hider[t.r].includes(k) ? 'hider' : 'hunter'].push(k);
+export const TIER_PAD = 900; // after a tier's last line: its last card's words can be read, then the tier sits face up
+const tierBeats = () => TIERS.flatMap((t) => t.lines.map((line, i) => [`tier-${t.r}`, line,
+  { host: 'mini', mood: t.r === 'mythic' || t.r === 'epic' ? 'wow' : t.r === 'legendary' ? 'happy' : '', ...(i === t.lines.length - 1 ? { pad: TIER_PAD } : {}) }]));
 
 export const EXPLAINERS = {
   classic: lay([
@@ -101,11 +126,8 @@ export const EXPLAINERS = {
   ]),
   loot: lay([
     ['slam', 'e_mode_loot', { mood: 'happy' }],
-    ['deck-hider', 'x_loot_1', { host: 'mini', mood: 'happy' }],
-    ...cards('hider'),
-    ['deck-hunter', 'x_loot_2', { host: 'mini', mood: 'wink' }],
-    ...cards('hunter'),
-    ['demo', 'x_loot_3', { host: 'mini' }],
+    ...tierBeats(),
+    ['demo', 'x_plane', { host: 'mini', mood: 'wow' }],
     ['demo', 'x_loot_4', { host: 'mini', mood: 'wow' }],
     ['demo', 'x_loot_5', { host: 'mini', mood: 'wink' }],
   ]),
@@ -259,48 +281,74 @@ function cpWin(mode, ctx) {
     h('p.vx-banner.t-gold', 'MOST CHECKPOINTS WINS'));
 }
 
-// ---- Loot drops: the deck ------------------------------------------------------------------------------------
-const RARITY_SAY = { common: 'COMMON', rare: 'RARE', legendary: 'LEGENDARY!', mythic: 'MYTHIC!!' };
-function deck(side, mode) {
-  const beats = EXPLAINERS[mode] || [];
-  const keys = DECK[side];
-  const times = keys.map((k) => lineAt(mode, `x_card_${k}`));
-  const next = beats.find((b) => b.at > times[times.length - 1] && b.scene !== `deck-${side}`);
-  const end = next ? next.at + 800 : Infinity;
-  const until = (i) => (i + 1 < times.length ? times[i + 1] : end);
-  const slots = keys.map((k, i) => {
-    const r = cardInfo(k).rarity;
-    return h(`div.vx-slot.r-${r}`, { ...at(times[i], until(i)), style: { '--i': i } }, cardEl(k, { back: true }));
-  });
-  const bigs = keys.map((k, i) => {
-    const r = cardInfo(k).rarity;
-    return h(`div.vx-big.r-${r}.fx-${k}`, at(times[i], until(i)),
-      h('p.vx-rw', RARITY_SAY[r]),
-      h('div.vx-fx', { 'aria-hidden': 'true' }, h('i.a'), h('i.b'), h('i.c'), h('i.d')),
-      h('div.vx-big-card', cardEl(k, { full: true, back: true })));
-  });
-  return h(`div.vx-scene.vx-deck.side-${side}`,
-    h('div.vx-deckhead', kicker(side, side === 'hider' ? 'Hider cards' : 'Hunter cards'), h('span.vx-count', { 'data-count': '1', 'aria-hidden': 'true' }, `0/${keys.length}`)),
-    h('div.vx-spot', { 'aria-hidden': 'true' }, h('i.vx-rays'), ...bigs),
-    h('div.vx-grid', { 'aria-hidden': 'true' }, ...slots),
-    h('i.vx-dark', at(times[keys.indexOf(side === 'hider' ? 'blackout' : 'eye')])));
+// ---- Loot drops: a tier (v1.7) ---------------------------------------------------------------------------------
+const TIER_SAY = { common: 'COMMON', rare: 'RARE', epic: 'EPIC!', legendary: 'LEGENDARY!', mythic: 'MYTHIC!!' };
+const TIER_TITLE = { common: 'Common cards', rare: 'Rare cards', epic: 'Epic cards', legendary: 'Legendary cards', mythic: 'Mythic cards' };
+const tierOf = (r) => TIERS.find((x) => x.r === r);
+const sideIn = (r, k) => (LOOT_TABLE.hider[r].includes(k) ? 'hider' : 'hunter');
+// When each card of a tier comes up (ms into the explain stage): as he says its name, CARD_MIN_MS apart at least.
+export function tierTimes(r, mode = 'loot') {
+  const out = [];
+  let last = -Infinity;
+  for (const [line, list] of tierOf(r).cards) {
+    const base = lineAt(mode, line);
+    for (const [k, ms] of list) { last = Math.max(base + ms - 120, last + CARD_MIN_MS); out.push([k, last]); }
+  }
+  return out;
+}
+function tier(r, mode) {
+  const t = tierOf(r);
+  const times = tierTimes(r, mode);
+  const lastLine = t.lines[t.lines.length - 1];
+  const lineEnd = lineAt(mode, lastLine) + (LINE_MS[lastLine] || 0);
+  // the last card stays up to the line's end (and a moment more), then the whole tier lines up face up
+  const until = (i) => (i + 1 < times.length ? times[i + 1][1] : Math.max(lineEnd + TIER_PAD - 150, times[i][1] + 1300));
+  const idx = (k) => times.findIndex((x) => x[0] === k);
+  const bigs = times.map(([k, ms], i) => h(`div.vx-big.r-${r}.vfx-${k}.t-${sideIn(r, k)}`, at(ms, until(i)),
+    h('p.vx-rw', sideIn(r, k) === 'hider' ? 'HIDER CARD' : 'HUNTER CARD'),
+    h('div.vx-fx', { 'aria-hidden': 'true' }, h('i.a'), h('i.b'), h('i.c'), h('i.d')),
+    h('div.vx-big-card', cardEl(k, { full: true, back: true })),
+    h('p.vx-say', SHORT[k] || cardInfo(k).line || '')));
+  // The commons open the deck: "Thirty-six cards! Blue ones for hiders, red ones for hunters." (x_cards_intro) shows
+  // the count, then lights the blue row and the red one as he says them (INTRO_ROWS: ms into that line).
+  const intro = t.lines[0] === 'x_cards_intro' ? lineAt(mode, 'x_cards_intro') : null;
+  const cols = Math.max(LOOT_TABLE.hider[r].length, LOOT_TABLE.hunter[r].length);
+  const row = (side) => h(`div.vx-row.t-${side}`, {
+    style: { '--cols': cols },
+    ...(intro !== null ? at(intro + INTRO_ROWS[side][0], intro + INTRO_ROWS[side][1]) : {}),
+  },
+  h('b.vx-rowlabel', side === 'hider' ? 'HIDERS' : 'HUNTERS'),
+  h('div.vx-rowcards', ...times.filter(([k]) => sideIn(r, k) === side).map(([k, ms], j) =>
+    h(`div.vx-slot.r-${r}`, { ...at(ms, until(idx(k))), style: { '--i': j } }, cardEl(k, { back: true })))));
+  const first = lineAt(mode, t.lines[intro !== null ? 1 : 0]);
+  return h(`div.vx-scene.vx-deck.vx-tier.r-${r}`,
+    h('div.vx-deckhead', h(`p.vs-kicker.vx-kick.vx-tierword.r-${r}`, TIER_TITLE[r]), h('span.vx-count', { 'data-count': '1', 'aria-hidden': 'true' }, `0/${times.length}`)),
+    h('div.vx-spot', { 'aria-hidden': 'true' }, h('i.vx-rays'),
+      intro !== null ? h('p.vx-tierbig.r-all', at(intro, first), `${ALL_CARDS.length} CARDS`) : null,
+      h(`p.vx-tierbig.r-${r}`, at(first, times[0][1]), TIER_SAY[r]), ...bigs),
+    h('div.vx-grid.vx-rows', { 'aria-hidden': 'true' }, row('hider'), row('hunter')),
+    r === 'mythic' ? h('i.vx-dark.blk', at(times[0][1] + 500, times[1][1])) : null,
+    r === 'mythic' ? h('i.vx-dark.eye', at(times[1][1] + 500)) : null);
 }
 
 // ---- Loot drops: the demo ------------------------------------------------------------------------------------
 function demo(mode) {
-  const A = lineAt(mode, 'x_loot_3');
+  const A = lineAt(mode, 'x_plane');
   const B = lineAt(mode, 'x_loot_4');
   const C = lineAt(mode, 'x_loot_5');
   const phone = (cls) => h(`div.vx-hphone.${cls}`, h('div.vx-hscreen', h('i.vx-hmap'), h('i.vx-hdot'), h('b.vx-hblack', '🌑', h('br'), 'BLACKOUT'), h('small', 'Only the walkie works')), h('span.vx-hlabel', 'HUNTER'));
-  return h('div.vx-scene.vx-demo', phases([['drop', A + 1450], ['walk', A + 2700], ['grab', A + 3900],
+  return h('div.vx-scene.vx-demo', phases([['plane', A + 400], ['drop', A + 2100], ['walk', A + 3500], ['grab', A + 4700],
     ['open', B], ['burst', B + 350], ['card', B + 800], ['play', B + 2300], ['dark', B + 2900],
     ['race', C], ['see', C + 1700], ['trap', C + 3250], ['pounce', C + 4700]]),
   kicker('warn', 'How it plays'),
   h('div.vx-stagebox',
     miniMap('m1', {},
       spot('vx-ring', 50, 41, {}, h('i.vx-ring-c')),
-      spot('vx-zone.z1', 60, 36, {}, h('i'), h('b', 'GRAB ZONE')),
-      spot('vx-box.x1', 60, 36, {}, chest('map')),
+      spot('vx-zone.z1', 60, 36, {}, h('i'), h('b', '10 m GRAB ZONE')),
+      spot('vx-planepath', 50, 38, {}, h('i')),
+      spot('vx-box.x1', 60, 36, {}, h('i.vx-chute'), chest('map')),
+      spot('vx-box.x3', 80, 60, {}, h('i.vx-chute'), chest('map')),
+      spot('vx-plane', -20, 60, {}, planeEl()),
       spot('vx-zone.z2', 32, 33, {}, h('i')),
       spot('vx-box.x2', 32, 33, {}, chest('map')),
       spot('vx-bush', 50, 20, {}, h('span', '🌳')),
@@ -320,8 +368,11 @@ export function explainScene(scene, mode, ctx = {}) {
     case 'cpowers': return classicPowers(mode);
     case 'race': return race(mode);
     case 'cpwin': return cpWin(mode, ctx);
-    case 'deck-hider': return deck('hider', mode);
-    case 'deck-hunter': return deck('hunter', mode);
+    case 'tier-common': return tier('common', mode);
+    case 'tier-rare': return tier('rare', mode);
+    case 'tier-epic': return tier('epic', mode);
+    case 'tier-legendary': return tier('legendary', mode);
+    case 'tier-mythic': return tier('mythic', mode);
     case 'demo': return demo(mode);
     default: return null;
   }

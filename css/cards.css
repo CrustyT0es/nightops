@@ -1,6 +1,6 @@
 /* Night Ops v1.6.3: the cards (js/cards.js). One collectible card everywhere: the collection, the loot box's
    opening, the card-played effects. Night-sticker style: ink outlines, hard shadows, Bowlby One. Rarity frames:
-   common silver, rare violet, legendary gold, mythic rainbow; the art is tinted by its side (hiders blue, hunters
+   common silver, rare violet, epic emerald (v1.7), legendary gold, mythic rainbow; the art is tinted by its side (hiders blue, hunters
    red). Everything that moves moves by transform and opacity only. */
 :root { --nc-ink: #0a0820; }
 
@@ -13,6 +13,8 @@
 }
 .nc.s-hunter { --sc: var(--hunter, #ff4f5e); }
 .nc.r-rare { --rc: #b38bff; --foil: .26; --glare: .5; --frame: linear-gradient(150deg, #e6d9ff 0%, #9a6cff 34%, #d2bcff 52%, #5b2fd1 100%); }
+/* v1.7 foundation: the epic frame, emerald (the visuals lane may restyle it) */
+.nc.r-epic { --rc: #2ee59d; --foil: .31; --glare: .55; --frame: linear-gradient(150deg, #d4ffeb 0%, #22d68e 34%, #b4ffdc 52%, #078a52 100%); }
 .nc.r-legendary { --rc: #ffd23f; --foil: .36; --glare: .6; --frame: linear-gradient(150deg, #fff7c8 0%, #ffcc2a 34%, #fff2a8 50%, #e09000 100%); }
 .nc.r-mythic { --rc: #ff5fd2; --foil: .5; --glare: .65; --frame: #ff5fd2; }
 .nc-in {
@@ -94,7 +96,7 @@
   position: absolute; inset: -10% -80%; background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, .55) 50%, transparent 58%);
   transform: translateX(-60%); opacity: 0;
 }
-.nc.r-rare .nc-sweep, .nc.r-legendary .nc-sweep, .nc.r-mythic .nc-sweep { opacity: 1; animation: nc-sweep 4.6s ease-in-out calc(var(--i, 0) * .4s + .9s) infinite; }
+.nc.r-rare .nc-sweep, .nc.r-epic .nc-sweep, .nc.r-legendary .nc-sweep, .nc.r-mythic .nc-sweep { opacity: 1; animation: nc-sweep 4.6s ease-in-out calc(var(--i, 0) * .4s + .9s) infinite; }
 @keyframes nc-sweep { 0%, 58% { transform: translateX(-60%); } 88%, 100% { transform: translateX(60%); } }
 /* the count, a sticker on its corner */
 .nc-n {
@@ -189,6 +191,7 @@
   transition: transform .28s cubic-bezier(.2, 1.5, .4, 1);
 }
 .cd-slot.r-rare { --rs: #b38bff; }
+.cd-slot.r-epic { --rs: #2ee59d; }
 .cd-slot.r-legendary { --rs: #ffd23f; }
 .cd-slot.r-mythic { --rs: #ff5fd2; }
 .cd-slot .nc { --w: 100%; }
@@ -264,6 +267,7 @@
 .cfx-team { --rc: #e9eef9; --sc: var(--hider, #3fa3ff); }
 .cfx .s-hunter { --sc: var(--hunter, #ff4f5e); }
 .cfx .r-rare { --rc: #b38bff; }
+.cfx .r-epic { --rc: #2ee59d; }
 .cfx .r-legendary { --rc: #ffd23f; }
 .cfx .r-mythic { --rc: #ff5fd2; }
 .cfx-k { margin: 0; font: 700 13px/1.2 var(--mono, monospace); letter-spacing: .14em; text-transform: uppercase; color: var(--rc); text-shadow: 0 2px 0 var(--nc-ink); }
@@ -410,3 +414,108 @@
   font: 400 13px/1 var(--display, 'Bowlby One', system-ui); box-shadow: 2px 2px 0 var(--nc-ink); rotate: 8deg;
 }
 .cl-bar { grid-template-columns: minmax(0, 1fr); }
+
+/* ======================= v1.7: each card's own art (VISUALS lane) =======================
+   .a-<card> (both versions of Grab bag / Multiplier / Duplicator share theirs; the side's colour --sc tints it):
+   .nc-bg is the scene behind the emoji, .nc-deco a pattern on top of it. Static gradients only (no animation in a
+   binder of 36). The epic frame gets its own emerald shine; a boosted card wears a "+60%" sticker. */
+.nc-bg, .nc-deco { position: absolute; inset: 0; pointer-events: none; }
+.nc-deco { opacity: .55; mix-blend-mode: screen; }
+.nc-bg { background: radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--sc) 62%, #fff 8%) 0, color-mix(in srgb, var(--sc) 40%, #141a52) 36%, #0a0d2c 80%); }
+/* hiders */
+.a-sprint .nc-bg { background: linear-gradient(100deg, #0b1e4a, color-mix(in srgb, var(--sc) 70%, #fff 5%) 60%, #0b1e4a); }
+.a-sprint .nc-deco { background: repeating-linear-gradient(180deg, transparent 0 .9em, rgba(255,255,255,.55) .9em 1em); -webkit-mask: linear-gradient(90deg, transparent, #000 70%); mask: linear-gradient(90deg, transparent, #000 70%); }
+.a-smoke .nc-bg { background: radial-gradient(circle at 30% 70%, #8a95b3 0, transparent 40%), radial-gradient(circle at 75% 40%, #6c7896 0, transparent 45%), radial-gradient(circle at 50% 50%, #2c3556, #0d1230 80%); }
+.a-smoke .nc-deco { background: radial-gradient(circle at 20% 30%, rgba(255,255,255,.4) 0, transparent 25%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.35) 0, transparent 28%); }
+.a-lucky .nc-bg { background: radial-gradient(circle at 50% 45%, #fff2a8 0, #3cc46c 30%, #0b4026 75%); }
+.a-lucky .nc-deco { background: repeating-conic-gradient(from 0deg, rgba(255,230,120,.55) 0 10deg, transparent 10deg 30deg); }
+.a-headsup .nc-bg { background: radial-gradient(circle at 50% 50%, #ff9a6b 0, #b8282f 40%, #2a0a1c 80%); }
+.a-headsup .nc-deco { background: repeating-radial-gradient(circle at 50% 50%, transparent 0 .8em, rgba(255,255,255,.45) .8em .95em); }
+.a-stall .nc-bg { background: linear-gradient(180deg, #3d2a0e, #e0a33b 55%, #5a3510); }
+.a-stall .nc-deco { background: radial-gradient(.12em .12em at 30% 20%, #fff 0, transparent 100%) 0 0 / .7em .7em; }
+.a-eavesdrop .nc-bg { background: radial-gradient(circle at 50% 50%, #c89bff 0, #4a2a9e 40%, #120a35 82%); }
+.a-eavesdrop .nc-deco { background: repeating-radial-gradient(circle at 15% 50%, transparent 0 .7em, rgba(255,255,255,.5) .7em .8em); -webkit-mask: linear-gradient(90deg, transparent 20%, #000); mask: linear-gradient(90deg, transparent 20%, #000); }
+.a-grabbag .nc-bg { background: radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--sc) 45%, #ffd23f) 0, color-mix(in srgb, var(--sc) 60%, #301050) 45%, #0c0a2a 85%); }
+.a-grabbag .nc-deco { background: radial-gradient(.25em .25em at 20% 25%, #ffd23f, transparent), radial-gradient(.2em .2em at 75% 20%, #ff5fd2, transparent), radial-gradient(.22em .22em at 80% 75%, #7ef0c0, transparent), radial-gradient(.2em .2em at 25% 80%, #5fd0ff, transparent); opacity: 1; }
+.a-decoy .nc-bg { background: linear-gradient(160deg, #10304d, #2ef0ff 50%, #102a44); }
+.a-decoy .nc-deco { background: repeating-linear-gradient(0deg, rgba(255,255,255,.5) 0 .08em, transparent .08em .32em); }
+.a-jammer .nc-bg { background: linear-gradient(135deg, #200a36, #c43bd0 50%, #1b0b30); }
+.a-jammer .nc-deco { background: repeating-linear-gradient(90deg, rgba(255,255,255,.45) 0 .1em, transparent .1em .5em), repeating-linear-gradient(0deg, transparent 0 .6em, rgba(0,0,0,.4) .6em .9em); }
+.a-swap .nc-bg { background: conic-gradient(from 45deg at 50% 50%, #3fa3ff, #ff5fd2, #3fa3ff, #ff5fd2, #3fa3ff); }
+.a-swap .nc-deco { background: radial-gradient(circle, transparent 40%, rgba(10,8,32,.75) 75%); mix-blend-mode: normal; opacity: 1; }
+.a-lookout .nc-bg { background: conic-gradient(from 200deg at 30% 100%, transparent 0 10deg, rgba(255,240,170,.9) 18deg, transparent 40deg), linear-gradient(180deg, #050a24, #18244e); }
+.a-lookout .nc-deco { background: radial-gradient(1px 1px at 70% 20%, #fff, transparent), radial-gradient(1px 1px at 85% 45%, #fff, transparent); }
+.a-glitch .nc-bg { background: linear-gradient(90deg, #ff2878 0 33%, #28fff0 33% 66%, #3a1060 66%); }
+.a-glitch .nc-deco { background: repeating-linear-gradient(0deg, rgba(0,0,0,.6) 0 .3em, transparent .3em .7em); opacity: .8; mix-blend-mode: normal; }
+.a-mirror .nc-bg { background: linear-gradient(135deg, #c9f7ff, #6fb7d6 35%, #e9fbff 50%, #4a7fa0 70%, #c9f7ff); }
+.a-mirror .nc-deco { background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.9) 38%, transparent 44%, transparent 56%, rgba(255,255,255,.6) 60%, transparent 64%); opacity: .9; }
+.a-ghost .nc-bg { background: radial-gradient(circle at 50% 40%, #e8f3ff 0, #7a8fc4 30%, #1b1f4a 75%); }
+.a-ghost .nc-deco { background: radial-gradient(ellipse at 50% 110%, rgba(255,255,255,.6), transparent 55%); }
+.a-storm .nc-bg { background: #59607a; }
+.a-storm .nc-deco { background: repeating-linear-gradient(17deg, rgba(255,255,255,.7) 0 .05em, transparent .05em .2em), repeating-linear-gradient(-63deg, rgba(0,0,0,.6) 0 .06em, transparent .06em .17em); opacity: .8; mix-blend-mode: normal; }
+.a-multiplier .nc-bg { background: radial-gradient(circle at 50% 45%, #fff6c0 0, #ffb21e 30%, color-mix(in srgb, var(--sc) 55%, #3a0f0f) 75%); }
+.a-multiplier .nc-deco { background: repeating-conic-gradient(rgba(255,255,255,.55) 0 8deg, transparent 8deg 24deg); }
+.a-duplicator .nc-bg { background: linear-gradient(90deg, color-mix(in srgb, var(--sc) 70%, #0a0d2c), #2ee59d 50%, color-mix(in srgb, var(--sc) 70%, #0a0d2c)); }
+.a-duplicator .nc-deco { background: radial-gradient(.22em .22em at 50% 50%, #fff, transparent) 0 0 / 1em .7em; -webkit-mask: linear-gradient(90deg, transparent 25%, #000 45% 55%, transparent 75%); mask: linear-gradient(90deg, transparent 25%, #000 45% 55%, transparent 75%); opacity: 1; }
+.a-blackout .nc-bg { background: radial-gradient(circle at 50% 50%, #2a2a45 0, #000 60%); }
+.a-blackout .nc-deco { background: radial-gradient(circle at 50% 50%, rgba(255,255,255,.35) 0, transparent 8%); }
+/* hunters */
+.a-hacker .nc-bg { background: linear-gradient(180deg, #2a0006, #ff3048 50%, #2a0006); }
+.a-hacker .nc-deco { background: repeating-linear-gradient(0deg, rgba(0,255,120,.35) 0 .1em, transparent .1em .35em); }
+.a-compass .nc-bg { background: radial-gradient(circle, #f4e2b0 0 30%, #a86f2a 31% 36%, #3a1e0b 37% 80%); }
+.a-compass .nc-deco { background: conic-gradient(from -5deg, rgba(255,255,255,.7) 0 10deg, transparent 10deg 80deg, rgba(255,255,255,.7) 80deg 100deg, transparent 100deg 170deg, rgba(255,255,255,.7) 170deg 190deg, transparent 190deg 260deg, rgba(255,255,255,.7) 260deg 280deg, transparent 280deg); }
+.a-hound .nc-bg { background: radial-gradient(circle at 50% 45%, #f3c98a 0, #a35a2a 40%, #2a1308 85%); }
+.a-hound .nc-deco { background: radial-gradient(.22em .22em at 30% 30%, rgba(40,20,0,.8), transparent), radial-gradient(.22em .22em at 70% 55%, rgba(40,20,0,.8), transparent) 0 0 / 1.6em 1.6em; mix-blend-mode: normal; opacity: .6; }
+.a-quickping .nc-bg { background: radial-gradient(circle, #e3fbff 0 26%, #2ad0ff 27% 32%, #0a2f4a 33% 85%); }
+.a-quickping .nc-deco { background: repeating-conic-gradient(rgba(255,255,255,.7) 0 2deg, transparent 2deg 30deg); -webkit-mask: radial-gradient(circle, transparent 36%, #000 37% 46%, transparent 47%); mask: radial-gradient(circle, transparent 36%, #000 37% 46%, transparent 47%); opacity: 1; }
+.a-scout .nc-bg { background: radial-gradient(circle at 35% 50%, #9ad7ff 0 18%, transparent 19%), radial-gradient(circle at 65% 50%, #9ad7ff 0 18%, transparent 19%), #0b1430; }
+.a-scout .nc-deco { background: radial-gradient(circle at 35% 50%, transparent 17%, rgba(255,255,255,.7) 18% 20%, transparent 21%), radial-gradient(circle at 65% 50%, transparent 17%, rgba(255,255,255,.7) 18% 20%, transparent 21%); opacity: 1; }
+.a-rewind .nc-bg { background: linear-gradient(180deg, #120a30, #3b1f7a 45%, #ff4f9e 50%, #3b1f7a 55%, #120a30); }
+.a-rewind .nc-deco { background: repeating-linear-gradient(0deg, transparent 0 .5em, rgba(255,255,255,.55) .5em .56em); }
+.a-useless .nc-bg { background: repeating-linear-gradient(45deg, #3a0a12 0 .6em, #6a1420 .6em 1.2em); }
+.a-useless .nc-deco { background: radial-gradient(circle, transparent 30%, rgba(255,60,80,.6) 31% 36%, transparent 37%); opacity: 1; }
+.a-radar .nc-bg { background: radial-gradient(circle, #0c3a2a 0, #04150f 75%); }
+.a-radar .nc-deco { background: repeating-radial-gradient(circle, transparent 0 .9em, rgba(80,255,170,.6) .9em 1em), conic-gradient(from 20deg, rgba(80,255,170,.7), transparent 60deg); opacity: .8; }
+.a-double .nc-bg { background: linear-gradient(90deg, #ff5a28, #ffd23f 50%, #ff5a28); }
+.a-double .nc-deco { background: repeating-linear-gradient(90deg, transparent 0 .6em, rgba(255,255,255,.5) .6em .8em); -webkit-mask: linear-gradient(90deg, #000, transparent); mask: linear-gradient(90deg, #000, transparent); }
+.a-wiretap .nc-bg { background: linear-gradient(180deg, #0d0a2c, #5b2fd1 50%, #0d0a2c); }
+.a-wiretap .nc-deco { background: linear-gradient(90deg, rgba(255,255,255,.7) .08em, transparent .08em) 0 50% / .4em 40% repeat-x; opacity: .9; }
+.a-snitch .nc-bg { background: radial-gradient(ellipse at 50% 20%, rgba(255,235,170,.85) 0, transparent 45%), linear-gradient(180deg, #2a2440, #0a0816); }
+.a-snitch .nc-deco { background: repeating-linear-gradient(90deg, rgba(0,0,0,.5) 0 .2em, transparent .2em 1em); mix-blend-mode: normal; }
+.a-freeze .nc-bg { background: radial-gradient(circle at 50% 45%, #ffffff 0, #9ee9ff 30%, #1a6aa8 70%, #0a2346); }
+.a-freeze .nc-deco { background: conic-gradient(from 0deg, transparent 0 28deg, rgba(255,255,255,.8) 29deg 31deg, transparent 32deg 58deg, rgba(255,255,255,.8) 59deg 61deg, transparent 62deg); opacity: .7; }
+.a-tracker .nc-bg { background: radial-gradient(circle, #ff4f5e 0 12%, #fff 13% 22%, #ff4f5e 23% 34%, #fff 35% 44%, #2a0a1a 45%); }
+.a-tracker .nc-deco { background: linear-gradient(90deg, transparent 49%, rgba(0,0,0,.6) 49% 51%, transparent 51%), linear-gradient(0deg, transparent 49%, rgba(0,0,0,.6) 49% 51%, transparent 51%); mix-blend-mode: normal; opacity: .7; }
+.a-exposure .nc-bg { background: radial-gradient(circle at 50% 45%, #fff 0, #ffe8a8 25%, #c0552a 60%, #2a0a12); }
+.a-exposure .nc-deco { background: repeating-conic-gradient(rgba(255,255,255,.6) 0 6deg, transparent 6deg 18deg); }
+.a-eye .nc-bg { background: radial-gradient(ellipse 50% 32% at 50% 50%, #fff 0, #ff5fd2 30%, #3a0a5a 60%, #0a0420 100%); }
+.a-eye .nc-deco { background: radial-gradient(circle at 50% 50%, transparent 30%, rgba(255,210,63,.5) 32%, transparent 40%); opacity: 1; }
+/* the side's mark on the art's corner for the cards both sides have (blue hider / red hunter) */
+.a-grabbag .nc-art::after, .a-multiplier .nc-art::after, .a-duplicator .nc-art::after {
+  content: ''; position: absolute; right: .3em; bottom: .3em; width: 1em; height: 1em; border-radius: 50%;
+  border: .14em solid var(--nc-ink); background: var(--sc);
+}
+/* the epic frame: emerald with its own shimmer (a slow green-white sheen) */
+.nc.r-epic .nc-front::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(115deg, transparent 35%, rgba(200, 255, 230, .45) 47%, rgba(46, 229, 157, .3) 52%, transparent 62%);
+  animation: nc-epic 5.2s ease-in-out calc(var(--i, 0) * .3s) infinite;
+}
+@keyframes nc-epic { 0%, 50% { transform: translateX(-100%); } 85%, 100% { transform: translateX(100%); } }
+.nc.r-epic .nc-gem { background: linear-gradient(135deg, #b4ffdc, #0aa866); }
+/* a Multiplier's boost, a sticker on the card until it's played */
+.nc-boost {
+  position: absolute; left: -6%; top: 46%; z-index: 2; padding: .15em .4em; border-radius: .4em; rotate: -9deg;
+  border: 2px solid var(--nc-ink); background: linear-gradient(180deg, #fff3a0, #ffb21e); color: #2a1300; box-shadow: 2px 2px 0 var(--nc-ink);
+  font: 400 clamp(11px, 10cqi, 20px)/1.05 var(--display, 'Bowlby One', system-ui);
+}
+@media (prefers-reduced-motion: reduce) { .nc.r-epic .nc-front::after { animation: none; } }
+/* v1.7: a card-played effect with its own theme: the theme layer goes under the card and its words */
+.cfx-self.themed .cfx-glow { opacity: 0 !important; animation: none; }
+/* a long word in the name: a smaller name so it never breaks mid-word (Eavesdrop, Multiplier, Duplicator) */
+.nc.long .nc-name { font-size: 1.2em; letter-spacing: -.05em; }
+.nc.long.full .nc-name { font-size: 1.15em; }
+
+/* Multiplier: a glowing gold boost with a % tag, not a grey "close" button */
+.a-multiplier .nc-emoji { filter: sepia(1) saturate(6) hue-rotate(5deg) drop-shadow(0 0 .12em #fff6c0) drop-shadow(0 0 .3em #ffb21e) drop-shadow(0 .07em 0 var(--nc-ink)); }
+.a-multiplier .nc-art::before { content: '%'; position: absolute; right: .25em; top: .2em; z-index: 2; font: 400 1.4em/1 var(--display, 'Bowlby One', system-ui); color: #fff6c0; -webkit-text-stroke: .1em var(--nc-ink); paint-order: stroke fill; }

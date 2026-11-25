@@ -415,6 +415,8 @@ if (params.show) {
     const into = Math.max(0, Number(params.at) || 0);
     const v = V.newVote({ now: 0, id: 7, checkpoints: 3, keep: { mode } });
     v.ballots.mode = Object.fromEntries(players.map((p) => [p.id, mode]));
+    // (v1.7: &drops=few|normal|lots, the Drops question after a Loot drops win)
+    if (v.ballots.drops) v.ballots.drops = Object.fromEntries(players.map((p) => [p.id, ['few', 'normal', 'lots'].includes(params.drops) ? params.drops : 'normal']));
     v.at = Date.now() - (v.introMs + v.gearMs + v.voteMs + into);
     const show = vs.createVoteShow({ cmd: async () => ({}), faces: new Map() });
     const view = () => ({ now: Date.now(), me: { id: 'p1', host: params.host !== '0' }, players, settings: {}, vote: V.voteView(v, 'p1') });

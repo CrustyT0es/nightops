@@ -9,24 +9,24 @@
 //
 // Pure helpers (no DOM, tested in Node): overFacts(view), playerLines(row, facts), shareText(facts), listNames,
 // ticksFor(facts, endS), captionAt(events, clockMs), phaseAt(facts, clockMs), defaultSpeed(endS), facesSig.
-import { h, fill, face, text, cls, listen } from '../dom.js?v=177';
-import { icon } from '../ui/icons.js?v=177';
-import { banner } from '../ui/banner.js?v=177';
-import { openSheet } from '../ui/sheet.js?v=177';
-import { createMap, cleanRoute, routeAt, toBounds } from '../map.js?v=177';
-import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js?v=177';
-import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js?v=177';
-import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js?v=177'; // v1.1 PAGE-RADIO
-import { createTray } from '../ui/tray.js?v=177'; // v1.2 PAGE-MAP
-import { attachCamParts, confirmAgain } from './camparts.js?v=177'; // v1.2 PAGE-CAM
-import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js?v=177'; // v1.3 PAGE-AFTER
+import { h, fill, face, text, cls, listen } from '../dom.js?v=178';
+import { icon } from '../ui/icons.js?v=178';
+import { banner } from '../ui/banner.js?v=178';
+import { openSheet } from '../ui/sheet.js?v=178';
+import { createMap, cleanRoute, routeAt, toBounds } from '../map.js?v=178';
+import { POWERS, cleanSettings, schedule, ringScaleAt, fmtClock, fmtDistance } from '../../shared/rules.js?v=178';
+import { scaleRing, boundsOf, isPoint } from '../../shared/geo.js?v=178';
+import { createReplayRadio, replayRadioUi, replayClips, clipPlan } from '../radio.js?v=178'; // v1.1 PAGE-RADIO
+import { createTray } from '../ui/tray.js?v=178'; // v1.2 PAGE-MAP
+import { attachCamParts, confirmAgain } from './camparts.js?v=178'; // v1.2 PAGE-CAM
+import { cpCard, cpReplay, cpFacts, cpTitle, cpShareLine, cpTicks } from './cpafter.js?v=178'; // v1.3 PAGE-AFTER
 // v1.4 PAGE-REEL: the map camera, the scene player, the Movies card, the close calls' mini maps
-import { createMapCam } from '../mapcam.js?v=177';
-import { openReel } from './reelplayer.js?v=177';
-import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js?v=177';
-import { scenes as reelScenes } from '../scenes.js?v=177';
-import { keepRow } from './keeprow.js?v=177'; // v1.4 PAGE-RENDER
-import { proRows, linkSheet, linkedPc } from '../pcedit.js?v=177'; // v1.5: the PC edit
+import { createMapCam } from '../mapcam.js?v=178';
+import { openReel } from './reelplayer.js?v=178';
+import { moviesCard, callMini, followRow, loadFaces } from './reelparts.js?v=178';
+import { scenes as reelScenes } from '../scenes.js?v=178';
+import { keepRow } from './keeprow.js?v=178'; // v1.4 PAGE-RENDER
+import { proRows, linkSheet, linkedPc } from '../pcedit.js?v=178'; // v1.5: the PC edit
 // v1.4 end PAGE-REEL
 
 // v1.1 PAGE-RADIO: 1 = real time (the walkie-talkie plays at it); clipPlan(clips, fromS, toS, playing) is the replay's
@@ -76,6 +76,18 @@ function powerName(key) {
   if (POWERS[key]) return POWERS[key].name;
   const s = clean(String(key ?? ''), 20);
   return s ? s[0].toUpperCase() + s.slice(1) : '';
+}
+
+// v1.7: the Snitch deals, revealed only here (nothing named who snitched while the round was live).
+export function dealLines(summary, nameOf) {
+  const list = summary && Array.isArray(summary.snitches) ? summary.snitches : [];
+  return list.filter((d) => d && d.snitch).map((d) => {
+    const who = nameOf(d.snitch);
+    const on = d.on ? nameOf(d.on) : 'a teammate';
+    const hunter = d.hunter ? nameOf(d.hunter) : 'the hunters';
+    const got = d.offer === 'safe' || d.reward === 'safe' ? 'a safe ping' : 'a loot card';
+    return `🐀 ${who} snitched on ${on} to ${hunter} for ${got}.`;
+  });
 }
 
 function fromSummary(p, nameOf, driverId = null) {
@@ -564,6 +576,11 @@ export function mount(root, app) {
   const calls = h('section.over-card.over-calls', { 'aria-labelledby': 'over-calls-title' },
     h('div.over-card-head', h('h2#over-calls-title.label', 'Close calls')), callsList);
 
+  // v1.7: who snitched (the reveal)
+  const dealsList = h('ul.over-deals-list', { role: 'list' });
+  const deals = h('section.over-card.over-deals', { hidden: true, 'aria-labelledby': 'over-deals-title' },
+    h('div.over-card-head', h('h2#over-deals-title.label', 'Snitches revealed 👀')), dealsList);
+
   const boardList = h('ul.over-board-list', { role: 'list' });
   const boardNote = h('p.over-hint', { hidden: true });
   const board = h('section.over-card.over-board', { 'aria-labelledby': 'over-board-title' },
@@ -609,7 +626,7 @@ export function mount(root, app) {
   // v1.6 (the clean-up): three tabs, Result (who won, the awards), Watch (the movies, the replay, close calls and
   // your clips to upload) and Scores (the scoreboard and the play-by-play), instead of one long page.
   const overPanels = {
-    result: h('div.over-panel', { 'data-tab': 'result', role: 'tabpanel', id: 'over-panel-result' }, hero, keepSlot, cpSlot),
+    result: h('div.over-panel', { 'data-tab': 'result', role: 'tabpanel', id: 'over-panel-result' }, hero, deals, keepSlot, cpSlot),
     watch: h('div.over-panel', { 'data-tab': 'watch', role: 'tabpanel', id: 'over-panel-watch' }, movies.el, poster, camSlot, calls),
     scores: h('div.over-panel', { 'data-tab': 'scores', role: 'tabpanel', id: 'over-panel-scores' }, board, pbp),
   };
@@ -1246,7 +1263,7 @@ export function mount(root, app) {
     if (S.chat || S.dead) return;
     S.chat = 'opening';
     try {
-      const mod = await import('./chat.js?v=177');
+      const mod = await import('./chat.js?v=178');
       if (S.dead) { S.chat = null; return; }
       S.unread = 0;
       paintChat();
@@ -1489,7 +1506,7 @@ export function mount(root, app) {
     const r = reel || movies.reel(kind);
     if (!r) return;
     let mod = null;
-    try { mod = await import('../render.js?v=177'); } catch { mod = null; }
+    try { mod = await import('../render.js?v=178'); } catch { mod = null; }
     if (!mod || typeof mod.downloadReel !== 'function') {
       banner("Downloads aren't ready on this phone yet. Watch it here for now.", 'warn', 5000);
       return;
@@ -1515,6 +1532,11 @@ export function mount(root, app) {
       view = { ...view, summary: isObj(view.summary) ? view.summary : S.keptSummary, result: isObj(view.result) ? view.result : S.keptResult };
     }
     const f = overFacts(view);
+    try { // v1.7: the Snitch reveal
+      const lines = dealLines(view.summary, f.nameOf || ((id) => id));
+      deals.hidden = !lines.length;
+      if (dealsList.dataset.sig !== lines.join('|')) { dealsList.dataset.sig = lines.join('|'); dealsList.replaceChildren(...lines.map((l) => h('li.over-deal', l))); }
+    } catch (e) { console.error(e); }
     const sig = factsSig(f);
     const ids = f.rows.map((r) => r.id);
     for (const id of f.winners) if (!ids.includes(id)) ids.push(id);

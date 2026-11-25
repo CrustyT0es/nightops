@@ -16,18 +16,18 @@
 //   driverReveal(words, view)                  the reveal screen's words for the driver (and the others)
 //
 // Pure helpers are exported for tests (tests/page-driver.test.mjs, tests/page-play14.test.mjs).
-import { h, fill, text, cls, listen } from '../dom.js?v=177';
-import { icon } from '../ui/icons.js?v=177';
-import { holdInert } from '../ui/inert.js?v=177';
-import { fmtClock, fmtDistance } from '../../shared/rules.js?v=177';
-import { directionWords, isPoint } from '../../shared/geo.js?v=177';
-import { speechReady } from '../alerts.js?v=177';
-import { cpSpeech, cpDriveLine } from './cpplay.js?v=177'; // v1.3 PAGE-PLAY
-import { createMap } from '../map.js?v=177';
-import { createMapCam } from '../mapcam.js?v=177';
-import { openSheet } from '../ui/sheet.js?v=177';
-import { pinsFor, createPinTool } from './pins.js?v=177';
-import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=177'; // v1.4.8
+import { h, fill, text, cls, listen } from '../dom.js?v=178';
+import { icon } from '../ui/icons.js?v=178';
+import { holdInert } from '../ui/inert.js?v=178';
+import { fmtClock, fmtDistance } from '../../shared/rules.js?v=178';
+import { directionWords, isPoint } from '../../shared/geo.js?v=178';
+import { speechReady } from '../alerts.js?v=178';
+import { cpSpeech, cpDriveLine } from './cpplay.js?v=178'; // v1.3 PAGE-PLAY
+import { createMap, closingFrom } from '../map.js?v=178';
+import { createMapCam } from '../mapcam.js?v=178';
+import { openSheet } from '../ui/sheet.js?v=178';
+import { pinsFor, createPinTool } from './pins.js?v=178';
+import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=178'; // v1.4.8
 
 export const VOICE_KEY = 'nightops-drive-voice';   // 'off' = the driver muted the voice
 export const DRIVE_STALE_MS = 120000;              // events older than this aren't spoken (a phone that slept)
@@ -579,6 +579,13 @@ export function mountDrive(container, app, { onSos = null, onMenu = null } = {})
       S.ringKey = rk;
       try { map.setRing(view.ring, view.ringNow); } catch (e) { console.error(e); }
     }
+    // v1.7 (Owen's bug): the ring closing in, moved smoothly from this phone's clock
+    try {
+      map.setClosing(closingFrom(view, () => {
+        const x = S.view;
+        return x && Number.isFinite(x.clock) ? x.clock + elapsed() : NaN;
+      }));
+    } catch (e) { console.error(e); }
     // (v1.4.8: while navigating the car sits at this phone's own newest fix, which is fresher than the server's)
     const marks = nav ? nav.carMarks(driveMarks(view)) : driveMarks(view);
     try { map.setMarks(marks, { faces: app.faces, players: view.players, meId: view.me ? view.me.id : null, paused: !!view.paused }); } catch (e) { console.error(e); }
@@ -818,7 +825,11 @@ export function driverCard(app) {
       const drive = view.drive;
       const parked = !!drive.parked;
       text(title, parked ? "You're parked" : 'Driving');
-      text(line, 'Your map shows the hunters, their pins and pickups. The hunters tell you where to go.');
+      // v1.7: two drivers: say who else is driving (pickups go to both; the first to say On my way takes it)
+      const others = Array.isArray(drive.drivers) ? drive.drivers.filter((d) => d && d.id !== (view.me && view.me.id)) : [];
+      text(line, others.length
+        ? `${others.map((d) => d.name || 'Someone').join(' and ')} is driving too. Pickups go to both of you: the first to say On my way takes it.`
+        : 'Your map shows the hunters, their pins and pickups. The hunters tell you where to go.');
       list.update(pickupLines(view));
     },
   };

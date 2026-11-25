@@ -240,7 +240,8 @@ html.vs-on, html.vs-on body { overflow: hidden; }
 .vs-rarities span { padding: 3px 10px; border: 3px solid var(--ink); border-radius: 10px; font: 14px var(--display); box-shadow: 3px 3px 0 var(--ink); animation: vs-stamp .45s cubic-bezier(.2, 1.7, .4, 1) both; animation-delay: calc(1.2s + var(--i) * .5s); }
 .vs-rarities .r0 { background: var(--loot-common, #d9e2f2); color: var(--ink); }
 .vs-rarities .r1 { background: var(--loot-rare, #b38bff); color: var(--ink); }
-.vs-rarities .r2 { background: var(--loot-legendary, #ffd23f); color: var(--ink); animation: vs-stamp .45s cubic-bezier(.2, 1.7, .4, 1) 2.2s both, vs-shine 1s ease-in-out 2.7s infinite; }
+.vs-rarities .r2 { background: var(--loot-epic, #2ee59d); color: var(--ink); } /* v1.7: epic */
+.vs-rarities .r3 { background: var(--loot-legendary, #ffd23f); color: var(--ink); animation: vs-stamp .45s cubic-bezier(.2, 1.7, .4, 1) 2.7s both, vs-shine 1s ease-in-out 3.2s infinite; }
 .vs-clockface { display: flex; gap: 6px; perspective: 400px; }
 .vs-digit { display: grid; place-items: center; min-width: 50px; height: 76px; padding: 0 6px; border: 4px solid var(--ink); border-radius: 12px; background: #141238; color: var(--gold); font: 50px var(--display); box-shadow: 4px 5px 0 var(--ink); transform-origin: 50% 0; animation: vs-flipdown .6s cubic-bezier(.2, 1.3, .4, 1) both; animation-delay: calc(.3s + var(--i) * .1s); }
 .vs-digit:nth-child(3) { min-width: 18px; border: 0; background: none; box-shadow: none; color: #fff; }
@@ -435,7 +436,7 @@ html.vs-on, html.vs-on body { overflow: hidden; }
 .vs-carousel-in { position: relative; width: 64px; height: 90px; transform-style: preserve-3d; animation: vs-carousel 9s linear infinite; }
 .vs-ccard { position: absolute; inset: 0; display: grid; place-items: center; border: 4px solid var(--ink); border-radius: 12px; background: #fff7e6; font-size: 32px; box-shadow: 0 4px 0 var(--ink); transform: rotateY(calc(var(--i) * 360deg / var(--n))) translateZ(125px); }
 @keyframes vs-carousel { from { transform: rotateX(-12deg) rotateY(0); } to { transform: rotateX(-12deg) rotateY(-360deg); } }
-.vs-rarities .r3 { background: linear-gradient(90deg, #ff9ae4, #ffe27a, #9affc9, #9ae4ff); color: var(--ink); animation: vs-stamp .45s cubic-bezier(.2, 1.7, .4, 1) 2.7s both, vs-shine .8s ease-in-out 3.2s infinite; }
+.vs-rarities .r4 { background: linear-gradient(90deg, #ff9ae4, #ffe27a, #9affc9, #9ae4ff); color: var(--ink); animation: vs-stamp .45s cubic-bezier(.2, 1.7, .4, 1) 3.2s both, vs-shine .8s ease-in-out 3.7s infinite; }
 .vs-rarities { flex-wrap: wrap; justify-content: center; }
 .vs-road { position: absolute; left: -10%; right: -10%; top: 46%; height: 26px; background: #2a2a3a repeating-linear-gradient(90deg, transparent 0 16px, #ffd23f 16px 28px) 0 50% / 100% 3px no-repeat; border-top: 3px solid var(--ink); border-bottom: 3px solid var(--ink); }
 .vs-car { position: absolute; top: 44%; font-size: 30px; transform: translateZ(20px) rotateZ(24deg) rotateX(-56deg); animation: vs-car 3.2s ease-in-out infinite; }
@@ -779,12 +780,14 @@ html.vs-on, html.vs-on body { overflow: hidden; }
 .vx-rw { position: relative; z-index: 3; margin: 0; padding: 2px 12px; border: 3px solid var(--ink); border-radius: 999px; font: 400 15px/1.2 var(--display); letter-spacing: .06em; color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
 .vx-big.r-common .vx-rw { background: #e9eef9; }
 .vx-big.r-rare .vx-rw { background: #b38bff; }
+.vx-big.r-epic .vx-rw { background: #2ee59d; } /* v1.7: the epic tier */
 .vx-big.r-legendary .vx-rw { background: #ffd23f; animation: vx-throb .8s ease-in-out infinite; }
 .vx-big.r-mythic .vx-rw, .vx-rw.r-mythic { background: linear-gradient(90deg, #ff9ae4, #ffe27a, #9affc9, #9ae4ff, #ff9ae4) 0 0 / 200% 100%; animation: vx-rainbow 1.2s linear infinite, vx-throb .6s ease-in-out infinite; }
 @keyframes vx-rainbow { to { background-position: 200% 0; } }
 .vx-big.now.r-legendary ~ .vx-rays, .vx-spot:has(.vx-big.now.r-legendary) .vx-rays { background: repeating-conic-gradient(from 0deg, rgba(255, 210, 63, .32) 0 10deg, transparent 10deg 20deg); opacity: .9; }
 .vx-spot:has(.vx-big.now.r-mythic) .vx-rays { background: repeating-conic-gradient(from 0deg, rgba(255, 95, 210, .4) 0 8deg, rgba(126, 240, 192, .3) 8deg 16deg, transparent 16deg 24deg); opacity: 1; animation-duration: 5s; }
 .vx-spot:has(.vx-big.now.r-rare) .vx-rays { background: repeating-conic-gradient(from 0deg, rgba(179, 139, 255, .26) 0 10deg, transparent 10deg 20deg); opacity: .8; }
+.vx-spot:has(.vx-big.now.r-epic) .vx-rays { background: repeating-conic-gradient(from 0deg, rgba(46, 229, 157, .28) 0 10deg, transparent 10deg 20deg); opacity: .85; }
 .vx-grid { position: relative; z-index: 1; width: min(100%, 330px); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .vx-slot { position: relative; animation: vx-deal .55s cubic-bezier(.2, 1.3, .4, 1) both; animation-delay: calc(.15s + var(--i) * 70ms); transition: translate .3s, scale .3s; }
 .vx-slot .nc { --w: 100%; --ry: 180deg; }
@@ -803,108 +806,108 @@ html.vs-on, html.vs-on body { overflow: hidden; }
 .vx-fx i { position: absolute; display: block; opacity: 0; }
 .vx-big.now .vx-fx i { opacity: 1; }
 /* Sprint: speed lines */
-.fx-sprint .vx-fx i { left: calc(var(--bigw) * -1.2); width: calc(var(--bigw) * .9); height: 5px; border-radius: 3px; background: linear-gradient(90deg, transparent, #fff); }
-.fx-sprint .vx-fx .a { top: -60px; } .fx-sprint .vx-fx .b { top: -10px; } .fx-sprint .vx-fx .c { top: 40px; } .fx-sprint .vx-fx .d { top: 85px; left: calc(var(--bigw) * -1); }
-.fx-sprint.now .vx-fx i { animation: vx-zoom .55s linear infinite; }
-.fx-sprint.now .vx-fx .b { animation-delay: .2s; } .fx-sprint.now .vx-fx .c { animation-delay: .1s; } .fx-sprint.now .vx-fx .d { animation-delay: .32s; }
+.vfx-sprint .vx-fx i { left: calc(var(--bigw) * -1.2); width: calc(var(--bigw) * .9); height: 5px; border-radius: 3px; background: linear-gradient(90deg, transparent, #fff); }
+.vfx-sprint .vx-fx .a { top: -60px; } .vfx-sprint .vx-fx .b { top: -10px; } .vfx-sprint .vx-fx .c { top: 40px; } .vfx-sprint .vx-fx .d { top: 85px; left: calc(var(--bigw) * -1); }
+.vfx-sprint.now .vx-fx i { animation: vx-zoom .55s linear infinite; }
+.vfx-sprint.now .vx-fx .b { animation-delay: .2s; } .vfx-sprint.now .vx-fx .c { animation-delay: .1s; } .vfx-sprint.now .vx-fx .d { animation-delay: .32s; }
 @keyframes vx-zoom { from { translate: 60px 0; opacity: 0; } 30% { opacity: 1; } to { translate: -80px 0; opacity: 0; } }
 /* Smoke: puffs */
-.fx-smoke .vx-fx i { width: 120px; height: 120px; margin: -60px; border-radius: 50%; background: radial-gradient(circle, rgba(210, 215, 235, .75), rgba(210, 215, 235, 0) 68%); }
-.fx-smoke.now .vx-fx i { animation: vx-puff 2.2s ease-out infinite; }
-.fx-smoke .vx-fx .a { left: -70px; } .fx-smoke .vx-fx .b { left: 70px; } .fx-smoke .vx-fx .c { top: 60px; } .fx-smoke .vx-fx .d { top: -70px; }
-.fx-smoke.now .vx-fx .b { animation-delay: .5s; } .fx-smoke.now .vx-fx .c { animation-delay: 1s; } .fx-smoke.now .vx-fx .d { animation-delay: 1.4s; }
+.vfx-smoke .vx-fx i { width: 120px; height: 120px; margin: -60px; border-radius: 50%; background: radial-gradient(circle, rgba(210, 215, 235, .75), rgba(210, 215, 235, 0) 68%); }
+.vfx-smoke.now .vx-fx i { animation: vx-puff 2.2s ease-out infinite; }
+.vfx-smoke .vx-fx .a { left: -70px; } .vfx-smoke .vx-fx .b { left: 70px; } .vfx-smoke .vx-fx .c { top: 60px; } .vfx-smoke .vx-fx .d { top: -70px; }
+.vfx-smoke.now .vx-fx .b { animation-delay: .5s; } .vfx-smoke.now .vx-fx .c { animation-delay: 1s; } .vfx-smoke.now .vx-fx .d { animation-delay: 1.4s; }
 @keyframes vx-puff { from { scale: .4; opacity: .9; } to { scale: 1.6; opacity: 0; } }
 /* Decoy: a fake pin pops up somewhere else */
-.fx-decoy .vx-fx .a::before, .fx-decoy .vx-fx .b::before { content: '📍'; font-size: 34px; }
-.fx-decoy .vx-fx .a { left: calc(var(--bigw) * -.95); top: -40px; }
-.fx-decoy .vx-fx .b { left: calc(var(--bigw) * .62); top: 30px; }
-.fx-decoy.now .vx-fx .a { animation: vx-fade .9s ease-in-out infinite alternate; filter: grayscale(1); }
-.fx-decoy.now .vx-fx .b { animation: vx-hop .9s cubic-bezier(.2, 1.8, .4, 1) infinite alternate; }
+.vfx-decoy .vx-fx .a::before, .vfx-decoy .vx-fx .b::before { content: '📍'; font-size: 34px; }
+.vfx-decoy .vx-fx .a { left: calc(var(--bigw) * -.95); top: -40px; }
+.vfx-decoy .vx-fx .b { left: calc(var(--bigw) * .62); top: 30px; }
+.vfx-decoy.now .vx-fx .a { animation: vx-fade .9s ease-in-out infinite alternate; filter: grayscale(1); }
+.vfx-decoy.now .vx-fx .b { animation: vx-hop .9s cubic-bezier(.2, 1.8, .4, 1) infinite alternate; }
 @keyframes vx-fade { to { opacity: .2; } }
 @keyframes vx-hop { from { translate: 0 0; } to { translate: 0 -18px; } }
 /* Jammer: no signal */
-.fx-jammer .vx-fx .a { width: 70px; height: 70px; margin: -35px; left: calc(var(--bigw) * -.85); top: -50px; border-radius: 50%; border: 6px solid var(--hunter); background: linear-gradient(45deg, transparent 45%, var(--hunter) 45% 55%, transparent 55%); }
-.fx-jammer .vx-fx .b::before { content: '📡'; font-size: 30px; }
-.fx-jammer .vx-fx .b { left: calc(var(--bigw) * -.85 - 16px); top: -70px; }
-.fx-jammer.now .vx-fx .a { animation: vx-throb .5s ease-in-out infinite; }
+.vfx-jammer .vx-fx .a { width: 70px; height: 70px; margin: -35px; left: calc(var(--bigw) * -.85); top: -50px; border-radius: 50%; border: 6px solid var(--hunter); background: linear-gradient(45deg, transparent 45%, var(--hunter) 45% 55%, transparent 55%); }
+.vfx-jammer .vx-fx .b::before { content: '📡'; font-size: 30px; }
+.vfx-jammer .vx-fx .b { left: calc(var(--bigw) * -.85 - 16px); top: -70px; }
+.vfx-jammer.now .vx-fx .a { animation: vx-throb .5s ease-in-out infinite; }
 /* Glitch: the card goes buggy */
-.fx-glitch.now .vx-big-card { animation: vx-glitch .4s steps(2) infinite; filter: drop-shadow(-4px 0 0 rgba(255, 30, 120, .85)) drop-shadow(4px 0 0 rgba(30, 255, 240, .85)); }
-.fx-glitch .vx-fx i { left: calc(var(--bigw) * -.9); width: calc(var(--bigw) * 1.8); height: 10px; background: rgba(30, 255, 240, .5); }
-.fx-glitch .vx-fx .a { top: -70px; } .fx-glitch .vx-fx .b { top: 10px; background: rgba(255, 30, 120, .5); } .fx-glitch .vx-fx .c { top: 70px; }
-.fx-glitch.now .vx-fx i { animation: vx-tear .3s steps(3) infinite; }
+.vfx-glitch.now .vx-big-card { animation: vx-glitch .4s steps(2) infinite; filter: drop-shadow(-4px 0 0 rgba(255, 30, 120, .85)) drop-shadow(4px 0 0 rgba(30, 255, 240, .85)); }
+.vfx-glitch .vx-fx i { left: calc(var(--bigw) * -.9); width: calc(var(--bigw) * 1.8); height: 10px; background: rgba(30, 255, 240, .5); }
+.vfx-glitch .vx-fx .a { top: -70px; } .vfx-glitch .vx-fx .b { top: 10px; background: rgba(255, 30, 120, .5); } .vfx-glitch .vx-fx .c { top: 70px; }
+.vfx-glitch.now .vx-fx i { animation: vx-tear .3s steps(3) infinite; }
 @keyframes vx-glitch { 0% { translate: 0 0; } 25% { translate: -6px 2px; skew: 6deg 0deg; } 50% { translate: 5px -3px; } 75% { translate: -3px 0; skew: -4deg 0deg; } }
 @keyframes vx-tear { 0% { translate: -14px 0; } 50% { translate: 16px 6px; } 100% { translate: 0 -8px; } }
 /* Ghost: fades in and out */
-.fx-ghost.now .vx-big-card { animation: vx-ghost 1.2s ease-in-out infinite alternate; }
-.fx-ghost .vx-fx .a::before { content: '👻'; font-size: 44px; }
-.fx-ghost .vx-fx .a { left: calc(var(--bigw) * .5); top: -90px; }
-.fx-ghost.now .vx-fx .a { animation: vx-float 1.6s ease-in-out infinite alternate; }
+.vfx-ghost.now .vx-big-card { animation: vx-ghost 1.2s ease-in-out infinite alternate; }
+.vfx-ghost .vx-fx .a::before { content: '👻'; font-size: 44px; }
+.vfx-ghost .vx-fx .a { left: calc(var(--bigw) * .5); top: -90px; }
+.vfx-ghost.now .vx-fx .a { animation: vx-float 1.6s ease-in-out infinite alternate; }
 @keyframes vx-ghost { to { opacity: .28; } }
 @keyframes vx-float { to { translate: -20px -14px; } }
 /* Static Storm: TV static over everything */
-.fx-storm .vx-fx .a { left: -50vw; top: -260px; width: 100vw; height: 520px;
+.vfx-storm .vx-fx .a { left: -50vw; top: -260px; width: 100vw; height: 520px;
   background: repeating-radial-gradient(circle at 30% 40%, rgba(255, 255, 255, .55) 0 1px, rgba(30, 30, 40, .4) 1px 2px, rgba(140, 140, 150, .35) 2px 3px) 0 0 / 7px 9px; }
-.fx-storm.now .vx-fx .a { animation: vx-snow .18s steps(3) infinite; opacity: .55; }
-.fx-storm .vx-fx { z-index: 3; }
+.vfx-storm.now .vx-fx .a { animation: vx-snow .18s steps(3) infinite; opacity: .55; }
+.vfx-storm .vx-fx { z-index: 3; }
 @keyframes vx-snow { 0% { translate: 0 0; } 33% { translate: -3px 4px; } 66% { translate: 4px -2px; } }
 /* Blackout: the screen goes dark around it (.vx-dark), the card burns bright */
-.fx-blackout.now .vx-big-card { animation: vx-burn 1.4s ease-in-out infinite alternate; }
+.vfx-blackout.now .vx-big-card { animation: vx-burn 1.4s ease-in-out infinite alternate; }
 @keyframes vx-burn { to { filter: drop-shadow(0 0 18px #ff5fd2) drop-shadow(0 0 30px rgba(255, 210, 63, .6)); } }
 /* Hacker: the alarm */
-.fx-hacker .vx-fx .a { width: 300px; height: 300px; margin: -150px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 79, 94, .55), transparent 65%); }
-.fx-hacker.now .vx-fx .a { animation: vx-alarm .35s steps(2) infinite; }
-.fx-hacker .vx-fx .b::before { content: '🚨'; font-size: 34px; }
-.fx-hacker .vx-fx .b { left: calc(var(--bigw) * .55); top: -100px; }
-.fx-hacker.now .vx-fx .b { animation: vx-shake .25s ease-in-out infinite; }
+.vfx-hacker .vx-fx .a { width: 300px; height: 300px; margin: -150px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 79, 94, .55), transparent 65%); }
+.vfx-hacker.now .vx-fx .a { animation: vx-alarm .35s steps(2) infinite; }
+.vfx-hacker .vx-fx .b::before { content: '🚨'; font-size: 34px; }
+.vfx-hacker .vx-fx .b { left: calc(var(--bigw) * .55); top: -100px; }
+.vfx-hacker.now .vx-fx .b { animation: vx-shake .25s ease-in-out infinite; }
 @keyframes vx-alarm { 50% { opacity: .15; } }
 /* Compass: an arrow that finds the nearest hider */
-.fx-compass .vx-fx .a { left: calc(var(--bigw) * -.9); top: -86px; width: 58px; height: 58px; border: 5px solid var(--ink); border-radius: 50%; background: #fff7e6; }
-.fx-compass .vx-fx .a::after { content: ''; position: absolute; left: 50%; top: 6px; margin-left: -7px; border: 7px solid transparent; border-bottom: 22px solid var(--hunter); transform-origin: 50% 100%; }
-.fx-compass.now .vx-fx .a::after { animation: vx-needle 2s cubic-bezier(.3, 1.4, .5, 1) both; }
-.fx-compass .vx-fx .b { left: calc(var(--bigw) * .78); top: 40px; width: 22px; height: 22px; margin: -11px; border: 4px solid var(--ink); border-radius: 50%; background: var(--hider); }
+.vfx-compass .vx-fx .a { left: calc(var(--bigw) * -.9); top: -86px; width: 58px; height: 58px; border: 5px solid var(--ink); border-radius: 50%; background: #fff7e6; }
+.vfx-compass .vx-fx .a::after { content: ''; position: absolute; left: 50%; top: 6px; margin-left: -7px; border: 7px solid transparent; border-bottom: 22px solid var(--hunter); transform-origin: 50% 100%; }
+.vfx-compass.now .vx-fx .a::after { animation: vx-needle 2s cubic-bezier(.3, 1.4, .5, 1) both; }
+.vfx-compass .vx-fx .b { left: calc(var(--bigw) * .78); top: 40px; width: 22px; height: 22px; margin: -11px; border: 4px solid var(--ink); border-radius: 50%; background: var(--hider); }
 @keyframes vx-needle { 0% { rotate: 0deg; } 60% { rotate: 500deg; } 100% { rotate: 470deg; } }
 /* Radar: a sweep */
-.fx-radar .vx-fx .a { width: 300px; height: 300px; margin: -150px; border-radius: 50%; background: conic-gradient(from 0deg, rgba(126, 240, 192, .55), transparent 25%); border: 2px solid rgba(126, 240, 192, .4); }
-.fx-radar.now .vx-fx .a { animation: vs-spin 1.6s linear infinite; }
-.fx-radar .vx-fx .b, .fx-radar .vx-fx .c, .fx-radar .vx-fx .d { width: 14px; height: 14px; margin: -7px; border-radius: 50%; border: 3px solid var(--ink); background: var(--hider); }
-.fx-radar .vx-fx .b { left: -120px; top: -60px; } .fx-radar .vx-fx .c { left: 110px; top: 40px; } .fx-radar .vx-fx .d { left: -90px; top: 90px; }
-.fx-radar.now .vx-fx .b, .fx-radar.now .vx-fx .c, .fx-radar.now .vx-fx .d { animation: vx-blip 1.6s ease-out infinite; }
-.fx-radar.now .vx-fx .c { animation-delay: .5s; } .fx-radar.now .vx-fx .d { animation-delay: 1s; }
+.vfx-radar .vx-fx .a { width: 300px; height: 300px; margin: -150px; border-radius: 50%; background: conic-gradient(from 0deg, rgba(126, 240, 192, .55), transparent 25%); border: 2px solid rgba(126, 240, 192, .4); }
+.vfx-radar.now .vx-fx .a { animation: vs-spin 1.6s linear infinite; }
+.vfx-radar .vx-fx .b, .vfx-radar .vx-fx .c, .vfx-radar .vx-fx .d { width: 14px; height: 14px; margin: -7px; border-radius: 50%; border: 3px solid var(--ink); background: var(--hider); }
+.vfx-radar .vx-fx .b { left: -120px; top: -60px; } .vfx-radar .vx-fx .c { left: 110px; top: 40px; } .vfx-radar .vx-fx .d { left: -90px; top: 90px; }
+.vfx-radar.now .vx-fx .b, .vfx-radar.now .vx-fx .c, .vfx-radar.now .vx-fx .d { animation: vx-blip 1.6s ease-out infinite; }
+.vfx-radar.now .vx-fx .c { animation-delay: .5s; } .vfx-radar.now .vx-fx .d { animation-delay: 1s; }
 @keyframes vx-blip { 0% { opacity: 1; scale: 1.4; } 100% { opacity: 0; scale: .8; } }
 /* Double Double: pings twice as fast */
-.fx-double .vx-fx .a, .fx-double .vx-fx .b { width: 250px; height: 250px; margin: -125px; border-radius: 50%; border: 5px solid var(--gold); }
-.fx-double.now .vx-fx .a, .fx-double.now .vx-fx .b { animation: vs-ping .75s ease-out infinite; }
-.fx-double.now .vx-fx .b { animation-delay: .37s; }
-.fx-double .vx-fx .c::before { content: '×2'; font: 400 30px var(--display); color: var(--gold); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
-.fx-double .vx-fx .c { left: calc(var(--bigw) * .55); top: -100px; }
+.vfx-double .vx-fx .a, .vfx-double .vx-fx .b { width: 250px; height: 250px; margin: -125px; border-radius: 50%; border: 5px solid var(--gold); }
+.vfx-double.now .vx-fx .a, .vfx-double.now .vx-fx .b { animation: vs-ping .75s ease-out infinite; }
+.vfx-double.now .vx-fx .b { animation-delay: .37s; }
+.vfx-double .vx-fx .c::before { content: '×2'; font: 400 30px var(--display); color: var(--gold); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+.vfx-double .vx-fx .c { left: calc(var(--bigw) * .55); top: -100px; }
 /* Freeze: frost */
-.fx-freeze .vx-fx .a { width: calc(var(--bigw) * 1.25); height: calc(var(--bigw) * 1.65); margin: calc(var(--bigw) * -.825) 0 0 calc(var(--bigw) * -.625); border-radius: 22px; box-shadow: inset 0 0 26px 10px rgba(200, 240, 255, .9), 0 0 24px rgba(160, 220, 255, .8); }
-.fx-freeze .vx-fx .b::before, .fx-freeze .vx-fx .c::before, .fx-freeze .vx-fx .d::before { content: '❄'; font-size: 26px; color: #dff6ff; }
-.fx-freeze .vx-fx .b { left: -110px; top: -90px; } .fx-freeze .vx-fx .c { left: 96px; top: -40px; } .fx-freeze .vx-fx .d { left: -100px; top: 70px; }
-.fx-freeze.now .vx-fx .b, .fx-freeze.now .vx-fx .c, .fx-freeze.now .vx-fx .d { animation: vx-spinsnow 3s linear infinite; }
-.fx-freeze.now .vx-big-card { animation: vx-shiver .12s linear infinite; }
+.vfx-freeze .vx-fx .a { width: calc(var(--bigw) * 1.25); height: calc(var(--bigw) * 1.65); margin: calc(var(--bigw) * -.825) 0 0 calc(var(--bigw) * -.625); border-radius: 22px; box-shadow: inset 0 0 26px 10px rgba(200, 240, 255, .9), 0 0 24px rgba(160, 220, 255, .8); }
+.vfx-freeze .vx-fx .b::before, .vfx-freeze .vx-fx .c::before, .vfx-freeze .vx-fx .d::before { content: '❄'; font-size: 26px; color: #dff6ff; }
+.vfx-freeze .vx-fx .b { left: -110px; top: -90px; } .vfx-freeze .vx-fx .c { left: 96px; top: -40px; } .vfx-freeze .vx-fx .d { left: -100px; top: 70px; }
+.vfx-freeze.now .vx-fx .b, .vfx-freeze.now .vx-fx .c, .vfx-freeze.now .vx-fx .d { animation: vx-spinsnow 3s linear infinite; }
+.vfx-freeze.now .vx-big-card { animation: vx-shiver .12s linear infinite; }
 @keyframes vx-spinsnow { to { rotate: 360deg; translate: 0 20px; } }
 @keyframes vx-shiver { 50% { translate: 1.5px 0; } }
 /* Exposure: a camera flash */
-.fx-exposure .vx-fx .a { width: 420px; height: 420px; margin: -210px; border-radius: 50%; background: radial-gradient(circle, #fff 0, rgba(255, 255, 255, .7) 25%, transparent 60%); }
-.fx-exposure.now .vx-fx .a { animation: vx-flashout .9s ease-out .3s both; }
-.fx-exposure .vx-fx .b::before { content: '📸'; font-size: 34px; }
-.fx-exposure .vx-fx .b { left: calc(var(--bigw) * -.95); top: -100px; }
+.vfx-exposure .vx-fx .a { width: 420px; height: 420px; margin: -210px; border-radius: 50%; background: radial-gradient(circle, #fff 0, rgba(255, 255, 255, .7) 25%, transparent 60%); }
+.vfx-exposure.now .vx-fx .a { animation: vx-flashout .9s ease-out .3s both; }
+.vfx-exposure .vx-fx .b::before { content: '📸'; font-size: 34px; }
+.vfx-exposure .vx-fx .b { left: calc(var(--bigw) * -.95); top: -100px; }
 @keyframes vx-flashout { 0% { opacity: 0; scale: .3; } 15% { opacity: 1; } 100% { opacity: 0; scale: 1.4; } }
 /* Tracker dart: a reticle locks on */
-.fx-tracker .vx-fx .a { left: calc(var(--bigw) * .75); top: -60px; width: 60px; height: 60px; margin: -30px; border-radius: 50%; border: 4px solid var(--hunter);
+.vfx-tracker .vx-fx .a { left: calc(var(--bigw) * .75); top: -60px; width: 60px; height: 60px; margin: -30px; border-radius: 50%; border: 4px solid var(--hunter);
   background: linear-gradient(var(--hunter), var(--hunter)) 50% 0 / 4px 14px no-repeat, linear-gradient(var(--hunter), var(--hunter)) 50% 100% / 4px 14px no-repeat,
     linear-gradient(var(--hunter), var(--hunter)) 0 50% / 14px 4px no-repeat, linear-gradient(var(--hunter), var(--hunter)) 100% 50% / 14px 4px no-repeat; }
-.fx-tracker .vx-fx .b { left: calc(var(--bigw) * .75); top: -60px; width: 16px; height: 16px; margin: -8px; border-radius: 50%; border: 3px solid var(--ink); background: var(--hider); }
-.fx-tracker.now .vx-fx .a { animation: vx-lock 1.4s cubic-bezier(.3, 1.4, .5, 1) both, vx-throb .6s ease-in-out 1.4s infinite; }
+.vfx-tracker .vx-fx .b { left: calc(var(--bigw) * .75); top: -60px; width: 16px; height: 16px; margin: -8px; border-radius: 50%; border: 3px solid var(--ink); background: var(--hider); }
+.vfx-tracker.now .vx-fx .a { animation: vx-lock 1.4s cubic-bezier(.3, 1.4, .5, 1) both, vx-throb .6s ease-in-out 1.4s infinite; }
 @keyframes vx-lock { from { scale: 2.6; rotate: 90deg; opacity: 0; } }
 /* The All-Seeing Eye: everyone lights up */
-.fx-eye .vx-fx .a { width: 360px; height: 360px; margin: -180px; border-radius: 50%; background: repeating-conic-gradient(from 0deg, rgba(255, 95, 210, .35) 0 6deg, rgba(126, 240, 192, .25) 6deg 12deg, transparent 12deg 20deg);
+.vfx-eye .vx-fx .a { width: 360px; height: 360px; margin: -180px; border-radius: 50%; background: repeating-conic-gradient(from 0deg, rgba(255, 95, 210, .35) 0 6deg, rgba(126, 240, 192, .25) 6deg 12deg, transparent 12deg 20deg);
   -webkit-mask: radial-gradient(closest-side, #000 20%, transparent); mask: radial-gradient(closest-side, #000 20%, transparent); }
-.fx-eye.now .vx-fx .a { animation: vs-spin 4s linear infinite; }
-.fx-eye .vx-fx .b, .fx-eye .vx-fx .c, .fx-eye .vx-fx .d { width: 16px; height: 16px; margin: -8px; border-radius: 50%; border: 3px solid var(--ink); background: var(--hider); box-shadow: 0 0 12px 4px #fff; }
-.fx-eye .vx-fx .b { left: -120px; top: -80px; } .fx-eye .vx-fx .c { left: 120px; top: -20px; } .fx-eye .vx-fx .d { left: -110px; top: 90px; }
-.fx-eye.now .vx-fx .b, .fx-eye.now .vx-fx .c, .fx-eye.now .vx-fx .d { animation: vx-throb .7s ease-in-out infinite; }
+.vfx-eye.now .vx-fx .a { animation: vs-spin 4s linear infinite; }
+.vfx-eye .vx-fx .b, .vfx-eye .vx-fx .c, .vfx-eye .vx-fx .d { width: 16px; height: 16px; margin: -8px; border-radius: 50%; border: 3px solid var(--ink); background: var(--hider); box-shadow: 0 0 12px 4px #fff; }
+.vfx-eye .vx-fx .b { left: -120px; top: -80px; } .vfx-eye .vx-fx .c { left: 120px; top: -20px; } .vfx-eye .vx-fx .d { left: -110px; top: 90px; }
+.vfx-eye.now .vx-fx .b, .vfx-eye.now .vx-fx .c, .vfx-eye.now .vx-fx .d { animation: vx-throb .7s ease-in-out infinite; }
 
 /* ---- Loot drops: the demo ---- */
 .vx-demo .vx-stagebox { min-height: calc(min(100vw - 32px, 360px) * .82); }
@@ -999,3 +1002,88 @@ html.vs-on, html.vs-on body { overflow: hidden; }
 .vx-big.now { z-index: 3; }
 .vx-big.past { z-index: 1; }
 .vx-demo.ph-open:not(.ph-race) .vx-legend, .vx-hunt.ph-catch .vx-legend { visibility: hidden; }
+
+/* ---- v1.7: Loot drops a tier at a time (.vx-tier): the card he's naming big with its few words, both sides'
+   cards of the tier in two rows under it (blue hiders on top, red hunters under), dealt face down, each flipping
+   up as he says it ---- */
+.vx-tier { --bigw: min(38vw, 150px); }
+.vx-tier .vx-spot { height: calc(var(--bigw) * 1.4 + 74px); }
+.vx-big.t-hider .vx-rw { background: var(--hider); color: #fff; animation: none; }
+.vx-big.t-hunter .vx-rw { background: var(--hunter); color: #fff; animation: none; }
+.vx-say { position: absolute; left: 50%; top: calc(100% + 6px); translate: -50% 0; z-index: 3; margin: 0; width: max-content; max-width: min(86vw, 320px); padding: 4px 12px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; color: var(--ink);
+  font: 800 15px/1.2 var(--body, system-ui, sans-serif); text-align: center; box-shadow: 3px 3px 0 var(--ink); }
+.vx-tierword.r-common { background: #5d6b8a; }
+.vx-tierword.r-rare { background: #7b4fe0; }
+.vx-tierword.r-epic { background: #12a06a; }
+.vx-tierword.r-legendary { background: #d99a00; }
+.vx-tierword.r-mythic { background: linear-gradient(90deg, #ff5fc8, #f7b733, #2ee59d, #4fb6ff); }
+.vx-tierbig { position: absolute; left: 50%; top: 38%; z-index: 4; margin: 0; translate: -50% -50%; white-space: nowrap; font: 400 clamp(40px, 13vw, 64px)/1 var(--display); letter-spacing: .04em; color: #fff;
+  -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 5px 5px 0 var(--ink); opacity: 0; scale: 2.4; transition: opacity .2s, scale .45s cubic-bezier(.2, 1.7, .4, 1); }
+.vx-tierbig.now { opacity: 1; scale: 1; }
+.vx-tierbig.past { opacity: 0; scale: .5; transition-duration: .2s; }
+.vx-tierbig.r-rare { color: #c8a8ff; } .vx-tierbig.r-epic { color: #2ee59d; } .vx-tierbig.r-legendary { color: #ffd23f; } .vx-tierbig.r-mythic { color: #ff9ae4; }
+.vx-tierbig.r-epic.now, .vx-tierbig.r-legendary.now, .vx-tierbig.r-mythic.now { animation: vx-throb .6s ease-in-out infinite; }
+.vx-rows { display: grid; grid-template-columns: none; gap: 8px; width: min(100%, 360px); }
+.vx-row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 4px; padding: 5px 6px; border: 3px solid var(--ink); border-radius: 12px; box-shadow: 3px 3px 0 var(--ink); }
+.vx-row.t-hider { background: color-mix(in srgb, var(--hider) 32%, #141238); }
+.vx-row.t-hunter { background: color-mix(in srgb, var(--hunter) 32%, #141238); }
+.vx-rowlabel { font: 400 11px/1 var(--display); letter-spacing: .03em; color: #fff; text-align: center; }
+.vx-rowcards { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 52px)); justify-content: center; gap: 4px; }
+.vx-rowcards .vx-slot.now::after { inset: -3px; border-width: 2px; border-radius: 8px; }
+/* "Thirty-six cards! Blue ones for hiders, red ones for hunters.": the count, then each row lights as he says it */
+.vx-tierbig.r-all { color: var(--gold, #ffd23f); }
+.vx-row { transition: scale .25s cubic-bezier(.2, 1.5, .4, 1), box-shadow .25s; }
+.vx-row.t-hider.now { scale: 1.05; box-shadow: 3px 3px 0 var(--ink), 0 0 22px 6px color-mix(in srgb, var(--hider) 75%, transparent); }
+.vx-row.t-hunter.now { scale: 1.05; box-shadow: 3px 3px 0 var(--ink), 0 0 22px 6px color-mix(in srgb, var(--hunter) 75%, transparent); }
+/* the cards come quickly here (CARD_MIN_MS): one quick flip, the one going away drops its words at once, the new
+   one's words are up straight away (the grand spin stays for the mythics, which stay up for seconds) */
+.vx-tier .vx-big.now .nc-in { animation: vx-turn-quick .4s cubic-bezier(.3, 1.25, .5, 1) both; }
+.vx-tier.r-mythic .vx-big.now .nc-in { animation: vx-turn .75s cubic-bezier(.3, 1.25, .5, 1) both; }
+@keyframes vx-turn-quick { from { transform: perspective(28em) rotateY(-180deg) scale(.85); } }
+.vx-tier .vx-big { transition: opacity .12s, scale .4s cubic-bezier(.2, 1.45, .4, 1), translate .4s cubic-bezier(.2, 1.3, .4, 1); }
+.vx-tier .vx-big.past { transition-duration: .12s, .3s, .3s; }
+.vx-tier .vx-big.past .vx-say, .vx-tier .vx-big.past .vx-rw { opacity: 0; }
+.vx-tier .vx-dark.blk.now { opacity: 1; }
+.vx-tier .vx-dark.eye { background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0), rgba(255, 240, 200, .25) 40%); }
+.vx-tier .vx-dark.eye.on { opacity: 1; }
+
+/* the drop plane (fx.js planeEl) flies across the little map; the crates come down on parachutes */
+.vx-plane { z-index: 6; opacity: 0; }
+.vx-plane .fx-plane { position: absolute; left: 0; top: 0; width: 16cqw; height: 16cqw; margin: -8cqw; transform: none; animation: none; --a: 72deg; }
+.vx-demo.ph-plane .vx-plane { opacity: 1; --x: 125; --y: 14; animation: vx-planefly 3.4s linear both; transition: opacity .2s; }
+@keyframes vx-planefly { from { translate: -20cqw 60cqw; } to { translate: 125cqw 14cqw; } }
+.vx-demo.ph-walk .vx-plane { opacity: 0; }
+.vx-planepath i { position: absolute; left: -75cqw; top: 0; width: 150cqw; height: 0; border-top: .8cqw dashed rgba(255, 255, 255, .6); rotate: -17.6deg; opacity: 0; transition: opacity .3s; }
+.vx-demo.ph-plane:not(.ph-walk) .vx-planepath i { opacity: 1; }
+.vx-chute { position: absolute; left: -5cqw; top: -16cqw; width: 10cqw; height: 6cqw; border: .6cqw solid var(--ink); border-radius: 10cqw 10cqw 2cqw 2cqw; background: repeating-linear-gradient(90deg, #ff4f5e 0 2.5cqw, #fff 2.5cqw 5cqw); opacity: 0; transition: opacity .3s; }
+.vx-chute::after { content: ''; position: absolute; left: 20%; right: 20%; top: 100%; height: 5cqw; border-left: .4cqw solid #fff; border-right: .4cqw solid #fff; }
+.vx-demo.ph-drop:not(.ph-walk) .vx-chute { opacity: 1; }
+.vx-demo.ph-drop .x1 { animation-duration: 1.2s; }
+.vx-demo.ph-drop .x3 { opacity: 1; animation: vx-fall 1.2s cubic-bezier(.3, 0, .6, 1.2) .25s both; }
+.vx-demo.ph-open .x3 { opacity: 0; }
+
+@media (max-height: 740px) {
+  .vx-tier { --bigw: min(30vw, 112px); }
+  .vx-say { font-size: 13px; }
+  .vx-rowcards { grid-template-columns: repeat(var(--cols, 4), minmax(0, 40px)); }
+  .vx-rows { gap: 5px; }
+}
+@media (max-height: 640px) {
+  .vx-tier { --bigw: min(26vw, 92px); }
+  .vx-rowcards { grid-template-columns: repeat(var(--cols, 4), minmax(0, 32px)); }
+}
+/* the Drops explainer: the plane crosses, one crate (Few), two (Normal) or four (Lots) parachute down */
+.vs-drops { position: relative; width: min(100%, 320px); height: 180px; container-type: inline-size; }
+.vs-drops-plane { position: absolute; left: 0; top: 18px; animation: vs-drops-fly 2.6s linear .2s both; }
+.vs-drops-plane .fx-plane { position: relative; width: 70px; height: 70px; margin: 0; transform: none; animation: none; --a: 90deg; }
+@keyframes vs-drops-fly { from { translate: -90px 0; } to { translate: calc(100cqw + 20px) 0; } }
+.vs-drops-crate { position: absolute; bottom: 10px; left: calc((var(--i) + .5) * 100% / var(--n)); translate: -50% 0; display: grid; justify-items: center; animation: vs-drops-fall 1.4s cubic-bezier(.3, 0, .6, 1.15) both; animation-delay: calc(.8s + var(--i) * .45s); }
+.vs-drops-crate .chest-map { --cs: 44px; position: relative; left: 0; top: 0; }
+.vs-drops-chute { width: 46px; height: 26px; margin-bottom: 14px; border: 3px solid var(--ink); border-radius: 40px 40px 8px 8px; background: repeating-linear-gradient(90deg, #ff4f5e 0 11px, #fff 11px 22px); position: relative; }
+.vs-drops-chute::after { content: ''; position: absolute; left: 20%; right: 20%; top: 100%; height: 14px; border-left: 2px solid #fff; border-right: 2px solid #fff; }
+@keyframes vs-drops-fall { from { opacity: 0; translate: -50% -150px; } 10% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .vs-drops-plane, .vs-drops-crate { animation: none !important; }
+  .vx-tierbig, .vx-plane, .vx-demo.ph-drop .x3 { animation: none !important; transition: none !important; }
+}

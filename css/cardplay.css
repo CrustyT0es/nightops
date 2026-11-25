@@ -1,0 +1,58 @@
+/* Night Ops v1.7 WIRING: the cards on the game screen (js/screens/cardplay.js). The art itself is fx.css's. */
+
+/* the map's card layer: over the ring, under the faces; never takes a tap */
+.nmap-cardfx { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.cp7-art, .cp7-paws { position: absolute; inset: 0; pointer-events: none; }
+.cp7-path { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.cp7-path line { stroke: rgba(255, 210, 63, .95); stroke-width: 4; stroke-dasharray: 12 9; stroke-linecap: round; filter: drop-shadow(0 2px 0 rgba(10, 8, 32, .8)); animation: cp7-march 0.9s linear infinite; }
+@keyframes cp7-march { to { stroke-dashoffset: -21; } }
+.fx-plane.cp7-plane { animation: none !important; transition: none; will-change: transform; }
+.fx-plane.cp7-plane[hidden] { display: none; }
+.cp7-paws .fx-pawprint { will-change: transform; }
+.fx-chute.cp7-crate { z-index: 3; }
+
+/* Rewind's circles and the Snitch flash on the hunters' map */
+.narea.rewind { fill: rgba(199, 146, 255, 0.1); stroke: rgba(199, 146, 255, 0.95); stroke-width: 3; stroke-dasharray: 4 6; }
+.nmark.k-snitched { z-index: 7; --mc: #ff3048; --mc-soft: rgba(255, 48, 72, .45); }
+.nmark.k-rewind { opacity: .8; }
+
+/* Eavesdrop: the hunters' cards for 30 s */
+.cp7-ears { align-self: center; max-width: min(94vw, 420px); margin: 4px auto; padding: 8px 12px; border: 3px solid #0a0820; border-radius: 14px; background: #10203c; color: #fff; box-shadow: 0 3px 0 #0a0820; pointer-events: none; }
+.cp7-ears[hidden] { display: none; }
+.cp7-ears-head { margin: 0 0 4px; font: 700 14px var(--font, system-ui); }
+.cp7-ears-head b { float: right; color: #9ae4ff; }
+.cp7-ears-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.cp7-ear { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 13px; }
+
+/* a card as a small chip (the team deck, Eavesdrop) */
+.cp7-mate-cards { display: flex; flex-wrap: wrap; gap: 4px; }
+.cp7-mini { padding: 2px 8px; border: 2px solid #0a0820; border-radius: 999px; background: #e7e9f6; color: #120e2c; font: 700 12px/1.4 var(--font, system-ui); white-space: nowrap; }
+.cp7-mini.r-rare { background: #c9b4ff; }
+.cp7-mini.r-epic { background: #7ef0b8; }
+.cp7-mini.r-legendary { background: #ffd86b; }
+.cp7-mini.r-mythic { background: linear-gradient(90deg, #ff9ae4, #9ae4ff); }
+.cp7-mate-none { color: var(--muted, #9aa3c0); font-size: 13px; }
+
+/* the hunters' team deck, under your cards in the binder */
+.cd-team[hidden] { display: none; }
+.cp7-team { margin: 14px 4px 6px; padding: 12px; border: 3px solid #0a0820; border-radius: 16px; background: rgba(255, 77, 94, .12); }
+.cp7-team-title { margin: 0 0 2px; font: 400 18px var(--display, 'Bowlby One', system-ui); color: #fff; }
+.cp7-team-line { margin: 0 0 8px; font-size: 13px; color: var(--muted, #b8bfd8); }
+.cp7-team-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.cp7-mate { display: grid; gap: 4px; }
+.cp7-mate-name { color: #fff; font-size: 14px; }
+
+/* the pick sheets: card rows and the Snitch offers */
+.cp7-offer .g-pick-name, .cp7-cardrow .g-pick-name { font-weight: 800; }
+
+/* Become a driver (the second seat) */
+.cp7-seat[hidden] { display: none; }
+.cp7-seat { margin-top: 6px; }
+
+/* Lucky's extra cards in the box opening */
+.lb.lucky .lb-hint { color: #7ef0b8; font-weight: 800; }
+
+/* the end screen: who snitched */
+.over-deals[hidden] { display: none; }
+.over-deals-list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.over-deal { padding: 8px 10px; border-radius: 10px; background: rgba(255, 77, 94, .12); font-weight: 700; }

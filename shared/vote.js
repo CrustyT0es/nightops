@@ -28,8 +28,9 @@ export const VOTE_MS = 10000;     // each question
 export const EXPLAIN_MS = 9000;   // each winner (a drum roll, then the slam) and how it plays (a vote made before v1.6.4)
 // v1.6.4: each mode's explainer is as long as Static needs to show how it plays (the beats are in
 // js/screens/voteexplain.js; its test checks they fit): Classic and Checkpoints walk through a round, Loot drops
-// deals every card, says what each does, then plays a little demo. The host's Skip ends it early (cut).
-export const EXPLAIN_FOR = Object.freeze({ mode: Object.freeze({ classic: 37000, checkpoints: 28500, loot: 76000 }) });
+// deals every card (v1.7: all 36, a tier at a time), then the drop plane and a little demo. The host's Skip ends it
+// early (cut).
+export const EXPLAIN_FOR = Object.freeze({ mode: Object.freeze({ classic: 37000, checkpoints: 28500, loot: 74500 }) });
 export const RESULT_MS = 6500;
 export const DRIVER_MS = 10000;   // who wants to drive? (only when the host has the driver on)
 export const SPIN_MS = 6500;      // the wheel picks one of the volunteers    // the recap before the lobby comes back
@@ -69,10 +70,19 @@ export const OPTIONS = {
     hunters: { label: 'Hunters only', line: 'Hiders stay quiet', icon: 'mic' },
     both: { label: 'Both teams', line: 'Hiders get one too', icon: 'mics' },
   },
+  // v1.7: how often the plane drops loot (rules.js settings.drops; loot.js DROPS_UI's words)
+  drops: {
+    few: { label: 'Few', line: 'A drop every 5 min', icon: 'chute' },
+    normal: { label: 'Normal', line: 'Every 4 min, faster with more players', icon: 'crate' },
+    lots: { label: 'Lots', line: 'A drop every 2 min', icon: 'planes' },
+  },
 };
 // The owner, Nov 2026: one vote (the mode); the rest is the host's. (The other questions stay for older votes.)
-export const QUESTIONS = ['mode'];
-export const ALL_QUESTIONS = ['mode', 'length', 'pings', 'powers', 'caught', 'ring', 'walkies'];
+// v1.7: plus Drops, asked only once Loot drops has won the mode question (`when`: a question whose `when` didn't
+// win takes no time at all, and "nobody voted" keeps the setting, so nothing changes; every phone works it out the
+// same way from the picks, as the winners).
+export const QUESTIONS = ['mode', 'drops'];
+export const ALL_QUESTIONS = ['mode', 'length', 'pings', 'powers', 'caught', 'ring', 'walkies', 'drops'];
 export const PROMPTS = {
   mode: 'Which game?',
   length: 'How long?',
@@ -81,6 +91,7 @@ export const PROMPTS = {
   caught: 'When a hider gets caught...',
   ring: 'What does the ring do?',
   walkies: 'Who gets a walkie-talkie?',
+  drops: 'How often should the loot drop?',
 };
 
 // The explainer after each question: what the winner means, in the words Static says. { title, lines, scene }
@@ -89,7 +100,7 @@ export const EXPLAIN = {
   mode: {
     classic: { scene: 'classic', title: 'Classic it is!', lines: ['Hunters chase, hiders hide.', 'Last hider standing wins it for the hiders.'] },
     checkpoints: { scene: 'checkpoints', title: 'Checkpoints!', lines: ['One checkpoint opens at a time.', 'Get there, snap the photo. Most checkpoints wins.'] },
-    loot: { scene: 'loot', title: 'Loot drops!', lines: ['Nobody starts with a power.', 'Race to the boxes: first one there gets it.', 'Common, rare, legendary... or MYTHIC.'] },
+    loot: { scene: 'loot', title: 'Loot drops!', lines: ['Nobody starts with a power.', 'Race to the boxes: first one there gets it.', 'Common, rare, epic, legendary... or MYTHIC.'] },
   },
   length: {
     quick: { scene: 'clock', title: '20 minutes!', lines: ['Short and sweaty.', 'Pings every 3 minutes.'] },
@@ -119,6 +130,12 @@ export const EXPLAIN = {
     hunters: { scene: 'walkie', title: 'Hunters only', lines: ['Hold to talk to your team.', 'Hiders: text chat only.'] },
     both: { scene: 'walkie', title: 'Walkies for both!', lines: ['Each team gets its own walkie-talkie.', 'Hold to talk. Quiet mode for sneaking.'] },
   },
+  // v1.7 (only matters in Loot drops): the plane drops crates this often
+  drops: {
+    few: { scene: 'drops', title: 'Few drops', lines: ['A plane every 5 minutes.', 'Make every crate count.'] },
+    normal: { scene: 'drops', title: 'Normal drops', lines: ['Every 4 minutes...', '...and faster with more players.'] },
+    lots: { scene: 'drops', title: 'Lots of drops!', lines: ['A plane every 2 minutes.', 'Go, go, go!'] },
+  },
 };
 
 // The settings a winning key changes (merged by the engine's cleanSettings, in QUESTIONS order: pings after length).
@@ -143,6 +160,7 @@ export function settingsFor(q, key, { presets, powers } = {}) {
     return { shrink: false };
   }
   if (q === 'walkies') return { radioHiders: key === 'both' };
+  if (q === 'drops') return { drops: key };
   return {};
 }
 
@@ -155,6 +173,15 @@ export function winnerAt(v, i) {
   if (done) return done;
   const picks = ((v.ballots || v.picks || {})[question.q]) || {};
   return winner(question, picks, v.id, v.keep ? v.keep[question.q] : null);
+}
+
+// v1.7: is question i asked? (a `when` question only once its question's winner is `when.is`)
+export function asked(v, i) {
+  const question = v && v.questions && v.questions[i];
+  if (!question) return false;
+  if (!question.when) return true;
+  const j = v.questions.findIndex((x) => x.q === question.when.q);
+  return j >= 0 && j < i && winnerAt(v, j) === question.when.is;
 }
 
 // How long question i's explainer runs: the winner's own length (explainFor), else explainMs; the host's Skip cut
@@ -173,7 +200,7 @@ export function explainLen(v, i) {
 
 export function totalMs(v) {
   let qs = 0;
-  for (let i = 0; i < v.questions.length; i++) qs += v.voteMs + explainLen(v, i);
+  for (let i = 0; i < v.questions.length; i++) if (asked(v, i)) qs += v.voteMs + explainLen(v, i);
   return v.introMs + (v.gearMs || 0) + qs + (v.driverMs || 0) + (v.spinMs || 0) + v.resultMs;
 }
 
@@ -189,6 +216,7 @@ export function stageAt(v, now) {
   t -= gear;
   const n = v.questions.length;
   for (let i = 0; i < n; i++) {
+    if (!asked(v, i)) continue;
     if (t < v.voteMs) return { stage: 'question', i, left: v.voteMs - t, ms: t };
     t -= v.voteMs;
     const ex = explainLen(v, i);
@@ -218,7 +246,9 @@ export function closed(v, i, now) {
 // `keep`: what each question keeps when nobody votes ({ [q]: key }, from keepFor and the settings now).
 export function newVote({ now, id, checkpoints = 0, skipIntro = false, skip = [], driver = false, keep = {} }) {
   const options = (q) => Object.keys(OPTIONS[q]).filter((k) => q !== 'mode' || k !== 'checkpoints' || checkpoints >= 2);
-  const qs = QUESTIONS.filter((q) => !skip.includes(q));
+  // (Drops only when Loot drops can win: the mode question asks it, or the mode is already Loot drops)
+  const qs = QUESTIONS.filter((q) => !skip.includes(q) && (q !== 'drops' || !skip.includes('mode') || keep.mode === 'loot'));
+  const when = (q) => (q === 'drops' && qs.includes('mode') ? { when: { q: 'mode', is: 'loot' } } : {});
   return {
     id, at: now,
     introMs: skipIntro ? SKIPPED_INTRO_MS : INTRO_MS, gearMs: GEAR_MS, voteMs: VOTE_MS, explainMs: EXPLAIN_MS, resultMs: RESULT_MS,
@@ -226,7 +256,7 @@ export function newVote({ now, id, checkpoints = 0, skipIntro = false, skip = []
     keep: Object.fromEntries(qs.filter((q) => keep && typeof keep[q] === 'string' && options(q).includes(keep[q])).map((q) => [q, keep[q]])),
     cut: {},
     driverMs: driver ? DRIVER_MS : 0, spinMs: driver ? SPIN_MS : 0, drive: {},
-    questions: qs.map((q) => ({ q, options: options(q) })),
+    questions: qs.map((q) => ({ q, options: options(q), ...when(q) })),
     ballots: Object.fromEntries(qs.map((q) => [q, {}])),
     gear: {},
     applied: false,
@@ -266,6 +296,7 @@ export function keepFor(q, settings = {}) {
   if (q === 'mode') return settings.mode === 'infection' ? 'classic' : settings.mode;
   if (q === 'caught') return settings.caught;
   if (q === 'walkies') return settings.radioHiders ? 'both' : 'hunters';
+  if (q === 'drops') return settings.drops;
   if (q === 'ring') return !settings.shrink ? 'steady' : (settings.finalSizePct <= 30 ? 'squeeze' : 'shrink');
   return null;
 }
@@ -289,7 +320,7 @@ export function voteView(v, meId) {
     explainFor: Object.fromEntries(Object.entries(v.explainFor || {}).map(([q, per]) => [q, { ...per }])),
     keep: { ...(v.keep || {}) },
     cut: { ...(v.cut || {}) },
-    questions: v.questions.map((x) => ({ q: x.q, options: [...x.options] })),
+    questions: v.questions.map((x) => ({ q: x.q, options: [...x.options], ...(x.when ? { when: { ...x.when } } : {}) })),
     picks: Object.fromEntries(qs.map((q) => [q, { ...((v.ballots || {})[q] || {}) }])),
     mine: Object.fromEntries(qs.map((q) => [q, ((v.ballots || {})[q] || {})[meId] || null])),
     gear: Object.fromEntries(Object.entries(v.gear || {}).map(([id, g]) => [id, cleanGear(g)])),

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; font-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>Night Ops FX preview</title>
+<link rel="stylesheet" href="../css/base.css">
+<link rel="stylesheet" href="../css/game.css">
+<link rel="stylesheet" href="../css/loot.css">
+<link rel="stylesheet" href="../css/cards.css">
+<link rel="stylesheet" href="../css/fx.css">
+<link rel="stylesheet" href="fx-preview.css">
+</head>
+<body>
+<!-- v1.7 VISUALS: every card's effect (self / team / them), every game moment, the map art, the lasting looks and
+     the collection, in a phone-sized page. ?clean hides the buttons (for recording); window.fxDemo(name) plays one. -->
+<div class="g-root" id="root">
+  <div class="pv-map" aria-hidden="true"><div class="pv-roads"></div><div class="pv-ringedge"></div><div class="pv-me"></div></div>
+  <header class="pv-hud" id="hud"><b>NIGHT OPS</b><span>12:04</span><button type="button" class="pv-sos" id="sos">SOS</button></header>
+  <div class="pv-tray"><button type="button" class="tray-sq cd-btn some" id="cards" aria-label="Your cards"><span class="cd-stack"><i></i><i></i><i></i></span><span class="cd-n">4</span></button><button type="button" class="pv-tap" id="tap">Tap test: 0</button></div>
+  <div id="maplayer" class="pv-layer"></div>
+</div>
+<nav class="pv-controls" id="controls" aria-label="Effects"></nav>
+<script type="module" src="fx-preview.js"></script>
+</body>
+</html>

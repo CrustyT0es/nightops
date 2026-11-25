@@ -1,5 +1,5 @@
 // Night Ops: the game's settings, presets and timing rules, shared by the page and the server.
-import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=177';
+import { ringAcrossM, isPoint, distanceM, outsideByM, ringProblem } from './geo.js?v=178';
 
 export const LIMITS = {
   players: 20,      // most people in one game
@@ -37,6 +37,9 @@ export const LIMITS = {
   tapBytes: 48000,          // one Wiretap piece's audio, decoded
   tapClips: 120,            // Wiretap pieces in one round (their own cap, apart from the walkie's)
   tapGameBytes: 4000000,    // all of a round's Wiretap pieces together
+  // v1.7
+  drivers: 2,               // at most this many drivers at once
+  driverHunters: 6,         // a second driver's seat opens with this many hunters in
 };
 
 export const TIMING = {
@@ -56,6 +59,7 @@ export const TIMING = {
   TRAIL_EVERY_MS: 10000,       // one route point per player this often (for the replay)
   SYNC_MS: 3000,               // the page asks for news this often
   CLOSING_RADIUS: 0.5,         // ping circles shrink to this share in the closing minutes
+  CLOSING_WARN_MS: 60000,      // v1.7: everyone is warned this long before the ring starts shrinking
   // v1.1: spectators, the driver, the walkie-talkie
   SPECTATOR_DELAY_MS: 120000,  // spectators see the game this far behind (game clock)
   SPECTATOR_SPOT_MS: 60000,    // a spectator's dot: the newest route point within this before the delayed clock
@@ -114,7 +118,7 @@ export const MODES = {
   classic: { label: 'Classic', line: 'A third hunt, the rest hide. Caught hiders join the hunters.' },
   infection: { label: 'Infection', line: 'One hunter to start. Everyone caught joins them.' },
   checkpoints: { label: 'Checkpoints', line: 'Hiders race to checkpoints and take a photo at each. Most checkpoints wins.' },
-  loot: { label: 'Loot drops', line: 'Nobody starts with a power. Loot boxes drop around the ring: race there first for common, rare, legendary or mythic powers.' }, // v1.6
+  loot: { label: 'Loot drops', line: 'Nobody starts with a power. Loot boxes drop around the ring: race there first for common, rare, epic, legendary or mythic cards.' }, // v1.6
 };
 
 export const POWERS = {
@@ -166,6 +170,8 @@ export const DEFAULTS = Object.freeze({
   cpSafeMin: 3,            // safe time inside a checkpoint, per hider per checkpoint in total
   cpPhoto: true,           // a photo is needed; false = staying inside CP_STAY_MS counts it
   cpOrder: 'host',         // 'host' (the host's order) | 'shuffle' (shuffled at Start)
+  // v1.7 Loot drops: how often boxes drop ('few' 5 min, 'normal' by the players, 'lots' 2 min: loot.js dropEveryMs)
+  drops: 'normal',
 });
 
 // The extra switches (booleans; never counted as "changed by hand", never in presets or recommendations).
@@ -245,6 +251,7 @@ const CHOICES = {
   pingAccuracyM: [0, 50, 100, 200],
   caught: ['join', 'out'],
   cpOrder: ['host', 'shuffle'],
+  drops: ['few', 'normal', 'lots'], // v1.7 (loot.js DROPS)
 };
 const CP_INTS = ['cpOpenMin', 'cpLeadMin', 'cpSafeMin'];
 
@@ -306,6 +313,7 @@ export function fixCheckpointSettings(s) {
 
 function fixUp(s) {
   fixCheckpointSettings(s);
+  if (!CHOICES.drops.includes(s.drops)) s.drops = DEFAULTS.drops; // v1.7: older stored settings
   fixPowers(s);
   // (Older stored settings lack the v1.1/v1.2 extras: they get the defaults.)
   for (const key of EXTRA_KEYS) if (typeof s[key] !== 'boolean') s[key] = DEFAULTS[key];

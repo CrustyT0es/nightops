@@ -10,6 +10,10 @@
 // map's own projection on every move, so both look the same.
 //
 //   map.setRing(ring, ringNow)              ringNow solid blue with the outside dimmed; the full ring dashed once shrunk
+//   map.setClosing({ startMs, endMs, finalScale, clock } | null)   v1.7: the ring closing in. The map works the edge
+//                                           out itself from the full ring and clock() (the game clock, ms) every
+//                                           frame, so it moves smoothly between server views; the final size dashed
+//                                           amber from SHOW_FINAL_MS before it starts; the edge pulses while it moves
 //   map.setMarks(marks, { faces, players, meId, onTap, tappable, paused })
 //   map.setDraft(points | { kind: 'circle', center, radiusM } | null)     the ring editor's shape in progress
 //   map.onTap(fn([lng, lat]) | null) -> off()
@@ -20,6 +24,8 @@
 //   map.getCenter(), map.getZoom(), map.project(p), map.unproject([x, y]), map.resize(), map.destroy()
 //   map.setLoot([{ id, p, left, r, here }])  v1.6: loot boxes; v1.6.3: each in its pickup circle (r metres, to scale),
 //                                           lit up while `here` (you're inside it)
+//   v1.7: map.cardLayer (a div over the ring, under the faces), map.onDraw(fn) -> off (fn() after each frame drawn,
+//         so a screen can place its own art with map.project), map.redraw()
 //   v1.2: map.setInsets({ top, right, bottom, left })   px hidden by a screen's bars: fit/center/fitAll keep to the rest
 //         map.fitAll({ ring, marks, padding })          Fit everyone: the ring and every mark (with its circle)
 //         map.zoomBy(step)                              +1 / -1 around the middle of what shows, animated
@@ -33,14 +39,60 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=177';
-import { icon } from './ui/icons.js?v=177';
+import { h, face as makeFace, text, listen } from './dom.js?v=178';
+import { icon } from './ui/icons.js?v=178';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
-} from '../shared/geo.js?v=177';
-import { TIMING, fmtDistance } from '../shared/rules.js?v=177';
-import { LOOT_PICK_M } from '../shared/loot.js?v=177'; // v1.6.3: a loot box's pickup circle
+  scaleRing, // v1.7 (Owen's bug): the ring closing in, drawn here frame by frame
+} from '../shared/geo.js?v=178';
+import { TIMING, fmtDistance, schedule } from '../shared/rules.js?v=178';
+import { LOOT_PICK_M } from '../shared/loot.js?v=178'; // v1.6.3: a loot box's pickup circle
+
+// v1.7 (Owen's bug): the ring closing in
+export const CLOSING_COLOR = '#ffb020';
+export const SHOW_FINAL_MS = 2 * 60000;   // the final size shows this long before the ring starts closing
+const CLOSING_FRAME_MS = 100;              // the moving edge is redrawn at most 10 times a second
+
+// The closing ring's size at this clock: 1 before it starts, down to finalScale at its end.
+export function closingScale(c, clk) {
+  if (!c || !Number.isFinite(clk) || !(c.endMs > c.startMs)) return 1;
+  const f = Math.min(1, Math.max(0, (clk - c.startMs) / (c.endMs - c.startMs)));
+  return 1 - (1 - c.finalScale) * f;
+}
+
+// v1.7 (Owen's bug): a big "THE RING IS CLOSING IN" over the map for a few seconds as it starts.
+export function ringFlash(box) {
+  if (!box || typeof document === 'undefined') return;
+  const old = box.querySelector('.ring-flash');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'ring-flash';
+  el.setAttribute('role', 'status');
+  const big = document.createElement('div');
+  big.className = 'ring-flash-big';
+  big.textContent = 'The ring is closing in';
+  const small = document.createElement('div');
+  small.className = 'ring-flash-small';
+  small.textContent = 'Stay inside the solid line. The dashed one is where it stops.';
+  el.append(big, small);
+  box.append(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+// What map.setClosing needs for a game view (players, the driver and spectators alike), or null when the ring
+// doesn't shrink in this game. clock() = that phone's game clock in ms (a spectator's own, 2 minutes behind).
+export function closingFrom(view, clock) {
+  const s = view && view.settings;
+  if (!view || view.phase !== 'live' || !s || !s.shrink || !(s.closingMin > 0) || !(s.finalSizePct < 100)) return null;
+  try {
+    const sch = schedule(s);
+    if (!(sch.closingMs > 0)) return null;
+    return { startMs: sch.closingStartMs, endMs: sch.endMs, finalScale: s.finalSizePct / 100, clock };
+  } catch {
+    return null;
+  }
+}
 
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 export const STYLE_WAIT_MS = 8000;   // the street map's style must load within this, or the plain map stays
@@ -248,6 +300,7 @@ export function padBox(padding, width, height) {
 // Marks with the same id can show together (a hider's own spot and what the hunters saw; an SOS over a ping),
 // so each mark lives in a slot: 'sos', 'seen' or 'main' (one of ping/radar/exposure/outside/offline/hunter...).
 export function markSlot(kind) {
+  if (kind === 'snitched' || kind === 'rewind') return kind; // v1.7: beside the same hider's ping circle
   return kind === 'sos' ? 'sos' : kind === 'seen' ? 'seen' : 'main';
 }
 
@@ -421,9 +474,11 @@ const KINDS = {
   near: { team: 'hider', pulse: true, chip: 'Near car', chipKind: 'live' }, // v1.1 PAGE-DRIVER: the parked driver's
   overstay: { team: 'hider', exact: true, chip: 'Checkpoint', chipKind: 'cp' }, // v1.3 PAGE-PLAY: live at a checkpoint
   tracked: { team: 'hider', exact: true, chip: 'Dart', chipKind: 'warn', age: true }, // v1.6.1: a Tracker dart's spot
+  snitched: { team: 'hider', exact: true, pulse: true, chip: 'Snitched', chipKind: 'warn', age: true }, // v1.7: a Snitch deal's 30 s flash
+  rewind: { team: 'hider', area: 'rewind', chip: '◀◀ Rewind', chipKind: 'muted', age: true }, // v1.7: the ping before last
   other: { team: null },
 };
-const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping', 'near', 'tracked']); // v1.1 PAGE-DRIVER: + near
+const TAPPABLE = new Set(['hider', 'radar', 'exposure', 'outside', 'offline', 'ping', 'near', 'tracked', 'snitched']); // v1.1 PAGE-DRIVER: + near
 TAPPABLE.add('overstay'); // v1.3 PAGE-PLAY
 
 export function validRing(r) {
@@ -550,6 +605,7 @@ class PlainMap {
       dim: path('nmap-dim'),
       routes: { hunter: path('nmap-route hunter'), hider: path('nmap-route hider'), other: path('nmap-route other') },
       full: path('nmap-ring-full'),
+      final: path('nmap-ring-final'), // v1.7: where the ring ends up
       glow: path('nmap-ring-glow'),
       edge: path('nmap-ring-edge'), // v1.2: a dark edge under the ring line, so it reads on light streets
       ring: path('nmap-ring'),
@@ -734,6 +790,7 @@ class PlainMap {
       setD(P.inside, ''); setD(P.dim, ''); setD(P.glow, ''); setD(P.edge, ''); setD(P.ring, '');
     }
     setD(P.full, placed && m.fullOutline ? this.pathOf(m.fullOutline, true) : '');
+    setD(P.final, placed && m.finalOutline ? this.pathOf(m.finalOutline, true) : '');
 
     const d = placed ? m.draft : null;
     setD(P.dfill, d && d.fill ? this.pathOf(d.fill, true) : '');
@@ -933,6 +990,7 @@ function shapesData(m) {
     f.push(feature({ type: 'LineString', coordinates: closed(m.nowOutline) }, { part: 'ring' }));
   }
   if (m.fullOutline) f.push(feature({ type: 'LineString', coordinates: closed(m.fullOutline) }, { part: 'full' }));
+  if (m.finalOutline) f.push(feature({ type: 'LineString', coordinates: closed(m.finalOutline) }, { part: 'final' }));
   const d = m.draft;
   if (d) {
     if (d.fill) f.push(feature({ type: 'Polygon', coordinates: [d.fill] }, { part: 'dfill' }));
@@ -1010,6 +1068,7 @@ class GlMap {
   }
 
   addLayers(colors) {
+    this.colors = colors; // v1.7: the closing pulse puts the ring's own colour back
     const map = this.map;
     try { if (map.setProjection) map.setProjection({ type: 'mercator' }); } catch { /* fine */ }
     map.addSource('nightops-shapes', { type: 'geojson', data: EMPTY, tolerance: 0.2 });
@@ -1022,6 +1081,7 @@ class GlMap {
       paint: { 'line-color': ['match', ['get', 'team'], 'hunter', colors.hunter, 'hider', colors.hider, colors.muted], 'line-width': 3, 'line-opacity': 0.9 },
     });
     map.addLayer({ id: 'nightops-full', type: 'line', source: 'nightops-shapes', filter: part('full'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 1.5, 'line-opacity': 0.55, 'line-dasharray': [3, 3] } });
+    map.addLayer({ id: 'nightops-final', type: 'line', source: 'nightops-shapes', filter: part('final'), layout: { 'line-join': 'round' }, paint: { 'line-color': CLOSING_COLOR, 'line-width': 2.5, 'line-opacity': 0.9, 'line-dasharray': [2, 2] } });
     map.addLayer({ id: 'nightops-ring-glow', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 9, 'line-opacity': 0.18, 'line-blur': 4 } });
     map.addLayer({ id: 'nightops-ring-edge', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': '#000000', 'line-width': 8, 'line-opacity': 0.55 } });
     map.addLayer({ id: 'nightops-ring', type: 'line', source: 'nightops-shapes', filter: part('ring'), layout: { 'line-join': 'round' }, paint: { 'line-color': colors.hider, 'line-width': 4 } });
@@ -1174,6 +1234,10 @@ export function createMap(container, { interactive = true } = {}) {
     markOpts: {},
     people: null,
     ringSig: '',
+    closing: null,      // v1.7: { startMs, endMs, finalScale, clock }
+    closingNow: null,   // the edge worked out here from the clock
+    closingAt: 0,
+    closingState: '',   // '' | 'soon' | 'moving' | 'done'
     draftSig: '',
     tapFn: null,
     cameraSet: false,   // a screen or the player has placed the view: no more automatic placing
@@ -1225,6 +1289,10 @@ export function createMap(container, { interactive = true } = {}) {
   // v1.6: Loot drops' boxes, over the ring, under the faces
   const lootLayer = h('div.nmap-loot');
   root.insertBefore(lootLayer, facesLayer);
+  // v1.7: the cards' map art (paw prints, the drop plane, crates): placed by the screen through onDraw
+  const cardLayer = h('div.nmap-cardfx', { 'aria-hidden': 'true' });
+  root.insertBefore(cardLayer, facesLayer);
+  const drawFns = new Set();
   // v1.4 end PAGE-PLAY
 
   const timers = new Set();
@@ -1310,7 +1378,67 @@ export function createMap(container, { interactive = true } = {}) {
   // ---- frames: read nothing, write once ----
 
   let raf = 0;
+  // v1.7 (Owen's bug): the closing ring, worked out from the clock. 'fast' while the street map's glow pulses
+  // (it needs every frame), 'slow' while it's coming or moving otherwise (a wake-up every CLOSING_FRAME_MS, not
+  // 60 a second: a phone in a pocket for the last minutes of a game), false when there's nothing to move.
+  function closingFrame(now) {
+    const c = S.closing;
+    if (!c || !S.ring) return false;
+    let clk = NaN;
+    try { clk = Number(c.clock()); } catch { /* ignore */ }
+    if (!Number.isFinite(clk)) return false;
+    const state = clk < c.startMs - SHOW_FINAL_MS ? '' : clk < c.startMs ? 'soon' : clk < c.endMs ? 'moving' : 'done';
+    const moving = state === 'moving';
+    if (state !== S.closingState) {
+      S.closingState = state;
+      if (state) root.dataset.closing = state; else delete root.dataset.closing;
+      S.closingAt = 0;
+    }
+    const pace = moving && gl && gl.map && gl.styleReady && active !== plain ? 'fast' : state === 'soon' || moving ? 'slow' : false;
+    if (now - S.closingAt < CLOSING_FRAME_MS) return pace;
+    S.closingAt = now;
+    const f = closingScale(c, clk);
+    const next = f < 1 ? scaleRing(S.ring, f) : null;
+    const sig = next ? JSON.stringify(next) : '';
+    if (sig !== S.closingSig || state !== S.closingDrawn) {
+      S.closingSig = sig;
+      S.closingDrawn = state;
+      S.closingNow = next;
+      rebuild({ shapes: true, frame: false });
+    }
+    if (gl && gl.map && gl.styleReady) {
+      try {
+        const pulse = moving ? 0.5 + 0.5 * Math.sin(now / 260) : 0;
+        gl.map.setPaintProperty('nightops-ring-glow', 'line-width', moving ? 10 + 10 * pulse : 9);
+        gl.map.setPaintProperty('nightops-ring-glow', 'line-opacity', moving ? 0.25 + 0.35 * pulse : 0.18);
+        gl.map.setPaintProperty('nightops-ring-glow', 'line-color', moving ? CLOSING_COLOR : (gl.colors && gl.colors.hider) || '#4aa8ff');
+        gl.map.setPaintProperty('nightops-dim', 'fill-opacity', moving || state === 'done' ? 0.66 : 0.5);
+      } catch { /* the style may be changing */ }
+    }
+    return pace;
+  }
+
+  function setClosing(c) {
+    if (S.destroyed) return;
+    const ok = c && Number.isFinite(c.startMs) && Number.isFinite(c.endMs) && c.endMs > c.startMs
+      && Number.isFinite(c.finalScale) && c.finalScale > 0 && c.finalScale < 1 && typeof c.clock === 'function';
+    const sig = ok ? `${c.startMs}|${c.endMs}|${c.finalScale}` : '';
+    if (sig === (S.closingKey || '')) { if (ok) S.closing.clock = c.clock; requestFrame(); return; }
+    S.closingKey = sig;
+    S.closing = ok ? { startMs: c.startMs, endMs: c.endMs, finalScale: c.finalScale, clock: c.clock } : null;
+    if (!ok) {
+      S.closingNow = null; S.closingState = ''; S.closingSig = ''; S.closingDrawn = undefined;
+      delete root.dataset.closing;
+      rebuild({ shapes: true });
+      return;
+    }
+    S.closingAt = 0;
+    requestFrame();
+  }
+
+  let closingTimer = 0;
   function requestFrame() {
+    if (closingTimer) { clearTimeout(closingTimer); closingTimer = 0; }
     if (!raf && !S.destroyed) raf = requestAnimationFrame(frame);
   }
 
@@ -1319,11 +1447,16 @@ export function createMap(container, { interactive = true } = {}) {
     if (S.destroyed) return;
     const now = performance.now();
     let again = false;
+    const pace = closingFrame(now);
+    if (pace === 'fast') again = true;
     if (plain && plain.frame(now)) again = true;
     if (gl && gl.flush(now)) again = true;
     if (gl && active === plain) syncHiddenGl(now);
     if (drawOverlay(now)) again = true;
     if (again) requestFrame();
+    else if (pace === 'slow' && !closingTimer) {
+      closingTimer = setTimeout(() => { closingTimer = 0; requestFrame(); }, CLOSING_FRAME_MS);
+    }
   }
 
   // While the street map loads underneath, keep it looking where the plain map looks (so its tiles are ready).
@@ -1368,7 +1501,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=177');
+      lib = await import('../vendor/maplibre-gl.mjs?v=178');
     } catch {
       cancel(deadline);
       giveUp();
@@ -1542,10 +1675,12 @@ export function createMap(container, { interactive = true } = {}) {
     }
     // v1.4.8 end
     if (shapes) {
-      const now = S.ringNow || S.ring;
+      const now = S.closingNow || S.ringNow || S.ring;
       m.ringNow = now;
       m.nowOutline = now ? ringOutline(now) : null;
-      m.fullOutline = S.ring && S.ringNow && ringAreaM2(S.ringNow) < ringAreaM2(S.ring) * 0.98 ? ringOutline(S.ring) : null;
+      m.fullOutline = S.ring && now && now !== S.ring && ringAreaM2(now) < ringAreaM2(S.ring) * 0.98 ? ringOutline(S.ring) : null;
+      m.finalOutline = S.closing && S.ring && S.closingState && S.closingState !== 'done' && S.closing.finalScale < 1
+        ? ringOutline(scaleRing(S.ring, S.closing.finalScale)) : null;
       m.draft = draftParts(S.draft);
       m.shapesV = ++S.shapesV;
     }
@@ -1628,6 +1763,7 @@ export function createMap(container, { interactive = true } = {}) {
     drawSpots(eng); // v1.3 PAGE-SETUP
     drawPins(eng); // v1.4 PAGE-PLAY
     drawLoot(eng); // v1.6
+    for (const fn of drawFns) { try { fn(); } catch (e) { console.error(e); } } // v1.7: the card art over the map
     placeGroups();
     // v1.2: a new zoom (or size): group the faces again once it stands still.
     let z = null;
@@ -1847,6 +1983,8 @@ export function createMap(container, { interactive = true } = {}) {
     else if (kind === 'near') what = 'live, near the car'; // v1.1 PAGE-DRIVER
     else if (kind === 'exposure') what = 'exact spot from Exposure';
     else if (kind === 'tracked') what = `Tracker dart, ${fmtAgo(age)}`; // v1.6.1
+    else if (kind === 'snitched') what = 'given up by a teammate, live 30 seconds'; // v1.7
+    else if (kind === 'rewind') what = `the ping before, ${fmtAgo(age)}`; // v1.7
     else if (kind === 'outside') what = 'outside the ring, live';
     else if (kind === 'overstay') what = 'live, stayed at the checkpoint too long'; // v1.3 PAGE-PLAY
     else if (kind === 'offline') what = `offline, last seen ${fmtAgo(age)}`;
@@ -1860,8 +1998,8 @@ export function createMap(container, { interactive = true } = {}) {
       team,
       me,
       tag,
-      chip: K.chip || '',
-      chipKind: K.chipKind || '',
+      chip: K.chip || (kind === 'hunter' && mark.via === 'lookout' ? 'Lookout' : kind === 'hunter' && mark.via === 'mirror' ? 'Mirror' : ''), // v1.7
+      chipKind: K.chipKind || (kind === 'hunter' && mark.via ? 'warn' : ''),
       showsAge,
       age,
       stale,
@@ -2321,6 +2459,7 @@ export function createMap(container, { interactive = true } = {}) {
   function destroy() {
     if (S.destroyed) return;
     S.destroyed = true;
+    if (closingTimer) { clearTimeout(closingTimer); closingTimer = 0; }
     S.modeFns.clear();
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
@@ -2689,6 +2828,7 @@ export function createMap(container, { interactive = true } = {}) {
     ready,
     mode: () => S.mode,
     setRing,
+    setClosing, // v1.7
     setMarks,
     setDraft,
     onTap,
@@ -2698,6 +2838,9 @@ export function createMap(container, { interactive = true } = {}) {
     setSpots, onSpotTap, // v1.3 PAGE-SETUP
     setPins, onPinTap, // v1.4 PAGE-PLAY
     setLoot, // v1.6
+    cardLayer, // v1.7: a layer over the ring, under the faces
+    onDraw: (fn) => { drawFns.add(fn); return () => drawFns.delete(fn); }, // v1.7: fn() after every frame drawn
+    redraw: () => { if (!S.destroyed && active) drawOverlay(performance.now()); }, // v1.7
     setNavRoute, navCamera, flatView, navView, // v1.4.8
     setInsets,
     setHeading, // v1.5.1: the beam of light on your dot (deg, 0 = north; null hides it)

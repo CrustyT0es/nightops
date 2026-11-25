@@ -4,6 +4,7 @@
   --loot: #ffb547;
   --loot-common: #d9e2f2;
   --loot-rare: #b38bff;
+  --loot-epic: #2ee59d; /* v1.7: the epic tier, emerald */
   --loot-legendary: #ffd23f;
 }
 
@@ -73,6 +74,7 @@
 }
 .lb[data-rarity="common"] { --c: var(--loot-common); }
 .lb[data-rarity="rare"] { --c: var(--loot-rare); }
+.lb[data-rarity="epic"] { --c: var(--loot-epic); }
 .lb[data-rarity="legendary"] { --c: var(--loot-legendary); }
 .lb.out { animation: lb-out 0.28s ease-in forwards; }
 @keyframes lb-in { from { opacity: 0; } }
@@ -405,6 +407,7 @@ html.lx-dark .moment, html.lx-dark .banner-region { visibility: hidden; }
   background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 35%, #1c1640), #120e2c 72%); box-shadow: 0 0 0 3px var(--rc) inset, 0 10px 0 #0a0820, 0 0 40px color-mix(in srgb, var(--rc) 55%, transparent); }
 .cd-card.r-common { --rc: var(--loot-common); }
 .cd-card.r-rare { --rc: var(--loot-rare); }
+.cd-card.r-epic { --rc: var(--loot-epic); }
 .cd-card.r-legendary { --rc: var(--loot-legendary); }
 .cd-card.r-mythic { --rc: var(--loot-mythic); }
 .cd-card.r-mythic .cd-face { background: linear-gradient(160deg, rgba(255, 95, 210, .45), rgba(95, 208, 255, .35) 40%, #120e2c 75%); }

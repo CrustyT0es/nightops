@@ -30,21 +30,21 @@
 //
 // Screen modules export mount(root, app, args) -> { update(view), destroy() }. update() is called on every
 // view (and again when faces arrive). A screen that fails to load or throws shows a plain card with Try again.
-import { TIMING, LIMITS } from '../shared/rules.js?v=177';
-import { h, fill } from './dom.js?v=177';
-import { icon } from './ui/icons.js?v=177';
-import { banner as defaultBanner } from './ui/banner.js?v=177';
-import { closeSheets } from './ui/sheet.js?v=177';
-import { backButton } from './ui/back.js?v=177';
-import { ApiError, toApiError, WORDS } from './api.js?v=177';
-import { cleanName, cleanFace } from './identity.js?v=177';
-import { createRadio, fromBase64 } from './radio.js?v=177'; // v1.1 PAGE-RADIO
-import { createCamera } from './camera.js?v=177'; // v1.2 PAGE-CAM
-import { cpWantsFresh } from './screens/cpplay.js?v=177'; // v1.3 PAGE-PLAY
-import { createMedia } from './media.js?v=177'; // v1.4 PAGE-DEVICES
-import { deviceKind } from './help.js?v=177'; // v1.4 PAGE-DEVICES
-import { deviceSecret, rememberPc } from './pcedit.js?v=177'; // v1.5: the PC edit
-import { onAnswer as onPermAnswer } from './permissions.js?v=177'; // v1.6.2 PERMS
+import { TIMING, LIMITS } from '../shared/rules.js?v=178';
+import { h, fill } from './dom.js?v=178';
+import { icon } from './ui/icons.js?v=178';
+import { banner as defaultBanner } from './ui/banner.js?v=178';
+import { closeSheets } from './ui/sheet.js?v=178';
+import { backButton } from './ui/back.js?v=178';
+import { ApiError, toApiError, WORDS } from './api.js?v=178';
+import { cleanName, cleanFace } from './identity.js?v=178';
+import { createRadio, fromBase64 } from './radio.js?v=178'; // v1.1 PAGE-RADIO
+import { createCamera } from './camera.js?v=178'; // v1.2 PAGE-CAM
+import { cpWantsFresh } from './screens/cpplay.js?v=178'; // v1.3 PAGE-PLAY
+import { createMedia } from './media.js?v=178'; // v1.4 PAGE-DEVICES
+import { deviceKind } from './help.js?v=178'; // v1.4 PAGE-DEVICES
+import { deviceSecret, rememberPc } from './pcedit.js?v=178'; // v1.5: the PC edit
+import { onAnswer as onPermAnswer } from './permissions.js?v=178'; // v1.6.2 PERMS
 
 export const SCREENS = ['home', 'lobby', 'ring', 'reveal', 'game', 'over', 'watch']; // v1.1 PAGE-WATCH: 'watch'
 SCREENS.push('checkpoints'); // v1.3 PAGE-SETUP: the checkpoint editor (the host, in the lobby)
@@ -1198,7 +1198,7 @@ export class App {
     if (!this.game) return new ApiError({ code: 'not_in_game', message: "You're not in a game right now." });
     const game = this.game;
     const body = { audio, type, ms, since: this._since, radioSince: this._radioSince() };
-    if (side === 'hunters' || side === 'hiders') body.side = side; // the channel it was recorded on
+    if (side === 'hunters' || side === 'hiders' || side === 'call') body.side = side; // the channel it was recorded on (v1.7: 'call')
     body.camSince = this._camSince(); // v1.2 PAGE-CAM
     const pos = this._posToSend();
     if (pos) body.pos = pos;

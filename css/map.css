@@ -73,6 +73,17 @@
 .nmap-ring-edge { fill: none; stroke: #000; stroke-opacity: 0.55; stroke-width: 8; stroke-linejoin: round; }
 .nmap-ring { fill: none; stroke: var(--hider); stroke-width: 4; stroke-linejoin: round; }
 .nmap-ring-full { fill: none; stroke: var(--hider); stroke-opacity: 0.55; stroke-width: 1.5; stroke-dasharray: 5 5; stroke-linejoin: round; }
+.nmap-ring-final { fill: none; stroke: #ffb020; stroke-opacity: 0.9; stroke-width: 2.5; stroke-dasharray: 6 5; stroke-linejoin: round; }
+/* v1.7 (Owen's bug): the ring closing in. The edge pulses amber, the outside goes darker, the final size dashed. */
+.nmap[data-closing="moving"] .nmap-dim, .nmap[data-closing="done"] .nmap-dim { fill: rgba(20, 4, 0, 0.68); }
+.nmap[data-closing="moving"] .nmap-ring-glow { stroke: #ffb020; animation: nmap-closing 1.6s ease-in-out infinite; }
+.nmap[data-closing="moving"] .nmap-ring { stroke: #ffd36a; }
+.nmap[data-closing="moving"] .nmap-ring-final { animation: nmap-final-march 1.2s linear infinite; }
+@keyframes nmap-closing { 0%, 100% { stroke-opacity: 0.2; stroke-width: 9; } 50% { stroke-opacity: 0.6; stroke-width: 20; } }
+@keyframes nmap-final-march { to { stroke-dashoffset: -22; } }
+@media (prefers-reduced-motion: reduce) {
+  .nmap[data-closing="moving"] .nmap-ring-glow, .nmap[data-closing="moving"] .nmap-ring-final { animation: none; stroke-opacity: 0.45; }
+}
 .nmap-route { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; stroke-opacity: 0.9; }
 .nmap-route.hunter { stroke: var(--hunter); }
 .nmap-route.hider { stroke: var(--hider); }
@@ -739,3 +750,12 @@ button.nmark-hit:active .face { transform: scale(0.94); }
 .nmap-nav-edge { fill: none; stroke: #06132e; stroke-opacity: 0.95; stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; }
 .nmap-nav { fill: none; stroke: #2f86ff; stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
 /* v1.4.8 end */
+
+/* v1.7 (Owen's bug): "The ring is closing in" over the map as it starts */
+.ring-flash { position: absolute; left: 12px; right: 12px; top: 34%; z-index: 30; pointer-events: none; text-align: center;
+  padding: 14px 12px; border-radius: 16px; background: rgba(40, 14, 0, 0.82); border: 2px solid #ffb020;
+  box-shadow: 0 0 0 4px rgba(255, 176, 32, 0.18); animation: ring-flash 4.2s ease-out forwards; }
+.ring-flash-big { font: 900 22px/1.1 var(--font-display, system-ui); color: #ffd36a; text-transform: uppercase; letter-spacing: 0.02em; }
+.ring-flash-small { margin-top: 6px; font: 600 14px/1.3 var(--font-body, system-ui); color: #fff; }
+@keyframes ring-flash { 0% { opacity: 0; transform: scale(1.25); } 8% { opacity: 1; transform: scale(0.97); } 14% { transform: scale(1); } 82% { opacity: 1; } 100% { opacity: 0; transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) { .ring-flash { animation: none; } }

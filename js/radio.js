@@ -11,6 +11,7 @@
 //   radio.hold(), radio.letGo()   what the button does (press and release)
 //   radio.unlock()         from a tap: readies the one shared <audio> (so clips play in pocket mode) and the beep
 //   radio.on(name, fn)     'state' | 'talking' | 'error' -> off()
+//   radio.callHold(), radio.callLetGo()   v1.7: the same, recorded for a Snitch call (sent with side 'call')
 //   radio.stop()           playback and recording stopped, the queue emptied, the microphone let go
 //   radio.destroy()
 //
@@ -34,10 +35,10 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=177';
-import { icon } from './ui/icons.js?v=177';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=177';
-import { classify, permState } from './permissions.js?v=177'; // v1.6.2 PERMS
+import { h, text, cls } from './dom.js?v=178';
+import { icon } from './ui/icons.js?v=178';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=178';
+import { classify, permState } from './permissions.js?v=178'; // v1.6.2 PERMS
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
@@ -452,8 +453,9 @@ export function createRadio({
 
   // ---- recording ----
 
-  function press(by) {
+  function press(by, call = false) {
     if (R.dead || !R.on) return;
+    if (R.state !== 'recording' && R.state !== 'sending') R.callMode = !!call; // v1.7: a Snitch call's hold
     R.pressAt = by === 'click' ? -Infinity : now();
     // (A touch's pointerdown isn't a tap to an iPhone: its release readies the sound instead.)
     if (by !== 'pointer') unlock();
@@ -538,7 +540,7 @@ export function createRadio({
   function showSteps() {
     const d = globalThis.document;
     if (!d || d.querySelector('.fx-sheet')) return;
-    import('./ui/fixit.js?v=177').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
+    import('./ui/fixit.js?v=178').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
   }
 
   // v1.6.2 PERMS: the microphone was allowed (an Allow tap anywhere): a blocked walkie-talkie is ready again
@@ -638,6 +640,8 @@ export function createRadio({
   function stopped(rec, type) {
     if (R.rec !== rec) return;
     R.rec = null;
+    const toCall = !!R.callMode; // v1.7
+    R.callMode = false;
     clearTimer(R.autoTimer);
     clearTimer(R.tickTimer);
     const ms = Math.round(R.heldMs || 0);
@@ -659,7 +663,8 @@ export function createRadio({
     const kind = baseType(rec.mimeType) || baseType(chunks[0] && chunks[0].type) || baseType(type);
     setState('sending');
     resumePlayback();
-    send(chunks, kind, ms, R.side);
+    const side = toCall ? 'call' : R.side; // v1.7: a Snitch call's private channel
+    send(chunks, kind, ms, side);
   }
 
   // `side`: the channel it was recorded on. The server refuses it if the team changed meanwhile (a hider
@@ -673,7 +678,7 @@ export function createRadio({
       if (bytes.length) R.bytesPerMs = bytes.length / Math.max(1, ms);
       if (!kind || !bytes.length) { setState('idle'); say(WORDS.unsupported, { error: true }); return; }
       if (bytes.length > LIMITS.radioBytes) { setState('idle'); say(WORDS.tooLong, { error: true }); return; }
-      if (side !== R.side) { setState('idle'); say(WORDS.notSent, { error: true }); return; }
+      if (side !== 'call' && side !== R.side) { setState('idle'); say(WORDS.notSent, { error: true }); return; }
       const res = await app.sendClip({ audio: toBase64(bytes), type: kind, ms: Math.max(300, Math.min(15500, ms)), side: side || undefined });
       if (R.dead) return;
       setState('idle');
@@ -1114,6 +1119,9 @@ export function createRadio({
   return {
     button,
     hold: () => press('pointer'),     // what the button does (also for tests): start, and let go to send
+    // v1.7: push-to-talk on a Snitch call (the call screen's button): the same recorder, sent on side 'call'
+    callHold: () => press('pointer', true),
+    callLetGo: () => release('pointer'),
     letGo: () => release('pointer'),
     take,
     unlock,

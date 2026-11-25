@@ -7,15 +7,17 @@
 //   live   the map (every mark in the view), a "2 MIN BEHIND" tag, the time left as of then, the play-by-play,
 //          N watching, Stop watching
 // The end screen is the normal over screen (app.js sends a spectator there).
-import { h, fill, face, text, cls, listen } from '../dom.js?v=177';
-import { icon } from '../ui/icons.js?v=177';
-import { createMap } from '../map.js?v=177';
-import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=177'; // v1.2 PAGE-MAP
-import { openSheet } from '../ui/sheet.js?v=177'; // v1.2 PAGE-MAP: the menu
-import { MODES, fmtClock } from '../../shared/rules.js?v=177';
-import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=177'; // v1.3 PAGE-AFTER
-import { createMapCam } from '../mapcam.js?v=177'; // v1.4 PAGE-REEL
-import { followRow } from './reelparts.js?v=177'; // v1.4 PAGE-REEL
+import { h, fill, face, text, cls, listen } from '../dom.js?v=178';
+import { icon } from '../ui/icons.js?v=178';
+import { createMap, closingFrom, ringFlash } from '../map.js?v=178';
+import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=178'; // v1.2 PAGE-MAP
+import { openSheet } from '../ui/sheet.js?v=178'; // v1.2 PAGE-MAP: the menu
+import { MODES, fmtClock } from '../../shared/rules.js?v=178';
+import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=178'; // v1.3 PAGE-AFTER
+import { createMapCam } from '../mapcam.js?v=178'; // v1.4 PAGE-REEL
+import { followRow } from './reelparts.js?v=178'; // v1.4 PAGE-REEL
+import { createCardPlay, spectatorFx } from './cardplay.js?v=178'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
+import { createCardFx } from '../cards.js?v=178'; // v1.7
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
@@ -140,6 +142,7 @@ export function mount(root, app) {
     if (S.map) { try { S.map.destroy(); } catch { /* ignore */ } }
     S.map = null;
     S.ringKey = '';
+    S.lootKey = ''; // v1.7
     S.fitted = false;
     if (S.offMode) { try { S.offMode(); } catch { /* ignore */ } S.offMode = null; } // v1.2 PAGE-MAP
     if (S.ro) { try { S.ro.disconnect(); } catch { /* ignore */ } S.ro = null; }
@@ -288,6 +291,12 @@ export function mount(root, app) {
       S.cam.on('mode', () => paintFollow());
     }
     // v1.4 end PAGE-REEL
+    // v1.7 WIRING: the plane, crates and card news on the spectator's (late) map
+    if (S.cp7) { try { S.cp7.destroy(); } catch { /* fine */ } }
+    if (S.cfx) { try { S.cfx.destroy(); } catch { /* fine */ } }
+    S.cp7 = createCardPlay({ app, root, getMap: () => S.map });
+    S.cfx = createCardFx({ root });
+    S.fxSeen = null;
     if (S.map) {
       S.map.ready.then(() => { S.mapFinal = true; paintZoom(); });
       S.offMode = S.map.onMode(() => { S.mapFinal = true; paintZoom(); });
@@ -385,12 +394,44 @@ export function mount(root, app) {
         S.ringKey = key;
         try { S.map.setRing(v.ring, v.ringNow); } catch (e) { console.error(e); }
       }
+      // v1.7 (Owen's bug): the ring closing in moves smoothly here too, on the spectator's own (late) clock.
+      try {
+        S.map.setClosing(closingFrom(v, () => {
+          const x = S.view;
+          return x && Number.isFinite(x.clock) ? x.clock + (x.paused ? 0 : perfNow() - S.recvAt) : NaN;
+        }));
+      } catch (e) { console.error(e); }
+      if (v.timing && v.timing.closing && v.timing.shrinking && !S.closingShown) {
+        S.closingShown = true;
+        fitRing(true);
+        try { ringFlash(document.querySelector('.screen-watch .w-map')); } catch { /* ignore */ }
+      }
       try {
         S.map.setMarks(mapMarks(v.marks), { faces: app.faces, players: v.players, meId: null, paused: !!v.paused });
       } catch (e) { console.error(e); }
     }
 
     try { if (S.cpW) S.cpW.update(v); } catch (e) { console.error(e); } // v1.3 PAGE-AFTER
+    // v1.7 WIRING: the boxes on the ground, the plane bringing them, and the card news the hunters' side may know
+    try {
+      const l = v.loot && typeof v.loot === 'object' ? v.loot : null;
+      if (S.map && typeof S.map.setLoot === 'function') {
+        const boxes = l && Array.isArray(l.boxes) ? l.boxes.filter((b) => b && Array.isArray(b.p)).map((b) => ({ id: b.id, p: b.p, left: b.left, r: b.r })) : [];
+        const lk = JSON.stringify(boxes.map((b) => [b.id, b.p]));
+        if (lk !== S.lootKey) { S.lootKey = lk; S.map.setLoot(boxes); }
+      }
+      const late = Number.isFinite(v.clock) ? v.clock + (v.paused ? 0 : perfNow() - S.recvAt) : NaN;
+      if (S.cp7) S.cp7.update(v, late);
+      const evs = Array.isArray(v.events) ? v.events.filter((e) => e && Number.isFinite(e.id)) : [];
+      const top = evs.reduce((a, e) => Math.max(a, e.id), 0);
+      if (S.fxSeen === null) S.fxSeen = top; // (what came before this page opened isn't played)
+      for (const e of evs.sort((a, b) => a.id - b.id)) {
+        if (e.id <= S.fxSeen) continue;
+        const fx = spectatorFx(e, v);
+        if (fx && S.cfx) S.cfx.play(fx);
+      }
+      S.fxSeen = Math.max(S.fxSeen, top);
+    } catch (e) { console.error(e); }
     const rows = pbpRows(v.events);
     const key = rows.map((r) => r.id).join(',');
     if (key !== S.pbpKey) {
@@ -470,6 +511,8 @@ export function mount(root, app) {
       if (S.ro) { try { S.ro.disconnect(); } catch { /* ignore */ } } // v1.2 PAGE-MAP
       if (S.offMode) { try { S.offMode(); } catch { /* ignore */ } }
       if (S.cpW) { try { S.cpW.destroy(); } catch { /* ignore */ } } // v1.3 PAGE-AFTER
+      if (S.cp7) { try { S.cp7.destroy(); } catch { /* ignore */ } } // v1.7
+      if (S.cfx) { try { S.cfx.destroy(); } catch { /* ignore */ } }
       dropMap();
       root.classList.remove('w-root', 'w-live');
     },
