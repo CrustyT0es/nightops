@@ -16,18 +16,18 @@
 //   driverReveal(words, view)                  the reveal screen's words for the driver (and the others)
 //
 // Pure helpers are exported for tests (tests/page-driver.test.mjs, tests/page-play14.test.mjs).
-import { h, fill, text, cls, listen } from '../dom.js?v=178';
-import { icon } from '../ui/icons.js?v=178';
-import { holdInert } from '../ui/inert.js?v=178';
-import { fmtClock, fmtDistance } from '../../shared/rules.js?v=178';
-import { directionWords, isPoint } from '../../shared/geo.js?v=178';
-import { speechReady } from '../alerts.js?v=178';
-import { cpSpeech, cpDriveLine } from './cpplay.js?v=178'; // v1.3 PAGE-PLAY
-import { createMap, closingFrom } from '../map.js?v=178';
-import { createMapCam } from '../mapcam.js?v=178';
-import { openSheet } from '../ui/sheet.js?v=178';
-import { pinsFor, createPinTool } from './pins.js?v=178';
-import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=178'; // v1.4.8
+import { h, fill, text, cls, listen } from '../dom.js?v=179';
+import { icon } from '../ui/icons.js?v=179';
+import { holdInert } from '../ui/inert.js?v=179';
+import { fmtClock, fmtDistance } from '../../shared/rules.js?v=179';
+import { directionWords, isPoint } from '../../shared/geo.js?v=179';
+import { speechReady } from '../alerts.js?v=179';
+import { cpSpeech, cpDriveLine } from './cpplay.js?v=179'; // v1.3 PAGE-PLAY
+import { createMap, closingFrom } from '../map.js?v=179';
+import { createMapCam } from '../mapcam.js?v=179';
+import { openSheet } from '../ui/sheet.js?v=179';
+import { pinsFor, createPinTool } from './pins.js?v=179';
+import { createNav, SAFETY, CAMERA_EVERY_MS } from './drivenav.js?v=179'; // v1.4.8
 
 export const VOICE_KEY = 'nightops-drive-voice';   // 'off' = the driver muted the voice
 export const DRIVE_STALE_MS = 120000;              // events older than this aren't spoken (a phone that slept)
@@ -102,15 +102,27 @@ export function pickupLines(view) {
 }
 
 // What a hunter's "Pick me up" shows: null (no button) or { state: 'ask'|'open'|'coming', driver, text }.
+// v1.7: with a second driver, `drive.drivers` lists who's driving now (drive.name stays the first one, who may have
+// left): the one coming is the one who took it (mine.driver), two driving = "Waiting for a driver", and anyone
+// driving counts as a driver being there.
 export function pickupState(view) {
   const drive = view && view.drive;
   const me = view && view.me;
   if (!drive || !me || me.driver || drive.me || view.phase !== 'live' || me.status !== 'in' || me.team !== 'hunter') return null;
-  const driver = String(drive.name || 'The driver');
+  const listed = Array.isArray(drive.drivers) ? drive.drivers.filter((d) => d && d.id) : null;
+  const driving = listed || (drive.here ? [{ id: drive.id, name: drive.name }] : []);
+  const named = (id) => {
+    const d = driving.find((x) => x.id === id) || ((view.players) || []).find((p) => p && p.id === id);
+    return d && d.name ? String(d.name) : '';
+  };
   const mine = drive.mine;
-  if (mine && mine.state === 'coming') return { state: 'coming', driver, text: `${driver} is coming` };
+  if (mine && mine.state === 'coming') {
+    const who = (mine.driver && named(mine.driver)) || String(drive.name || 'The driver');
+    return { state: 'coming', driver: who, text: `${who} is coming` };
+  }
+  const driver = driving.length > 1 ? 'a driver' : String((driving[0] && driving[0].name) || drive.name || 'The driver');
   if (mine && mine.state === 'open') return { state: 'open', driver, text: `Waiting for ${driver}` };
-  if (!drive.here) return null;
+  if (!drive.here && !driving.length) return null;
   return { state: 'ask', driver, text: 'Pick me up' };
 }
 

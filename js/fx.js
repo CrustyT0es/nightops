@@ -26,10 +26,11 @@
 //                                   the card ricochets
 //       'bounced'       {}          a hunter's own Hacker came back: "BOUNCED!" and the alarm
 //       'box-grab'      {}          a box grabbed: a gold pop
-//   createCallScreen({ root, doc, name, offer, mates, ms, sound, onAccept, onHangup, onTalk, onSnitch })
+//   createCallScreen({ root, doc, name, offer, mates, ms, sound, onAccept, onHangup, onTalk, onSnitch, state })
 //                                 -> { el, set(state: 'ringing'|'talk'|'pick'|'ended', words?), left(ms), close() }:
 //                                 the Snitch call (the callee's phone rings; the caller sees 'talk' with no Snitch
-//                                 button: pass `caller: true`). onTalk(true|false) is push-to-talk.
+//                                 button: pass `caller: true`). onTalk(true|false) is push-to-talk. `state` opens it
+//                                 in another state ('talk': a callee who had answered before a reload).
 //   pawTrail(layer, points, { ms, spacing, doc }) -> { el, remove() }: dog paw prints along screen points [[x, y]],
 //                                 turned along the way, left-right, the newest darkest, trotting in one after another.
 //   flyPlane(layer, { path: [[x,y],[x,y]], ms, drops: [[x,y]], fall, doc, onLand }) -> { el, remove() }: the drop
@@ -41,8 +42,8 @@
 //   Lasting looks: classes on the game's root, toggled by WIRING from view.fx: .fx-frozen .fx-useless .fx-mirror
 //                                 .fx-headsup .fx-snitched (css/fx.css).
 //   fxSound(name, doc), FX_SOUNDS   the synth sounds; MOMENTS   the moment names.
-import { h, text } from './dom.js?v=178';
-import { soundOn } from './alerts.js?v=178';
+import { h, text } from './dom.js?v=179';
+import { soundOn } from './alerts.js?v=179';
 
 // ---- small helpers -----------------------------------------------------------------------------------------------
 
@@ -359,8 +360,10 @@ const MOMENT = {
   },
   'crate-land': ({ x, y }) => {
     const d = dustEl();
-    if (Number.isFinite(x)) { d.style.setProperty('--x', `${x}px`); d.style.setProperty('--y', `${y}px`); } else d.classList.add('mid');
-    return { el: div('fx-m.fx-land', d, div('fx-land-crate', '📦'), ...bits(8, 'fx-land-puff', (i) => ({ vars: { a: `${i * 45}deg` } }))), ms: 1400, sound: 'thud', buzz: [40] };
+    const box = div('fx-m.fx-land', d, div('fx-land-crate', '📦'), ...bits(8, 'fx-land-puff', (i) => ({ vars: { a: `${i * 45}deg` } })));
+    // (the crate, its dust and puffs all land on the spot: x, y in this layer's px)
+    if (Number.isFinite(x) && Number.isFinite(y)) { box.style.setProperty('--x', `${x}px`); box.style.setProperty('--y', `${y}px`); } else d.classList.add('mid');
+    return { el: box, ms: 1400, sound: 'thud', buzz: [40] };
   },
   pinged: ({ x, y }) => {
     const box = div('fx-m.fx-pinged', ...rings(4, 'fx-ping-ring'), word('PINGED'));
@@ -435,6 +438,7 @@ export function createGameFx({ root, doc = globalThis.document, sound = soundOn 
   }
   return {
     play,
+    el: layer, // (v1.7 WIRING: screen points for a moment are given in this layer's own px)
     busy: () => !!cur,
     destroy() { dead = true; if (cur) { clearTimeout(cur.t); if (cur.m.stop) cur.m.stop(); } for (const m of Q) if (m.stop) m.stop(); Q.length = 0; layer.remove(); live.remove(); },
   };
@@ -443,8 +447,10 @@ export function createGameFx({ root, doc = globalThis.document, sound = soundOn 
 // ---- the Snitch call screen (a real screen: it takes taps) -----------------------------------------------------
 
 // At 0:00 the call ends by itself ("Time up."): the ringer stops and onTimeout runs (else onHangup), once.
-// The ringer never rings or buzzes while the page is hidden.
-export function createCallScreen({ root, doc = globalThis.document, name = 'Hunters', offer = '', mates = [], ms = 45000, caller = false, sound = soundOn, onAccept = null, onHangup = null, onTalk = null, onSnitch = null, onTimeout = null } = {}) {
+// The ringer never rings or buzzes while the page is hidden, or while the screen itself isn't showing (the SOS
+// screen hides it: the game is paused, so the call doesn't run out either). Once 'ended' the countdown stops.
+// `state` (v1.7 WIRING): the state to open in ('talk' for a callee who answered before the page was reloaded).
+export function createCallScreen({ root, doc = globalThis.document, name = 'Hunters', offer = '', mates = [], ms = 45000, caller = false, sound = soundOn, onAccept = null, onHangup = null, onTalk = null, onSnitch = null, onTimeout = null, state: first = null } = {}) {
   const timer = h('b.call-time', clock(ms));
   const words = h('p.call-words');
   const status = h('p.call-status', caller ? 'Calling...' : 'Incoming call');
@@ -467,10 +473,15 @@ export function createCallScreen({ root, doc = globalThis.document, name = 'Hunt
     if (el.dataset.state !== 'ended') { set('ended', 'Time up.'); const f = onTimeout || onHangup; if (f) try { f(); } catch { /* fine */ } }
   };
   const iv = setInterval(() => { left -= 1000; text(timer, clock(left)); if (left <= 0) timeUp(); }, 1000);
-  const ringOnce = () => { if (doc.visibilityState === 'hidden') return; fxSound('ring', doc, sound); buzz([300, 150, 300]); };
+  const shown = () => {
+    if (!el.isConnected || (el.closest && el.closest('.g-sos-on'))) return false;
+    try { return el.getClientRects().length > 0; } catch { return true; }
+  };
+  const ringOnce = () => { if (doc.visibilityState === 'hidden' || !shown()) return; fxSound('ring', doc, sound); buzz([300, 150, 300]); };
   function set(state, say = '') {
     el.dataset.state = state;
     clearInterval(ringer); ringer = null;
+    if (state === 'ended') { over = true; clearInterval(iv); }
     if (state === 'ringing' && !caller) { ringOnce(); ringer = setInterval(ringOnce, 1600); }
     text(status, state === 'ringing' ? (caller ? 'Calling...' : 'Incoming call') : state === 'talk' ? 'On a call' : state === 'pick' ? 'Who do you give up?' : 'Call ended');
     text(words, say);
@@ -494,11 +505,11 @@ export function createCallScreen({ root, doc = globalThis.document, name = 'Hunt
   talk.addEventListener('contextmenu', (e) => e.preventDefault());
   if (still(doc)) el.classList.add('still');
   (root || doc.body).append(el);
-  set(caller ? 'talk' : 'ringing');
+  set(first === 'talk' || first === 'ringing' ? first : caller ? 'talk' : 'ringing');
   return {
     el,
     set,
-    left(n) { left = n; text(timer, clock(n)); if (n <= 0) timeUp(); },
+    left(n) { if (over) return; left = n; text(timer, clock(n)); if (n <= 0) timeUp(); },
     close() { over = true; clearInterval(iv); clearInterval(ringer); el.classList.add('out'); setTimeout(() => el.remove(), still(doc) ? 0 : 260); },
   };
 }

@@ -4,11 +4,11 @@
 //   callMini(call, { summary, faces, onWatch, onShow }) -> element | null   a close call's still mini map + buttons
 //   followRow({ players, faces, onPick }) -> { el, set(players, following) }
 //   loadFaces(app) -> Map id -> HTMLImageElement (for canvases)
-import { h, fill, text, face } from '../dom.js?v=178';
-import { icon } from '../ui/icons.js?v=178';
-import { scenes, miniMap } from '../scenes.js?v=178';
-import { drawMiniMap } from '../movie.js?v=178';
-import { fmtClock } from '../../shared/rules.js?v=178';
+import { h, fill, text, face } from '../dom.js?v=179';
+import { icon } from '../ui/icons.js?v=179';
+import { scenes, miniMap } from '../scenes.js?v=179';
+import { drawMiniMap } from '../movie.js?v=179';
+import { fmtClock } from '../../shared/rules.js?v=179';
 
 const imgCache = new Map(); // data URL -> img
 export function loadFaces(app) {

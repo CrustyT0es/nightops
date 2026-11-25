@@ -39,15 +39,15 @@
 // CSS knobs a screen may set on its container: --map-inset-top, --map-inset-bottom (px) keep the map credits and
 // the scale bar clear of the screen's own bars.
 
-import { h, face as makeFace, text, listen } from './dom.js?v=178';
-import { icon } from './ui/icons.js?v=178';
+import { h, face as makeFace, text, listen } from './dom.js?v=179';
+import { icon } from './ui/icons.js?v=179';
 import {
   EARTH_M, isPoint, toLocal, fromLocal, ringCenter, ringOutline, ringBounds, boundsOf, ringAreaM2,
   moveM, // v1.4.8
   scaleRing, // v1.7 (Owen's bug): the ring closing in, drawn here frame by frame
-} from '../shared/geo.js?v=178';
-import { TIMING, fmtDistance, schedule } from '../shared/rules.js?v=178';
-import { LOOT_PICK_M } from '../shared/loot.js?v=178'; // v1.6.3: a loot box's pickup circle
+} from '../shared/geo.js?v=179';
+import { TIMING, fmtDistance, schedule } from '../shared/rules.js?v=179';
+import { LOOT_PICK_M } from '../shared/loot.js?v=179'; // v1.6.3: a loot box's pickup circle
 
 // v1.7 (Owen's bug): the ring closing in
 export const CLOSING_COLOR = '#ffb020';
@@ -247,6 +247,12 @@ export function fmtAgo(ms) {
   const min = Math.floor((s % 3600) / 60);
   const sec = String(s % 60).padStart(2, '0');
   return hr ? `${hr}:${String(min).padStart(2, '0')}:${sec} ago` : `${min}:${sec} ago`;
+}
+
+// v1.7: a Snitch deal's flash on the hunters' map is where that hider was when a teammate gave them up, shown for
+// 30 seconds; it never follows them (the mark's words for a screen reader and the tap).
+export function snitchedWhat(ageMs) {
+  return `given up by a teammate: where they were ${Number.isFinite(ageMs) && ageMs >= 1000 ? fmtAgo(ageMs) : 'just now'}, shown for 30 seconds`;
 }
 
 const STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000];
@@ -1501,7 +1507,7 @@ export function createMap(container, { interactive = true } = {}) {
     if (!hasWebGL2()) { cancel(deadline); giveUp(); return; }
     let lib;
     try {
-      lib = await import('../vendor/maplibre-gl.mjs?v=178');
+      lib = await import('../vendor/maplibre-gl.mjs?v=179');
     } catch {
       cancel(deadline);
       giveUp();
@@ -1983,7 +1989,7 @@ export function createMap(container, { interactive = true } = {}) {
     else if (kind === 'near') what = 'live, near the car'; // v1.1 PAGE-DRIVER
     else if (kind === 'exposure') what = 'exact spot from Exposure';
     else if (kind === 'tracked') what = `Tracker dart, ${fmtAgo(age)}`; // v1.6.1
-    else if (kind === 'snitched') what = 'given up by a teammate, live 30 seconds'; // v1.7
+    else if (kind === 'snitched') what = snitchedWhat(age); // v1.7 (a fixed spot: it doesn't follow them)
     else if (kind === 'rewind') what = `the ping before, ${fmtAgo(age)}`; // v1.7
     else if (kind === 'outside') what = 'outside the ring, live';
     else if (kind === 'overstay') what = 'live, stayed at the checkpoint too long'; // v1.3 PAGE-PLAY

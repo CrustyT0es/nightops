@@ -11,12 +11,12 @@
 //       shards and sparks, the rarity slams in (COMMON / RARE / LEGENDARY!) and the power's card flips over.
 //
 // Rarity colours: common silver, rare violet, legendary gold. (Red and blue stay the teams'.)
-import { h, text } from '../dom.js?v=178';
-import { chest, chestModel } from '../chest.js?v=178';
-import { cardEl, tiltFrom } from '../cards.js?v=178'; // v1.6.3: one card look everywhere
-import { POWERS, fmtClock } from '../../shared/rules.js?v=178';
-import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=178';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=178';
+import { h, text } from '../dom.js?v=179';
+import { chest, chestModel } from '../chest.js?v=179';
+import { cardEl, tiltFrom } from '../cards.js?v=179'; // v1.6.3: one card look everywhere
+import { POWERS, fmtClock } from '../../shared/rules.js?v=179';
+import { LOOT_POWERS, LOOT_PICK_M, LOOT_ACC_MAX_M, rarityOfPower } from '../../shared/loot.js?v=179';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=179';
 
 export const RARITY_WORD = { common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic' }; // (v1.7: epic)
 export const POWER_EMOJI = { jammer: '📵', decoy: '🎭', sprint: '🏃', radar: '📡', exposure: '👁️', hacker: '🚨', wiretap: '🎧' };
@@ -52,6 +52,8 @@ export function lootEffect(e, view) {
     case 'loot-queued': return { ...none, banner: [words, 'info'], buzz: 'tap' };
     case 'lootfx': {
       const big = { blackout: 'BLACKOUT', eye: 'ALL-SEEING EYE', storm: 'STATIC STORM', freeze: 'FREEZE', tracker: 'TRACKER DART' }[data.power];
+      // v1.7: how my own Snitch call ended (a deal: `on`; no deal: `state`): my `call` event and the call screen say it
+      if (data.power === 'snitch' && data.by === me.id && (data.on || data.state)) return none;
       if (data.by === me.id) return { ...none, banner: [words, 'power'], buzz: 'power' };
       // v1.6.3: the Blackout screen itself says it to the hunters (a moment would only wait unseen under it)
       if (data.power === 'blackout' && e.to === 'hunters') return { ...none, buzz: 'warn', beep: 'warn' };
@@ -179,7 +181,7 @@ export function createLootButton({ app, doc = globalThis.document, onOpened = nu
       const n = l.boxes.length;
       const ms = nextDropIn(S.view, S.clock);
       const when = ms === null ? '' : ` Next drop in ${fmtClock(ms)}.`;
-      import('../ui/banner.js?v=178').then(({ banner }) => banner(n
+      import('../ui/banner.js?v=179').then(({ banner }) => banner(n
         ? `${n === 1 ? 'A box is' : `${n} boxes are`} on the map. Get within ${LOOT_PICK_M} m of one to grab it (zoom in to see the real circle).${when}`
         : `No boxes on the map right now.${when}`, 'info')).catch(() => {});
     }
@@ -458,7 +460,8 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, m
     const gone = Number.isFinite(clock) && Number.isFinite(view && view.clock) ? Math.max(0, clock - view.clock) : 0;
     const left = (k) => (Number.isFinite(fx[k]) ? Math.max(0, fx[k] - gone) : 0);
     const onHunters = !!(view && view.me && view.me.team === 'hunter'); // Blackout and Static Storm only hit the hunters' phones
-    const bo = onHunters ? left('blackout') : 0;
+    // (v1.7: an SOS pauses the game: the Blackout steps aside for the SOS screen, and comes back on Resume)
+    const bo = onHunters && !(view && view.paused) ? left('blackout') : 0;
     // v1.6.3: a fresh Blackout switches the screen off like an old TV (once; never again after a reload)
     if (bo && blackout.hidden && bo > (LOOT_POWERS.blackout.ms || 0) - 10000) {
       blackout.classList.remove('arrive');
@@ -526,4 +529,4 @@ export function createLootFx({ app, root, slot = null, sos = null, annoy = {}, m
 }
 
 // ---- v1.6.1: your cards: v1.6.3 moved them to js/cards.js (the collection, one card look everywhere) ----------
-export { cardsOf, createCardDeck } from '../cards.js?v=178';
+export { cardsOf, createCardDeck } from '../cards.js?v=179';

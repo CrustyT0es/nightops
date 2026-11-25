@@ -21,7 +21,9 @@
 //   radio.side             'hunters' | 'hiders' | null, from the latest view.radio (a caught hider who joins the
 //                          hunters switches with the next view: the hiders' messages waiting are dropped)
 //   radio.quiet            radio.setQuiet(on) (kept per phone: localStorage 'nightops-quiet'). Hiders only: while
-//                          on, a new message isn't played: one short buzz, and it waits in radio.held
+//                          on, a new message isn't played: one short buzz, and it waits in radio.held. v1.7: never
+//                          a Snitch call's clip (side 'call'): a call is a phone call both of them are on, and a
+//                          game without the hiders' walkie has no Quiet button to turn it off again
 //   radio.held             [{ n, from, name, ms, clock }] oldest first, HELD_MOST at most; radio.playHeld(n)
 //   radio.quietButton()    the Quiet switch (a 56px tray square); radio.heldList() the waiting messages with Play
 //   radio.on('held' | 'quiet' | 'side', fn)
@@ -35,10 +37,10 @@
 //
 // Sound needs a real tap first (a pointerdown isn't one on an iPhone): every tap on the page (alerts.onTap) and
 // the button's release ready it, again and again until it works.
-import { h, text, cls } from './dom.js?v=178';
-import { icon } from './ui/icons.js?v=178';
-import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=178';
-import { classify, permState } from './permissions.js?v=178'; // v1.6.2 PERMS
+import { h, text, cls } from './dom.js?v=179';
+import { icon } from './ui/icons.js?v=179';
+import { TIMING, LIMITS, fmtClock } from '../shared/rules.js?v=179';
+import { classify, permState } from './permissions.js?v=179'; // v1.6.2 PERMS
 
 export const RADIO_TYPES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 export const BITS = 24000;
@@ -96,6 +98,7 @@ export const notHereWords = (name) => `${name || 'A hunter'}'s message didn't co
 
 // v1.2 PAGE-RADIO: the hiders' side
 export const sideOf = (radio) => (radio && radio.side === 'hiders' ? 'hiders' : 'hunters');
+export const isCallClip = (clip) => !!clip && clip.side === 'call'; // v1.7: a Snitch call's clip (Quiet never holds it)
 export const someone = (side) => (side === 'hiders' ? 'A hider' : 'A hunter');
 export const sideLabel = (side) => (side === 'hiders' ? "Hiders' walkie-talkie" : "Hunters' walkie-talkie");
 // "Mia sent a message (4 s)"
@@ -540,7 +543,7 @@ export function createRadio({
   function showSteps() {
     const d = globalThis.document;
     if (!d || d.querySelector('.fx-sheet')) return;
-    import('./ui/fixit.js?v=178').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
+    import('./ui/fixit.js?v=179').then((m) => m.openHelp({ part: 'mic', why: 'denied', perm: 'denied' })).catch(() => {});
   }
 
   // v1.6.2 PERMS: the microphone was allowed (an Allow tap anywhere): a blocked walkie-talkie is ready again
@@ -765,7 +768,7 @@ export function createRadio({
     const t = setTimer(() => {
       R.retries.delete(t);
       if (R.dead || !R.on) return;
-      if (quietNow()) { keep(clip, false); return; } // v1.2 PAGE-RADIO
+      if (quietNow() && !isCallClip(clip)) { keep(clip, false); return; } // v1.2 PAGE-RADIO (v1.7: never a call's)
       const at = R.queue.findIndex((c) => c.n > clip.n);
       if (at < 0) R.queue.push(clip); else R.queue.splice(at, 0, clip);
       pump();
@@ -922,10 +925,15 @@ export function createRadio({
     for (const c of view.radio.clips) if (c && Number.isInteger(c.n) && c.n > R.last) R.last = c.n;
     const fresh = clipsToPlay(view, seen, R.meId);
     if (fresh.length) {
-      // v1.2 PAGE-RADIO: Quiet: each new message waits (one short buzz each)
-      if (quietNow()) { for (const c of fresh) keep(c, true); return; }
-      R.queue.push(...fresh);
-      pump();
+      // v1.2 PAGE-RADIO: Quiet: each new message waits (one short buzz each); v1.7: a Snitch call's clips never
+      // wait (they play as the call goes on)
+      const wait = quietNow() ? fresh.filter((c) => !isCallClip(c)) : [];
+      for (const c of wait) keep(c, true);
+      const play = wait.length ? fresh.filter(isCallClip) : fresh;
+      if (play.length) {
+        R.queue.push(...play);
+        pump();
+      }
     }
   }
 
@@ -963,12 +971,14 @@ export function createRadio({
     saveQuiet(store, next);
     if (next && R.side === 'hiders') {
       // Quiet now: the message playing stops and waits with the rest (stealth can't wait for the end of it).
+      // v1.7: a Snitch call's clips stay: the one playing plays on, the rest keep their place in the queue.
       const back = [];
-      if (R.current) back.push(R.current.clip);
-      back.push(...R.queue);
-      R.queue = [];
-      if (R.current) {
-        clearTimer(R.current.timer);
+      const stop = R.current && !isCallClip(R.current.clip) ? R.current : null;
+      if (stop) back.push(stop.clip);
+      back.push(...R.queue.filter((c) => !isCallClip(c)));
+      R.queue = R.queue.filter(isCallClip);
+      if (stop) {
+        clearTimer(stop.timer);
         const a = audio.el;
         if (a) { a.onended = null; a.onerror = null; try { a.pause(); } catch { /* fine */ } }
         R.current = null;
@@ -976,6 +986,7 @@ export function createRadio({
         talking(null);
       }
       for (const c of back) keep(c, false);
+      if (stop && R.queue.length) pump();
     } else if (!next) {
       // Quiet off: everything that waited plays, in order, and the list empties.
       const list = R.held.map((x) => x.clip);

@@ -7,17 +7,17 @@
 //   live   the map (every mark in the view), a "2 MIN BEHIND" tag, the time left as of then, the play-by-play,
 //          N watching, Stop watching
 // The end screen is the normal over screen (app.js sends a spectator there).
-import { h, fill, face, text, cls, listen } from '../dom.js?v=178';
-import { icon } from '../ui/icons.js?v=178';
-import { createMap, closingFrom, ringFlash } from '../map.js?v=178';
-import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=178'; // v1.2 PAGE-MAP
-import { openSheet } from '../ui/sheet.js?v=178'; // v1.2 PAGE-MAP: the menu
-import { MODES, fmtClock } from '../../shared/rules.js?v=178';
-import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=178'; // v1.3 PAGE-AFTER
-import { createMapCam } from '../mapcam.js?v=178'; // v1.4 PAGE-REEL
-import { followRow } from './reelparts.js?v=178'; // v1.4 PAGE-REEL
-import { createCardPlay, spectatorFx } from './cardplay.js?v=178'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
-import { createCardFx } from '../cards.js?v=178'; // v1.7
+import { h, fill, face, text, cls, listen } from '../dom.js?v=179';
+import { icon } from '../ui/icons.js?v=179';
+import { createMap, closingFrom, ringFlash } from '../map.js?v=179';
+import { createTray, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=179'; // v1.2 PAGE-MAP
+import { openSheet } from '../ui/sheet.js?v=179'; // v1.2 PAGE-MAP: the menu
+import { MODES, fmtClock } from '../../shared/rules.js?v=179';
+import { cpWatch, cpEventThumb, cpRuleLine } from './cpafter.js?v=179'; // v1.3 PAGE-AFTER
+import { createMapCam } from '../mapcam.js?v=179'; // v1.4 PAGE-REEL
+import { followRow } from './reelparts.js?v=179'; // v1.4 PAGE-REEL
+import { createCardPlay, spectatorFx } from './cardplay.js?v=179'; // v1.7 WIRING: the drop plane, paws and card news, 2 min late
+import { createCardFx } from '../cards.js?v=179'; // v1.7
 
 export const PBP_MOST = 80;          // play-by-play rows kept on screen
 const TICK_MS = 1000;
@@ -326,6 +326,8 @@ export function mount(root, app) {
     const top = Math.round(W.hud.getBoundingClientRect().bottom);
     const trayTop = Math.round(W.tray.el.getBoundingClientRect().top) || vh;
     root.style.setProperty('--w-hud-bottom', `${top}px`);
+    // v1.7: the card news and moments (.cfx, .gfx: fx.css / cards.css) start under this HUD, as under the game's
+    root.style.setProperty('--g-hud-bottom', `${top}px`);
     // (Banners sit under this HUD: watch.css reads it from the page's root.)
     try { document.documentElement.style.setProperty('--w-hud-bottom-page', `${top}px`); } catch { /* no document */ }
     root.style.setProperty('--w-tray-h', `${Math.max(0, vh - trayTop)}px`);
@@ -515,6 +517,9 @@ export function mount(root, app) {
       if (S.cfx) { try { S.cfx.destroy(); } catch { /* ignore */ } }
       dropMap();
       root.classList.remove('w-root', 'w-live');
+      // (the next screen in this root reads the page's own --g-hud-bottom again)
+      root.style.removeProperty('--g-hud-bottom');
+      root.style.removeProperty('--w-hud-bottom');
     },
   };
 }

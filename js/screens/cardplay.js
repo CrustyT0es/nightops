@@ -13,23 +13,29 @@
 //   pawPathsOf(view)             -> [{ id, label, pts: [[lng, lat]] }] Hound dog's trails (hunters) or Mirror's (hiders)
 //   pawSteps(pts, every)         -> [{ p, next, i }] a paw every `every` metres along a trail, the newest last
 //   rewindMarksOf(view)          -> map marks { kind: 'rewind' } for Rewind's circles
-//   momentOf(e, view)            -> { name, opts, quiet } | null: which FX library moment an event plays
+//   momentOf(e, view)            -> { name, opts, quiet, at?, replaces? } | null: which FX library moment an event
+//                                plays (at: map points the moment is placed at; replaces: it stands in for the game
+//                                screen's own big moment, which would cover the map)
+//   playsMoments(view)           -> false on a driver's or an out player's phone (no one-shot moments there)
+//   callEndWords(view, id)       -> how a call ended, from the newest `call` event for it ('' if none yet)
 //   seatOf(view)                 -> { open, drivers } the second driver's seat (Become a driver)
 //
-// createCardPlay({ app, root, slot, map, deckButton, faces, pickRow }) -> { use(key), update(view, clock), event(e),
-//   teamDeck(view), seatButton, destroy() }
+// createCardPlay({ app, root, slot, map, deckButton, faces, pickRow, sos }) -> { use(key), update(view, clock),
+//   event(e), teamDeck(view), seatButton, destroy() }
 //   use(key)     plays a card from your hand: pick a hider, a card or an offer first when the card needs one
 //   update       the lasting looks on the root (and the open binder), the chips, Eavesdrop's hands, the call
 //                screen, the plane, the crates, the paw prints, the seat button
-//   event(e)     plays the moments (headsup, mirror, snitched, deal, bounced, drop-incoming) through createGameFx
-import { h, text } from '../dom.js?v=178';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=178';
-import { banner } from '../ui/banner.js?v=178';
-import { cardInfo } from '../cards.js?v=178';
-import { LOOT_POWERS, SNITCH_OFFERS, boostable, sideOfCard } from '../../shared/loot.js?v=178';
-import { POWERS, fmtClock } from '../../shared/rules.js?v=178';
-import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=178';
-import { createGameFx, createCallScreen, planeEl, crateChuteEl, pawEl, dustEl, frost } from '../fx.js?v=178';
+//   event(e)     plays the moments (headsup, mirror, snitched, deal, bounced, pinged, ping-in, ring-soon,
+//                ring-shrinking) through createGameFx -> momentOf's answer + played (false: it didn't show)
+//   sos          what the call screen's own SOS button does (shown only while a Blackout covers the screen)
+import { h, text } from '../dom.js?v=179';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=179';
+import { banner } from '../ui/banner.js?v=179';
+import { cardInfo } from '../cards.js?v=179';
+import { LOOT_POWERS, SNITCH_OFFERS, boostable, sideOfCard } from '../../shared/loot.js?v=179';
+import { POWERS, fmtClock } from '../../shared/rules.js?v=179';
+import { distanceM, bearingDeg, isPoint } from '../../shared/geo.js?v=179';
+import { createGameFx, createCallScreen, planeEl, crateChuteEl, pawEl, dustEl, frost } from '../fx.js?v=179';
 
 export const PLANE_FROM_MS = 8000;  // the plane starts across the map this long before the crates land...
 export const PLANE_TO_MS = 1000;    // ...and is past the drop this long before
@@ -37,6 +43,7 @@ export const CRATE_FALL_MS = 1400;  // a crate's fall under its parachute, once 
 export const PAW_EVERY_M = 7;       // a paw print every few metres along a trail...
 export const PAW_MOST = 70;         // ...at most this many a trail (the newest)
 export const CALL_END_MS = 2600;    // the call screen stays this long after the call ends, saying how
+export const ANSWERED_KEY = 'nightops-call-answered'; // the call this phone answered ("code|round|call id"): a reload keeps it answered
 const WORDS_CALL_SAVED = "Only you two hear this. It's saved for the replay.";
 const WORDS_CALL = 'Only you two hear this.';
 
@@ -231,8 +238,64 @@ export function momentOf(e, view) {
     case 'lootfx':
       if (d.power === 'snitch' && d.on && me.team === 'hunter' && !me.driver && d.by !== me.id) return { name: 'deal', opts: {}, quiet: false };
       return null;
+    // v1.7 (section 13): being pinged and a ping reaching the hunters, in Loot drops: the FX instead of the screen's
+    // big PING card (which covers the map the ripples are on); its words go to a banner. Never on the driver's phone.
+    case 'ping': {
+      if (me.driver || !isObj(view.settings) || view.settings.mode !== 'loot') return null;
+      const marks = Array.isArray(view.marks) ? view.marks : [];
+      if (e.to === me.id && me.team === 'hider') {
+        if (d.result !== 'pinged' && d.result !== 'smoke') return null; // (a ping that missed them: the big card says how)
+        const self = marks.find((m) => m && m.kind === 'self' && m.id === me.id && isPoint(m.p));
+        return { name: 'pinged', opts: {}, at: self ? [self.p] : [], quiet: d.result === 'pinged' && !d.late, replaces: true };
+      }
+      if (e.to === 'hunters' && me.team === 'hunter') {
+        if (!(Number(d.count) > 0)) return null; // ("Nobody showed up": the big card says it)
+        // this ping's circles: the ping marks as old as the event (the view that brought it has them)
+        const since = Number.isFinite(view.clock) && Number.isFinite(e.clock) ? view.clock - e.clock : 0;
+        const at = marks.filter((m) => m && m.kind === 'ping' && isPoint(m.p) && Number(m.age) <= since + 1000).map((m) => m.p);
+        return { name: 'ping-in', opts: {}, at, quiet: false, replaces: true };
+      }
+      return null;
+    }
+    // the ring closing in (every mode: section 10), a minute before and as it starts moving
+    case 'closing-soon':
+      if (me.driver) return null;
+      return { name: 'ring-soon', opts: { ms: Number.isFinite(d.in) && d.in > 0 ? d.in : 60000 }, quiet: false };
+    case 'closing':
+      if (me.driver || !shrinks(view)) return null;
+      return { name: 'ring-shrinking', opts: {}, quiet: false };
     default: return null;
   }
+}
+
+function shrinks(view) {
+  const s = view && isObj(view.settings) ? view.settings : null;
+  return !!s && !!s.shrink && s.closingMin > 0 && s.finalSizePct < 100;
+}
+
+// One-shot moments (the drop's countdown, a crate landing...) are for players who are in and not driving; a
+// spectator (no `me`) gets them too (section 13).
+export function playsMoments(view) {
+  const me = view && view.me;
+  return !me || (me.status === 'in' && !me.driver);
+}
+
+// What a call's end says on its screen: the newest `call` event to this phone for that call that isn't its start.
+// (app.js hands a view over before the events it brings, so the screen reads them from view.events.)
+export function endWordsOf(e) {
+  const d = e && isObj(e.data) ? e.data : {};
+  if (d.state === 'timeout') return 'Time up. No deal.';
+  return e && typeof e.text === 'string' && e.text.trim() ? e.text : 'The call ended.';
+}
+export function callEndWords(view, id) {
+  const me = view && view.me ? view.me.id : null;
+  const list = view && Array.isArray(view.events) ? view.events : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const e = list[i];
+    const d = e && isObj(e.data) ? e.data : null;
+    if (e && e.kind === 'call' && e.to === me && d && d.call === id && d.state && d.state !== 'on') return endWordsOf(e);
+  }
+  return '';
 }
 
 // A spectator (2 minutes late): a card the hunters' side may know about shows as a team-style effect. watchView
@@ -244,6 +307,7 @@ export function spectatorFx(e, view) {
   const d = isObj(e.data) ? e.data : {};
   const info = typeof d.power === 'string' ? cardInfo(d.power) : null;
   if (!info) return null;
+  if (d.power === 'snitch' && (d.on || d.state)) return null; // (how a Snitch call ended: news, not a card played again)
   const who = d.by && info.team === 'hunter' ? nameIn(view, d.by) : '';
   return {
     power: d.power, card: info, side: info.team, rarity: info.rarity, data: { ...d }, key: `${d.power}|${d.by || ''}|${e.clock}`,
@@ -261,8 +325,8 @@ export function seatOf(view) {
 
 // ---- the controller ------------------------------------------------------------------------------------------------
 
-export function createCardPlay({ app, root, slot = null, getMap = () => null, deckButton = null, pickRow = null, doc = globalThis.document } = {}) {
-  const S = { view: null, gone: 0, dead: false, call: null, callWords: '', plane: null, planeKey: '', crates: [], boxIds: null, paws: [], pawKey: '', raf: 0, offDraw: null, mapRef: null, frozeWas: false, landed: '' };
+export function createCardPlay({ app, root, slot = null, getMap = () => null, deckButton = null, pickRow = null, sos = null, doc = globalThis.document } = {}) {
+  const S = { view: null, gone: 0, dead: false, call: null, ending: null, later: new Set(), plane: null, planeKey: '', crates: [], boxIds: null, paws: [], pawKey: '', raf: 0, offDraw: null, mapRef: null, frozeWas: false, landed: '' };
   const gfx = createGameFx({ root, doc });
   const ears = h('div.cp7-ears', { hidden: true, 'aria-label': "The hunters' cards" });
   (slot || root).append(ears);
@@ -291,6 +355,18 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
     S.offDraw = map.onDraw(() => place());
   }
   const project = (p) => { try { return S.mapRef ? S.mapRef.project(p) : null; } catch { return null; } };
+  // A map point in the moments layer's own px (it starts under the top bar), or null when it isn't on the screen.
+  function toLayer(p) {
+    const xy = isPoint(p) ? project(p) : null;
+    const mapEl = S.mapRef && S.mapRef.element;
+    if (!xy || !mapEl || !gfx.el) return null;
+    const r = mapEl.getBoundingClientRect();
+    const L = gfx.el.getBoundingClientRect();
+    const x = r.left + xy[0] - L.left;
+    const y = r.top + xy[1] - L.top;
+    if (!(L.width > 0 && L.height > 0) || x < 0 || y < 0 || x > L.width || y > L.height) return null;
+    return [Math.round(x), Math.round(y)];
+  }
 
   // ---- playing a card
   function pickSheet({ title, rows, note = '' }) {
@@ -381,23 +457,34 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
   }
 
   // ---- the call screen
+  // (a callee who answered keeps it answered through a reload: the call id is kept on this phone)
+  const callKey = (v, id) => `${(v && v.code) || ''}|${v && Number.isFinite(v.round) ? v.round : ''}|${id}`;
+  const store = () => { try { return globalThis.localStorage || null; } catch { return null; } };
+  function answered(v, id) { try { const s = store(); return !!s && s.getItem(ANSWERED_KEY) === callKey(v, id); } catch { return false; } }
+  function keepAnswered(v, id) { try { const s = store(); if (s) s.setItem(ANSWERED_KEY, callKey(v, id)); } catch { /* fine */ } }
   function syncCall(v) {
     const c = v && v.phase === 'live' && v.fx && isObj(v.fx.call) ? v.fx.call : null;
     if (S.call && (!c || c.id !== S.call.id)) {
       const old = S.call;
       S.call = null;
-      try { old.screen.set('ended', S.callWords || 'The call ended.'); } catch { /* fine */ }
-      setTimeout(() => old.screen.close(), CALL_END_MS);
+      // How it ended: the end's own event (in this view's events), else what the screen already says (it counted
+      // down to "Time up.", or Hang up was pressed here), else a plain line. Its countdown stops.
+      const el = old.screen.el;
+      const said = el.dataset.state === 'ended' ? String((el.querySelector('.call-words') || {}).textContent || '') : '';
+      try { old.screen.set('ended', callEndWords(v, old.id) || said || 'The call ended.'); } catch { /* fine */ }
+      const ending = { id: old.id, screen: old.screen, until: Date.now() + CALL_END_MS };
+      S.ending = ending;
+      setTimeout(() => { old.screen.close(); if (S.ending === ending) S.ending = null; }, CALL_END_MS);
       if (app.radio && old.talking) { try { app.radio.callLetGo(); } catch { /* fine */ } }
     }
     if (!c) return;
     const left = Math.max(0, c.left - S.gone);
     if (!S.call) {
-      S.callWords = '';
       const offer = SNITCH_OFFERS.find((o) => o.key === c.offer);
       const caller = c.role === 'hunter';
       const savedLine = c.saved ? WORDS_CALL_SAVED : WORDS_CALL;
       const rec = { id: c.id, talking: false, screen: null };
+      const again = !caller && answered(v, c.id);
       rec.screen = createCallScreen({
         root, doc,
         name: caller ? `Calling ${nameIn(v, c.with) || 'a hider'}` : (nameIn(v, c.with) || 'The hunters'),
@@ -405,7 +492,11 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
         mates: caller ? [] : (Array.isArray(c.mates) ? c.mates : []).map((id) => ({ id, name: nameIn(v, id) || 'Hider' })),
         ms: left,
         caller,
-        onAccept: () => setTimeout(() => { try { rec.screen.set('talk', savedLine); } catch { /* fine */ } }, 0),
+        state: again ? 'talk' : null,
+        onAccept: () => {
+          keepAnswered(S.view || v, c.id);
+          setTimeout(() => { try { rec.screen.set('talk', savedLine); } catch { /* fine */ } }, 0);
+        },
         onHangup: () => { app.cmd({ type: 'call', do: 'hangup' }).catch(() => {}); },
         onTimeout: () => {},
         onTalk: (on) => {
@@ -416,7 +507,14 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
         onSnitch: (id) => { app.cmd({ type: 'call', do: 'snitch', on: id }).catch(() => {}); },
       });
       rec.screen.el.classList.add(`cp7-call-${c.role}`);
+      // (a Blackout covers the hunter's screen, but never the call: the call keeps its own SOS on top)
+      if (sos) {
+        const sb = h('button.call-sos', { type: 'button', 'aria-label': 'SOS: pause the game and get help' }, 'SOS');
+        sb.addEventListener('click', () => { try { sos(); } catch (e) { console.error(e); } });
+        rec.screen.el.append(sb);
+      }
       if (caller) rec.screen.set('talk', `${savedLine} Make your offer.`);
+      else if (again) rec.screen.set('talk', savedLine);
       S.call = rec;
     } else {
       S.call.screen.left(left);
@@ -482,7 +580,8 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
     if (!p) { S.plane = null; S.planeKey = ''; return; }
     if (key !== S.planeKey) {
       S.planeKey = key;
-      if (p.left > 0) gfx.play('drop-incoming', { ms: p.left, until: Date.now() + p.left });
+      // (never on a driver's phone, whose Driving screen it would cover, or one that's out: section 13)
+      if (p.left > 0 && playsMoments(v)) gfx.play('drop-incoming', { ms: p.left, until: Date.now() + p.left });
     }
     S.plane = { ...p, t0: performance.now() };
     if (!S.raf && p.left > PLANE_TO_MS - 600) S.raf = requestAnimationFrame(loop);
@@ -497,7 +596,7 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
       const fresh = boxes.filter((b) => !S.boxIds.has(b.id) && isPoint(b.p));
       const planeNear = !!(l && isObj(l.plane));
       if (fresh.length && planeNear) {
-        const rect = S.mapRef && S.mapRef.element ? S.mapRef.element.getBoundingClientRect() : null;
+        const thud = playsMoments(v);
         fresh.forEach((b, i) => {
           const el = crateChuteEl(doc);
           el.classList.add('cp7-crate');
@@ -513,7 +612,8 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
             if (xy) { dust.style.setProperty('--x', `${xy[0]}px`); dust.style.setProperty('--y', `${xy[1]}px`); }
             art.append(dust);
             setTimeout(() => dust.remove(), 1300);
-            if (xy && rect) gfx.play('crate-land', { x: rect.left + xy[0], y: rect.top + xy[1] });
+            const at = thud && !S.dead ? toLayer(b.p) : null; // (in the moments layer's px: it starts under the top bar)
+            if (at) gfx.play('crate-land', { x: at[0], y: at[1] });
           }, CRATE_FALL_MS + i * 220);
           setTimeout(() => { el.remove(); S.crates = S.crates.filter((c) => c !== rec); }, CRATE_FALL_MS + i * 220 + 1400);
         });
@@ -588,15 +688,37 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
     seatButton.hidden = !seat.open;
   }
 
+  // A moment's options with its map points (`at`) made screen points of the moments layer, when it plays.
+  function placed(m) {
+    const opts = { ...(m.opts || {}) };
+    if (!Array.isArray(m.at)) return opts;
+    const pts = m.at.map(toLayer).filter(Boolean);
+    if (m.name === 'ping-in') opts.points = pts;
+    else if (pts[0]) { opts.x = pts[0][0]; opts.y = pts[0][1]; }
+    return opts;
+  }
+
   function event(e) {
     const v = view();
-    if (!v || S.dead) return null;
+    if (!v || S.dead || !e) return null;
+    const d = isObj(e.data) ? e.data : {};
+    // how a call ended, when its event comes after the view that ended it: the closing call screen says it
+    if (e.kind === 'call' && e.to === (v.me && v.me.id) && d.state && d.state !== 'on' && S.ending && S.ending.id === d.call) {
+      try { S.ending.screen.set('ended', endWordsOf(e)); } catch { /* fine */ }
+    }
     const m = momentOf(e, v);
-    if (e && e.kind === 'call' && e.to === (v.me && v.me.id) && e.text) S.callWords = String(e.text);
     if (!m) return null;
     if (m.name === 'drop-incoming') return m; // the plane's own countdown plays it (once per plane)
-    gfx.play(m.name, m.opts);
-    return m;
+    // The caller's "A HIDER TOOK THE DEAL!" waits for their call screen to go (it would play unseen under it).
+    if (m.name === 'deal' && e.kind === 'call') {
+      const wait = S.ending && S.ending.id === d.call ? S.ending.until - Date.now() : S.call && S.call.id === d.call ? CALL_END_MS : 0;
+      if (wait > 0) {
+        const t = setTimeout(() => { S.later.delete(t); if (!S.dead) gfx.play(m.name, placed(m)); }, wait + 300);
+        S.later.add(t);
+        return { ...m, played: true };
+      }
+    }
+    return { ...m, played: gfx.play(m.name, placed(m)) };
   }
 
   return {
@@ -606,7 +728,10 @@ export function createCardPlay({ app, root, slot = null, getMap = () => null, de
       S.dead = true;
       if (S.raf) cancelAnimationFrame(S.raf);
       if (S.offDraw) S.offDraw();
+      for (const t of S.later) clearTimeout(t);
+      S.later.clear();
       if (S.call) S.call.screen.close();
+      if (S.ending) { try { S.ending.screen.close(); } catch { /* fine */ } S.ending = null; }
       gfx.destroy();
       art.remove(); ears.remove(); seatButton.remove();
       for (const k of Object.keys(looksOf(null))) root.classList.remove(k);

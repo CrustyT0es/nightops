@@ -574,7 +574,7 @@
 .fx-land .fx-dustring i { left: -70px; top: -26px; width: 140px; height: 52px; border-width: 8px; }
 .fx-land-crate { position: absolute; left: var(--x, 50%); top: var(--y, 50%); width: 84px; height: 84px; margin: -84px 0 0 -42px; display: grid; place-items: center; font-size: 64px; animation: fx-crbounce .7s cubic-bezier(.3, 1.6, .5, 1) both, fx-out .3s 1.1s forwards; }
 @keyframes fx-crbounce { 0% { transform: translateY(-60px) scale(1.2); } 40% { transform: translateY(0) scaleY(.8); } 70% { transform: translateY(-12px); } 100% { transform: none; } }
-.fx-land-puff { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%; background: rgba(220, 200, 170, .8); opacity: 0; animation: fx-puffout .7s ease-out .1s forwards; }
+.fx-land-puff { position: absolute; left: var(--x, 50%); top: var(--y, 50%); width: 18px; height: 18px; margin: -9px; border-radius: 50%; background: rgba(220, 200, 170, .8); opacity: 0; animation: fx-puffout .7s ease-out .1s forwards; }
 @keyframes fx-puffout { 0% { opacity: 1; transform: rotate(var(--a)) translateX(0) scale(1); } 100% { opacity: 0; transform: rotate(var(--a)) translateX(70px) scale(2.2); } }
 /* frozen: a big ice block over the open hand and a bigger iced deck button with a FROZEN tag */
 .fx-frozen .cd-btn::after { inset: -10px; font-size: 34px; border-width: 3px; }

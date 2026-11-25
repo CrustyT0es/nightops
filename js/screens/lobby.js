@@ -3,21 +3,21 @@
 // others see the same information read-only while they wait.
 // Everything is built once and then changed in place on each view, so a sync never moves the page or loses
 // focus. A setting the host just changed shows the new value at once (kept until the server answers).
-import { h, fill, add, face, text, cls, listen } from '../dom.js?v=178';
-import { icon } from '../ui/icons.js?v=178';
-import { openSheet } from '../ui/sheet.js?v=178';
-import { banner } from '../ui/banner.js?v=178';
-import { qrSvg } from '../qr.js?v=178';
-import { createMap } from '../map.js?v=178';
-import { ringProblem } from '../../shared/geo.js?v=178';
-import { DROPS_UI } from '../../shared/loot.js?v=178'; // v1.7: the Drops setting
-import { cpCard } from './extras/cpcard.js?v=178'; // v1.3 PAGE-SETUP
-import { readyCard, notReady } from './ready.js?v=178'; // v1.4 PAGE-DEVICES
-import { createVoteShow } from './voteshow.js?v=178'; // v1.6: the Jackbox-style vote
+import { h, fill, add, face, text, cls, listen } from '../dom.js?v=179';
+import { icon } from '../ui/icons.js?v=179';
+import { openSheet } from '../ui/sheet.js?v=179';
+import { banner } from '../ui/banner.js?v=179';
+import { qrSvg } from '../qr.js?v=179';
+import { createMap } from '../map.js?v=179';
+import { ringProblem } from '../../shared/geo.js?v=179';
+import { DROPS_UI } from '../../shared/loot.js?v=179'; // v1.7: the Drops setting
+import { cpCard } from './extras/cpcard.js?v=179'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js?v=179'; // v1.4 PAGE-DEVICES
+import { createVoteShow } from './voteshow.js?v=179'; // v1.6: the Jackbox-style vote
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
-} from '../../shared/rules.js?v=178';
+} from '../../shared/rules.js?v=179';
 
 // v1.6: the browser checks written before the tabs and folds set localStorage 'nightops-show-all' = '1': every
 // tab's content shows at once and the folded cards start open (never set on a real phone).
@@ -132,11 +132,28 @@ function sameAsRecommended(settings, ring, n) {
   return Object.entries(rec).every(([k, v]) => settings[k] === v);
 }
 
-// v1.7: the Loot drops card's "Drops" (how often boxes drop), only while Loot drops is the mode
-export const LOBBY_SETTINGS = [...SETTINGS_UI, {
+// v1.7: "Drops" (how often boxes drop), only while Loot drops is the mode: in the Time and rules card right after
+// "Ping every" (the other "how often"), where it's in sight as soon as the card opens, and in its folded line
+const DROPS_ROW = {
   key: 'drops', label: 'Drops', kind: 'options', options: DROPS_UI.map((d) => [d.value, d.label, d.value === 'normal' ? 'By players' : d.value === 'few' ? 'Every 5 min' : 'Every 2 min']),
   show: (s) => s.mode === 'loot',
-}];
+};
+export const LOBBY_SETTINGS = (() => {
+  const list = [...SETTINGS_UI];
+  const at = list.findIndex((x) => x.key === 'pingEveryMin');
+  list.splice(at >= 0 ? at + 1 : list.length, 0, DROPS_ROW);
+  return list;
+})();
+
+// The Time and rules card's line while it's folded: the preset, the game time and the pings (v1.7: and the
+// drops, in Loot drops).
+export function timeSummary(s) {
+  const preset = Object.values(PRESETS).find((p) => Object.entries(p.settings).every(([k, v]) => s[k] === v));
+  const words = `${preset ? `${preset.label}: ` : ''}${s.durationMin} min, pings every ${s.pingEveryMin}`;
+  if (s.mode !== 'loot') return words;
+  const d = DROPS_UI.find((x) => x.value === s.drops) || DROPS_UI.find((x) => x.value === 'normal');
+  return `${words}, drops: ${d ? d.label : 'Normal'}`;
+}
 
 // ---- small widgets ----------------------------------------------------------------------------------------
 
@@ -363,7 +380,7 @@ export function mount(root, app) {
     leave.addEventListener('click', () => confirmLeave());
     const how = h('button.btn.small.ghost.icon-only.lobby-how', { type: 'button', 'aria-label': 'How to play' }, icon('info', 20));
     how.addEventListener('click', () => {
-      import('./home.js?v=178').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
+      import('./home.js?v=179').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
     });
     return h('header.lobby-top',
       h('div.lobby-top-text', h('span.label', 'Lobby'), h('h1.lobby-title', 'Get ready')),
@@ -1155,8 +1172,7 @@ export function mount(root, app) {
       const el = root.querySelector(`.lobby-card[data-fold="${key}"] .lobby-fold-sum`);
       if (el) text(el, words);
     };
-    const preset = Object.values(PRESETS).find((p) => Object.entries(p.settings).every(([k, v]) => s[k] === v));
-    put('time', `${preset ? `${preset.label}: ` : ''}${s.durationMin} min, pings every ${s.pingEveryMin}`);
+    put('time', timeSummary(s)); // (v1.7: with the drops in Loot drops)
     const keys = [...HIDER_POWERS, ...HUNTER_POWERS];
     const on = keys.filter((k) => !!val(`powers.${k}`));
     put('powers', on.length === keys.length ? 'All on' : on.length ? `${on.map((k) => POWERS[k].name).join(', ')}` : 'All off');

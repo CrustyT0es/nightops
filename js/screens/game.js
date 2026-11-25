@@ -11,27 +11,27 @@
 //
 // Everything shown comes from the view. Between syncs a local clock ticks every 250 ms (createGameClock), so
 // countdowns run smoothly and never go back up. DOM changes only where something changed.
-import { h, fill, text, cls, face, listen } from '../dom.js?v=178';
-import { icon } from '../ui/icons.js?v=178';
-import { openSheet, closeSheets } from '../ui/sheet.js?v=178';
-import { banner, clearBanners } from '../ui/banner.js?v=178';
-import { moment } from '../ui/moment.js?v=178';
-import { startPocket } from '../ui/pocket.js?v=178';
-import { createMap, fmtAgo, closingFrom, ringFlash } from '../map.js?v=178';
-import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=178';
-import { distanceM, isPoint } from '../../shared/geo.js?v=178';
-import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=178';
-import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=178'; // v1.1 PAGE-DRIVER
-import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=178'; // v1.2 PAGE-MAP
-import { gameCamParts } from './camparts.js?v=178'; // v1.2 PAGE-CAM
-import { createFixIt } from '../ui/fixit.js?v=178'; // v1.4 PAGE-DEVICES
-import { createPinTool } from './pins.js?v=178'; // v1.4 PAGE-PLAY
-import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=178'; // v1.3 PAGE-PLAY
-import { watchHeading } from '../heading.js?v=178'; // v1.5.1: the beam of light on your dot
-import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=178'; // v1.6: Loot drops
-import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=178'; // v1.6.3: your collection and the card-played effects
-import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=178'; // v1.6.4: the card collection
-import { createCardPlay, chipsOf } from './cardplay.js?v=178'; // v1.7 WIRING: every card's UI, the plane, paws, the Snitch call
+import { h, fill, text, cls, face, listen } from '../dom.js?v=179';
+import { icon } from '../ui/icons.js?v=179';
+import { openSheet, closeSheets } from '../ui/sheet.js?v=179';
+import { banner, clearBanners } from '../ui/banner.js?v=179';
+import { moment } from '../ui/moment.js?v=179';
+import { startPocket } from '../ui/pocket.js?v=179';
+import { createMap, fmtAgo, closingFrom, ringFlash } from '../map.js?v=179';
+import { TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, POWER_TARGETED, schedule, fmtClock, fmtDistance } from '../../shared/rules.js?v=179';
+import { distanceM, isPoint } from '../../shared/geo.js?v=179';
+import { openChat, renderLines, quickFor, sendChat } from './chat.js?v=179';
+import { mountDrive, pickMeUp, driverCard, pickupLines } from './drive.js?v=179'; // v1.1 PAGE-DRIVER
+import { createTray, splitParts, mapButtonsPlace, mapButtonInsets } from '../ui/tray.js?v=179'; // v1.2 PAGE-MAP
+import { gameCamParts } from './camparts.js?v=179'; // v1.2 PAGE-CAM
+import { createFixIt } from '../ui/fixit.js?v=179'; // v1.4 PAGE-DEVICES
+import { createPinTool } from './pins.js?v=179'; // v1.4 PAGE-PLAY
+import { cpParts, cpEffect, cpHud, cpOf, spotsFor, HELP_CP } from './cpplay.js?v=179'; // v1.3 PAGE-PLAY
+import { watchHeading } from '../heading.js?v=179'; // v1.5.1: the beam of light on your dot
+import { lootOf, lootEffect, createLootButton, createLootStash, createLootFx, flyIn, nearestBox, nearWords, boxRadius } from './lootplay.js?v=179'; // v1.6: Loot drops
+import { createCardDeck, createCardFx, cardFxOf } from '../cards.js?v=179'; // v1.6.3: your collection and the card-played effects
+import { recordView, openCollection, collectionLine, loadCollection } from '../collection.js?v=179'; // v1.6.4: the card collection
+import { createCardPlay, chipsOf } from './cardplay.js?v=179'; // v1.7 WIRING: every card's UI, the plane, paws, the Snitch call
 const localStore = () => { try { return globalThis.localStorage; } catch { return null; } }; // v1.6.4 (may throw)
 
 export const TICK_MS = 250;
@@ -509,6 +509,29 @@ export function hudNote(view, cd, mode = modeOf(view)) {
   return '';
 }
 
+// v1.7 WIRING: does a hider's tray get the hiders' walkie (hold to talk, Quiet)? Only when the game has it: a Snitch
+// call's own channel (view.radio.call) is played by the call screen, and a panel built mid-call (a reload) would
+// keep a walkie that stops working when the call ends.
+export function hiderWalkie(view) {
+  if (!view) return false;
+  if (view.settings && view.settings.radioHiders) return true;
+  return !!view.radio && !view.radio.call;
+}
+
+// v1.7 WIRING: the line under "Use Radar?" for a classic card. Classic games: the team (or the hider) gets it once.
+// Loot drops: it's one of the cards this player holds (v1.7's hand).
+export function classicOnceWords(view, name, mode = modeOf(view)) {
+  const loot = view && view.settings && view.settings.mode === 'loot';
+  const hand = view && view.loot && view.loot.hand && typeof view.loot.hand === 'object' ? view.loot.hand : null;
+  const card = (POWERS[name] && POWERS[name].name) || 'this';
+  if (loot && hand) {
+    const n = Number(hand[name]) || 0;
+    return n > 1 ? `Uses 1 of your ${n} ${card} cards.` : `Uses your ${card} card.`;
+  }
+  if (loot) return `Uses your ${card} card.`;
+  return mode === 'hunter' ? 'Your team gets it once this game.' : 'You get it once this game.';
+}
+
 // What an event does on this phone: { moment, banner: [text, kind], buzz, beep, chat }. Pure.
 export function effectOf(e, view) {
   const none = { moment: null, banner: null, buzz: null, beep: null, chat: false };
@@ -873,7 +896,7 @@ export function mount(root, app) {
   // v1.6.3: a card played: a short effect on the phones that should know (cards.js cardFxOf says which), under the
   // top bar (SOS stays in sight) and never in the way of a tap.
   const cardFx = createCardFx({ root });
-  cardPlay = createCardPlay({ app, root, slot: linesBox, getMap: () => map, deckButton: deck.button, pickRow: (o) => pickRow(o) }); // v1.7 WIRING
+  cardPlay = createCardPlay({ app, root, slot: linesBox, getMap: () => map, deckButton: deck.button, pickRow: (o) => pickRow(o), sos: () => askSos() }); // v1.7 WIRING
   linesBox.append(nearChip);
   hud.after(fixIt.tapBtn); // v1.4 PAGE-DEVICES
   linesBox.prepend(fixIt.bar); // v1.4 PAGE-DEVICES: the red bar leads the lines over the map
@@ -1029,7 +1052,7 @@ export function mount(root, app) {
     // v1.2 PAGE-RADIO: the hiders' walkie-talkie (with "Walkie-talkie for hiders too"): hold to talk and Quiet in
     // the main row, the messages Quiet held (and the earbuds hint) in the more rows. A caught hider who joins the
     // hunters gets the hunters' button above (the panel is built again for the new role).
-    if (role === 'hider' && app.radio && view && (view.radio || (view.settings && view.settings.radioHiders))) {
+    if (role === 'hider' && app.radio && hiderWalkie(view)) { // (v1.7: never just for a Snitch call's channel)
       try {
         parts.push({ el: app.radio.button(), main: true, order: 20 });
         parts.push({ el: app.radio.quietButton(), main: true, order: 30 });
@@ -1808,9 +1831,7 @@ export function mount(root, app) {
       return;
     }
     const pw = POWERS[name];
-    const once = P.mode === 'hunter'
-      ? 'Your team gets it once this game.'
-      : 'You get it once this game.';
+    const once = classicOnceWords(view, name, P.mode); // (v1.7: in Loot drops it's one of the cards you hold)
     if (POWER_TARGETED.includes(name)) { pickTarget(view, name, pw, once); return; }
     ask({
       title: `Use ${pw.name}?`,
@@ -2232,9 +2253,22 @@ export function mount(root, app) {
     if (!view) return;
     let fx = effectOf(e, view);
     const age = ageOf(e);
-    // v1.7 WIRING: the FX library's moments (Heads up, Mirror, Snitch, the plane's countdown...)
+    // v1.7 WIRING: the FX library's moments (Heads up, Mirror, Snitch, pings, the ring, the plane's countdown...)
     if (age <= STALE_MOMENT_MS && !S.sosShown) {
-      try { const m = cardPlay.event(e); if (m && m.quiet) fx = { ...fx, banner: null }; } catch (err) { console.error(err); }
+      try {
+        const m = cardPlay.event(e);
+        if (m && m.played !== false) {
+          if (m.quiet) fx = { ...fx, banner: null };
+          // (the moment makes its own sound: one sound a moment)
+          if (m.played) fx = { ...fx, beep: null };
+          // In place of this screen's own big moment (a ping in Loot drops: it would cover the map the ripples are
+          // on), the event's words go to a banner unless the moment says it all.
+          if (m.played && m.replaces && fx.moment) {
+            const kind = MOMENT_BANNER[fx.moment.kind] || 'ping';
+            fx = { ...fx, moment: null, banner: m.quiet || !e.text ? null : [String(e.text), kind] };
+          }
+        }
+      } catch (err) { console.error(err); }
     }
     // v1.6.3: a card played shows as its card effect instead of a moment or a banner (one effect per card: the
     // player's own phone hears some cards twice)

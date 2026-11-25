@@ -18,10 +18,10 @@
 //   createCardDeck({ app, onClassic, useLoot, doc }) -> { button, update(view), open(), close() }: the tray's cards
 //                                 button and your collection (a binder: every card of your side, the ones you haven't
 //                                 found yet as "?"; hold one to see it big; tap to pick it; Use it plays it).
-import { h, text } from './dom.js?v=178';
-import { POWERS } from '../shared/rules.js?v=178';
-import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=178';
-import { cardTheme, themeKey, fxSound } from './fx.js?v=178';
+import { h, text } from './dom.js?v=179';
+import { POWERS } from '../shared/rules.js?v=179';
+import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=179';
+import { cardTheme, themeKey, fxSound } from './fx.js?v=179';
 
 // (v1.7: the tiers come from shared/loot.js: common, rare, epic, legendary, mythic)
 export const RARITY_ORDER = [...RARITIES];
@@ -126,6 +126,9 @@ export function cardFxOf(e, view) {
   }
   const info = typeof power === 'string' ? cardInfo(power) : null;
   if (!info) return null;
+  // v1.7: a Snitch call's news after it was played (a deal done: `on`; no deal: `state`) is no new card played: the
+  // banner and the deal moment say it (as a card effect it showed "Ava played SNITCH" again and hid the words)
+  if (power === 'snitch' && e.kind === 'lootfx' && (d.on || d.state)) return null;
   const at = Number.isFinite(e.clock) ? e.clock : 0;
   const data = { ...d };
   if (d.got && cardInfo(d.got)) data.gotName = cardInfo(d.got).name;
