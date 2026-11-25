@@ -18,10 +18,10 @@
 //   createCardDeck({ app, onClassic, useLoot, doc }) -> { button, update(view), open(), close() }: the tray's cards
 //                                 button and your collection (a binder: every card of your side, the ones you haven't
 //                                 found yet as "?"; hold one to see it big; tap to pick it; Use it plays it).
-import { h, text } from './dom.js?v=180';
-import { POWERS } from '../shared/rules.js?v=180';
-import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=180';
-import { cardTheme, themeKey, fxSound } from './fx.js?v=180';
+import { h, text } from './dom.js?v=181';
+import { POWERS } from '../shared/rules.js?v=181';
+import { LOOT_POWERS, LOOT_TABLE, RARITIES, rarityOfPower } from '../shared/loot.js?v=181';
+import { cardTheme, themeKey, fxSound } from './fx.js?v=181';
 
 // (v1.7: the tiers come from shared/loot.js: common, rare, epic, legendary, mythic)
 export const RARITY_ORDER = [...RARITIES];

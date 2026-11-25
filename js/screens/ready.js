@@ -8,12 +8,12 @@
 //
 // v1.6.2 PERMS: a row the browser can still ask about has an "Allow" button that asks it straight from the tap
 // (permissions.js); "Fix it" (the steps) only once it's blocked for good, or for what a tap can't fix.
-import { h, fill, text } from '../dom.js?v=180';
-import { icon } from '../ui/icons.js?v=180';
-import { openHelp, ASKABLE, ASK_WHYS } from '../ui/fixit.js?v=180';
-import { deviceKind } from '../help.js?v=180';
-import { soundFor } from '../hack.js?v=180';
-import { ask, askLocation, onAnswer, lastAnswer, PERM_NAMES } from '../permissions.js?v=180';
+import { h, fill, text } from '../dom.js?v=181';
+import { icon } from '../ui/icons.js?v=181';
+import { openHelp, ASKABLE, ASK_WHYS } from '../ui/fixit.js?v=181';
+import { deviceKind } from '../help.js?v=181';
+import { soundFor } from '../hack.js?v=181';
+import { ask, askLocation, onAnswer, lastAnswer, PERM_NAMES } from '../permissions.js?v=181';
 
 export const AWAY_MS = 120000;     // "hasn't opened the game for 2 min"
 export const GOOD_ACC_M = 30;

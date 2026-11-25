@@ -3,21 +3,21 @@
 // others see the same information read-only while they wait.
 // Everything is built once and then changed in place on each view, so a sync never moves the page or loses
 // focus. A setting the host just changed shows the new value at once (kept until the server answers).
-import { h, fill, add, face, text, cls, listen } from '../dom.js?v=180';
-import { icon } from '../ui/icons.js?v=180';
-import { openSheet } from '../ui/sheet.js?v=180';
-import { banner } from '../ui/banner.js?v=180';
-import { qrSvg } from '../qr.js?v=180';
-import { createMap } from '../map.js?v=180';
-import { ringProblem } from '../../shared/geo.js?v=180';
-import { DROPS_UI } from '../../shared/loot.js?v=180'; // v1.7: the Drops setting
-import { cpCard } from './extras/cpcard.js?v=180'; // v1.3 PAGE-SETUP
-import { readyCard, notReady } from './ready.js?v=180'; // v1.4 PAGE-DEVICES
-import { createVoteShow } from './voteshow.js?v=180'; // v1.6: the Jackbox-style vote
+import { h, fill, add, face, text, cls, listen } from '../dom.js?v=181';
+import { icon } from '../ui/icons.js?v=181';
+import { openSheet } from '../ui/sheet.js?v=181';
+import { banner } from '../ui/banner.js?v=181';
+import { qrSvg } from '../qr.js?v=181';
+import { createMap } from '../map.js?v=181';
+import { ringProblem } from '../../shared/geo.js?v=181';
+import { DROPS_UI } from '../../shared/loot.js?v=181'; // v1.7: the Drops setting
+import { cpCard } from './extras/cpcard.js?v=181'; // v1.3 PAGE-SETUP
+import { readyCard, notReady } from './ready.js?v=181'; // v1.4 PAGE-DEVICES
+import { createVoteShow } from './voteshow.js?v=181'; // v1.6: the Jackbox-style vote
 import {
   LIMITS, MODES, POWERS, HIDER_POWERS, HUNTER_POWERS, PRESETS, SETTINGS_UI,
   huntersFor, ringSize, recommend, fmtDistance,
-} from '../../shared/rules.js?v=180';
+} from '../../shared/rules.js?v=181';
 
 // v1.6: the browser checks written before the tabs and folds set localStorage 'nightops-show-all' = '1': every
 // tab's content shows at once and the folded cards start open (never set on a real phone).
@@ -380,7 +380,7 @@ export function mount(root, app) {
     leave.addEventListener('click', () => confirmLeave());
     const how = h('button.btn.small.ghost.icon-only.lobby-how', { type: 'button', 'aria-label': 'How to play' }, icon('info', 20));
     how.addEventListener('click', () => {
-      import('./home.js?v=180').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
+      import('./home.js?v=181').then((m) => m.howToPlay && m.howToPlay()).catch(() => banner("That didn't open. Try again.", 'warn'));
     });
     return h('header.lobby-top',
       h('div.lobby-top-text', h('span.label', 'Lobby'), h('h1.lobby-title', 'Get ready')),

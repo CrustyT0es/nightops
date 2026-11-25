@@ -3,26 +3,26 @@
 // `rand()` in [0, 1), so every test is exact. The state given is never changed: changes are made on a copy.
 // Game time ("clock") is ms since Start with pauses left out: pings, powers, tags, the ring and the end all
 // run on it, so an SOS pause stops every timer at once.
-import { winnerAt } from './vote.js?v=180'; // v1.6.4: the vote's winner as every phone works it out
+import { winnerAt } from './vote.js?v=181'; // v1.6.4: the vote's winner as every phone works it out
 import {
   isPoint, distanceM, moveM, scaleRing, outsideByM, ringProblem, cleanRing, ringContains, boundsOf, toLocal, bearingDeg,
   ringAcrossM, ringCenter,
-} from './geo.js?v=180';
+} from './geo.js?v=181';
 import {
   LIMITS, TIMING, POWERS, HIDER_POWERS, HUNTER_POWERS, DEFAULTS, PRESETS, EXTRA_KEYS, EXTRA_CHOICES, CAM_KINDS,
   POWER_TARGETED, PIN_KINDS, fixPowers, cleanLine,
   cleanSettings, huntersFor, withRecommendation, schedule, pingRadiusAt, ringScaleAt, fmtClock,
   tidyText, cutText, nameKey, seenAtAll, withoutLoneJoiners,
   cpPlan, cleanCheckpoints, checkpointProblem, fixCheckpointSettings,
-} from './rules.js?v=180';
-import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=180'; // v1.6: the lobby vote
-import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, LOOT_EDGES_M, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=180'; // v1.6: Loot drops
+} from './rules.js?v=181';
+import { newVote, stageAt, winner, settingsFor, voteView, ALL_QUESTIONS as QUESTIONS, closed, keepFor, cleanGear, driverOf as voteDriverOf } from './vote.js?v=181'; // v1.6: the lobby vote
+import { lootGame, lootOf, lootDrop, lootNear, lootPower, lootView, lootSpot, lootCount, spotFits, edgesFor, LOOT_FIRST_MS, LOOT_PICK_M, LOOT_ACC_MAX_M, LOOT_POWERS, SMOKE_R, GHOST_PINGS, TRACKER_EVERY_MS } from './loot.js?v=181'; // v1.6: Loot drops
 import {
   LOOT_TABLE, BOOST, COUNTS, boostRoll, boostedMs, boostedCount, boostable, sideOfCard, cardBase, BOTH_SIDES,
   HEADSUP_M, HEADSUP_GAP_MS, STALL_MS, QUICK_MS, QUICK_LEAST_MS, SCOUT_M, HOUND_LOOK_MS, EAVESDROP_SHOW_MS,
   DECOY_BOOST_MS, WALK_MPS, SNITCH_CALL_MS, SNITCH_FLASH_MS, SNITCH_OFFERS, PLANE_LEAD_MS, PLANE_PAD_M, PLANE_OFFSET_M,
   PLANE_LAND_MS, DROPS, DROPS_DEFAULT, dropEveryMs,
-} from './loot.js?v=180'; // v1.7: the card overhaul
+} from './loot.js?v=181'; // v1.7: the card overhaul
 
 export const ENGINE_V = 1;
 
@@ -2253,6 +2253,7 @@ function due17(s, sch, offer) {
 // then the crates are spread along the part of it inside the ring, so they fall straight out of the plane. The margin
 // from the edge shrinks with the ring (LOOT_EDGES_M) and the ring's middle is the last resort, so there is always a
 // plane and always crates. The path is a line across the whole area: it tells where along it, not which spot.
+const DROP_AWAY_M = 30; // a crate never lands closer than this to a player (less in a tiny ring)
 function lootPlane(s, t, ctx) {
   const sch = schedule(s.settings);
   const L = lootOf(s, sch.headStartMs);
@@ -2265,16 +2266,23 @@ function lootPlane(s, t, ctx) {
   const across = ringAcrossM(ring) || 600;
   const half = across / 2 + PLANE_PAD_M;
   const STEPS = 60;
+  const here = ordered(s).filter((p) => p.status === 'in').map((p) => posOf(ctx.positions || {}, p.id)).filter(Boolean).map((x) => x.p);
   let best = null;
-  for (const edge of LOOT_EDGES_M) {
+  for (const edge of edgesFor(ring)) {
     for (let tries = 0; tries < 12 && !best; tries++) {
       const heading = R() * 360;
-      const c = moveM(centre, R() * across * 0.2, R() * 360);
-      const inside = [];
+      // (through a random spot anywhere in the ring, not its middle: a player standing in the middle mustn't get
+      // every crate; the owner, Nov 2026: "in a tiny map somehow I'm picking up all the drops")
+      const c = lootSpot(ring, R) || centre;
+      const all = [];
       for (let k = -STEPS; k <= STEPS; k++) {
         const p = moveM(c, (k / STEPS) * half, heading);
-        if (spotFits(ring, p, edge)) inside.push(p);
+        if (spotFits(ring, p, edge)) all.push(p);
       }
+      // never right on top of a player: crates land at least `away` from everyone in the round (when the line allows)
+      const away = Math.min(DROP_AWAY_M, across * 0.2);
+      const clear = all.filter((p) => !here.some((q) => distanceM(p, q) < away));
+      const inside = clear.length ? clear : (tries >= 8 ? all : []);
       if (inside.length) best = { c, heading, inside };
     }
     if (best) break;

@@ -11,7 +11,7 @@
 // every card is as likely as the others. Grab bag, Multiplier and Duplicator come in a hider version and a hunter
 // version (two keys each, two slots in the collection). This file is the cards' data: the tables, the odds, the
 // words and the numbers every lane shares. What a card does is the engine's (engine.js), as the contract says.
-import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=180';
+import { distanceM, ringBounds, ringContains, outsideByM } from './geo.js?v=181';
 
 export const LOOT_FIRST_MS = 60000;     // the first drop, this long after the head start
 export const LOOT_EVERY_MS = 240000;    // then one every 4 minutes
@@ -42,12 +42,21 @@ export const LOOT_EDGES_M = Object.freeze([LOOT_EDGE_M, 20, 8, 0]);
 export function spotFits(ring, p, edge = 0) {
   return !!ring && !!p && ringContains(ring, p) && outsideByM(ring, p) <= -edge;
 }
+// The margins to try for a ring: LOOT_EDGES_M, but never more than 15% of the ring's width (a 100 m ring keeps
+// crates 15 m in, not 40 m, which left only its middle).
+export function edgesFor(ring) {
+  const b = ring && ringBounds(ring);
+  if (!b) return LOOT_EDGES_M;
+  const [[w, so], [e, n]] = b;
+  const across = Math.min(distanceM([w, so], [e, so]), distanceM([w, so], [w, n]));
+  return [...new Set(LOOT_EDGES_M.map((x) => Math.min(x, Math.round(across * 0.15))))];
+}
 export function lootSpot(ring, rand) {
   if (!ring) return null;
   const b = ringBounds(ring); // [[w, s], [e, n]]
   if (!b) return null;
   const [[w, so], [e, n]] = b;
-  for (const edge of LOOT_EDGES_M) {
+  for (const edge of edgesFor(ring)) {
     for (let i = 0; i < 80; i++) {
       const p = [w + (e - w) * rand(), so + (n - so) * rand()];
       if (spotFits(ring, p, edge)) return [Number(p[0].toFixed(6)), Number(p[1].toFixed(6))];

@@ -4,13 +4,13 @@
 // move it earlier or later, or delete it. "Find stores in the ring" asks OpenStreetMap (js/places.js) and offers
 // what it finds as pins and a list. Save sends one { type: 'checkpoints', list }; a refusal says why and stays.
 // Nothing here needs the phone's location: "My spot" only centres the map on it when it's allowed.
-import { h, fill, text, cls, listen } from '../dom.js?v=180';
-import { icon } from '../ui/icons.js?v=180';
-import { openSheet, sheetOpen } from '../ui/sheet.js?v=180';
-import { createMap } from '../map.js?v=180';
-import { findPlaces, KIND_WORDS, SOURCE_WORDS } from '../places.js?v=180';
-import { isPoint, ringProblem, outsideByM, distanceM } from '../../shared/geo.js?v=180';
-import { LIMITS, CP_TASK_IDEAS, cleanCheckpoints, checkpointProblem, cleanLine } from '../../shared/rules.js?v=180';
+import { h, fill, text, cls, listen } from '../dom.js?v=181';
+import { icon } from '../ui/icons.js?v=181';
+import { openSheet, sheetOpen } from '../ui/sheet.js?v=181';
+import { createMap } from '../map.js?v=181';
+import { findPlaces, KIND_WORDS, SOURCE_WORDS } from '../places.js?v=181';
+import { isPoint, ringProblem, outsideByM, distanceM } from '../../shared/geo.js?v=181';
+import { LIMITS, CP_TASK_IDEAS, cleanCheckpoints, checkpointProblem, cleanLine } from '../../shared/rules.js?v=181';
 
 const MOST = LIMITS.checkpoints;
 const R = LIMITS.cpRadius;

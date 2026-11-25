@@ -9,13 +9,13 @@
 // facts), cpShareLine(facts), cpReplaySpots(plan, done, routes, clockMs), cpWatchFacts(view), photoIds(rows).
 // Names, tasks and texts only ever go in as text. Photos come from app.photo(ids) (the server sends only what this
 // phone may see; a spectator's are 2 minutes late), never from a URL.
-import { h, fill, face, text } from '../dom.js?v=180';
-import { icon } from '../ui/icons.js?v=180';
-import { banner } from '../ui/banner.js?v=180';
-import { openPhoto } from '../ui/photo.js?v=180';
-import { spotState, routeAt } from '../map.js?v=180';
-import { fmtClock } from '../../shared/rules.js?v=180';
-import { isPoint } from '../../shared/geo.js?v=180';
+import { h, fill, face, text } from '../dom.js?v=181';
+import { icon } from '../ui/icons.js?v=181';
+import { banner } from '../ui/banner.js?v=181';
+import { openPhoto } from '../ui/photo.js?v=181';
+import { spotState, routeAt } from '../map.js?v=181';
+import { fmtClock } from '../../shared/rules.js?v=181';
+import { isPoint } from '../../shared/geo.js?v=181';
 
 export const PULSE_MS = 4000;          // a done shows as a pulse on the hider's head this long (game time)
 export const WATCH_NEWEST = 4;         // the spectator's tray shows this many of the newest dones

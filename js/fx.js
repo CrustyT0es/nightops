@@ -42,8 +42,8 @@
 //   Lasting looks: classes on the game's root, toggled by WIRING from view.fx: .fx-frozen .fx-useless .fx-mirror
 //                                 .fx-headsup .fx-snitched (css/fx.css).
 //   fxSound(name, doc), FX_SOUNDS   the synth sounds; MOMENTS   the moment names.
-import { h, text } from './dom.js?v=180';
-import { soundOn } from './alerts.js?v=180';
+import { h, text } from './dom.js?v=181';
+import { soundOn } from './alerts.js?v=181';
 
 // ---- small helpers -----------------------------------------------------------------------------------------------
 

@@ -3,11 +3,11 @@
 // The host: the switch, and when it's on, Highlights or Everything. Everyone else: the setting in words.
 // When it's on, every player has "I'm OK being recorded" (a switch; its first tap also asks for the camera and
 // microphone once and shows a small mirror for 3 s). The host sees how many said OK and who isn't filmed.
-import { h, text, cls, fill } from '../../dom.js?v=180';
-import { icon } from '../../ui/icons.js?v=180';
-import { EXTRAS_UI, CAM_MODES_UI } from '../../../shared/rules.js?v=180';
-import { CONSTRAINTS } from '../../camera.js?v=180';
-import { classify, permState, reportGranted } from '../../permissions.js?v=180'; // v1.6.2 PERMS
+import { h, text, cls, fill } from '../../dom.js?v=181';
+import { icon } from '../../ui/icons.js?v=181';
+import { EXTRAS_UI, CAM_MODES_UI } from '../../../shared/rules.js?v=181';
+import { CONSTRAINTS } from '../../camera.js?v=181';
+import { classify, permState, reportGranted } from '../../permissions.js?v=181'; // v1.6.2 PERMS
 
 const ITEM = EXTRAS_UI.find((x) => x.key === 'cam') || {
   key: 'cam', label: 'Camera', hint: 'Phones film clips with the selfie camera for the replay. Only people who say OK are filmed.',
@@ -158,7 +158,7 @@ export function extraRow(ctx = {}) {
         const ms = Date.now() - t0;
         permState('camera').then((state) => {
           if (!classify({ part: 'camera', outcome: 'no', state, ms }).blocked) return;
-          import('../../ui/fixit.js?v=180').then((m) => m.openHelp({ part: 'camera', why: 'denied', perm: 'denied' })).catch(() => {});
+          import('../../ui/fixit.js?v=181').then((m) => m.openHelp({ part: 'camera', why: 'denied', perm: 'denied' })).catch(() => {});
         }).catch(() => {});
       }
       return;
